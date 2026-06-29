@@ -1,0 +1,16 @@
+node_modules/
+.next/
+.env
+*.log
+tsconfig.tsbuildinfo
+mydb/
+db/
+agent-ctx/
+skills-lock.json
+project-details.md
+recreate.md
+worklog.md
+worklog_append.md
+TODO
+Assets.md
+timesheet.html

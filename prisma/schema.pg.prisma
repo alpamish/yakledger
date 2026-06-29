@@ -1,0 +1,602 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../node_modules/.prisma/pg-client"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("PG_DATABASE_URL")
+  directUrl = env("PG_DIRECT_URL")
+}
+
+enum Category {
+  FUEL
+  SALARY
+  MAINTENANCE
+  TRANSPORTATION
+  MACHINERY
+  MACHINERY_TRANSPORTATION
+  FOOD
+  MATERIALS
+  EQUIPMENT_RENTAL
+  OFFICE_EXPENSE
+  MISCELLANEOUS
+}
+
+enum PaymentMethod {
+  CASH
+  BANK_TRANSFER
+  CHECK
+  CREDIT_CARD
+  DEBIT_CARD
+  MOBILE_PAYMENT
+  OTHER
+}
+
+enum Role {
+  ADMIN
+  MANAGER
+  USER
+  WATCHER
+  TIMESHEET_USER
+}
+
+enum Department {
+  ADMINISTRATION
+  FINANCE
+  OPERATIONS
+  ENGINEERING
+  LOGISTICS
+  SECURITY
+  MACHINERY_TEAM
+  LABOR
+  KITCHEN
+}
+
+enum EmploymentType {
+  FULL_TIME
+  PART_TIME
+  CONTRACT
+}
+
+enum EmployeeStatus {
+  ACTIVE
+  INACTIVE
+  TERMINATED
+}
+
+enum ContractorType {
+  MACHINERY_CONTRACTOR
+  TRANSPORTATION_CONTRACTOR
+  LABOR_CONTRACTOR
+  MATERIAL_SUPPLIER
+  ELECTRICAL_CONTRACTOR
+  PLUMBING_CONTRACTOR
+  SUBCONTRACTOR
+  CONSULTANT
+  STRUCTURAL_CONTRACTOR
+  OTHER
+}
+
+enum ContractorStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
+enum AttendanceStatus {
+  PRESENT
+  ABSENT
+  HALF_DAY
+  LEAVE
+  HOLIDAY
+}
+
+enum CashTransactionType {
+  ADVANCE
+  RETURN
+  ADJUSTMENT
+}
+
+enum FuelType {
+  DIESEL
+  GASOLINE
+  LPG
+  CNG
+  OTHER
+}
+
+enum MachineryStatus {
+  OPERATIONAL
+  UNDER_MAINTENANCE
+  OUT_OF_SERVICE
+}
+
+enum AssetCategory {
+  VEHICLE
+  FUEL
+  FURNITURE
+  LAPTOP
+  ELECTRONICS
+  MACHINERY
+  OFFICE_EQUIPMENT
+  OTHER
+}
+
+enum AssetStatus {
+  ACTIVE
+  IN_USE
+  UNDER_REPAIR
+  SOLD
+  LOST
+}
+
+enum FuelTransactionType {
+  PURCHASE
+  TRANSFER
+  ISSUE
+}
+
+enum MaintenanceType {
+  ROUTINE
+  REPAIR
+  INSPECTION
+  TIRE_REPLACEMENT
+  OIL_CHANGE
+  BATTERY
+  OTHER
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String
+  password  String
+  role      Role     @default(USER)
+  avatar    String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  expenses        Expense[]
+  auditLogs       AuditLog[]
+  employees       Employee[]
+  contractors     Contractor[]
+  timesheets      Timesheet[]
+  fuelUsages      FuelUsage[]
+  machinery       Machinery[]
+  cashTransactions CashTransaction[]
+  transfers         Transfer[]
+  assets            Asset[]
+  fuelTransactions  FuelTransaction[]
+  maintenanceRecords MaintenanceRecord[]
+  assetLogs         AssetLog[]
+  approvedAssetLogs AssetLog[] @relation("ApprovedByUser")
+  attendanceRecords Attendance[]
+
+  userPermissions UserPermission[]
+  timesheetApprovals  Timesheet[] @relation("TimesheetApprovedBy")
+}
+
+model Permission {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  label       String
+  description String?
+  module      String
+  createdAt   DateTime @default(now())
+
+  rolePermissions RolePermission[]
+  userPermissions  UserPermission[]
+}
+
+model RolePermission {
+  id           String     @id @default(cuid())
+  role         String
+  permissionId String
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+  createdAt    DateTime   @default(now())
+
+  @@unique([role, permissionId])
+}
+
+model UserPermission {
+  id           String     @id @default(cuid())
+  userId       String
+  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  permissionId String
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+  granted      Boolean    @default(true)
+  createdAt    DateTime   @default(now())
+
+  @@unique([userId, permissionId])
+}
+
+model Employee {
+  id                    String          @id @default(cuid())
+  fullName              String
+  fatherName            String
+  gender                String          @default("male")
+  dateOfBirth           DateTime?
+  phoneNumber           String
+  email                 String?
+  address               String?
+  nationalId            String?
+  jobTitle              String
+  department            Department
+  employmentType        EmploymentType  @default(FULL_TIME)
+  salary                Float           @default(0)
+  hireDate              DateTime
+  status                EmployeeStatus  @default(ACTIVE)
+  quitingDate           DateTime?
+  idImageFront          String?
+  idImageBack           String?
+  emergencyContactName  String?
+  emergencyContactPhone String?
+  createdBy             String
+  createdAt             DateTime        @default(now())
+  updatedAt             DateTime        @updatedAt
+
+  creator               User            @relation(fields: [createdBy], references: [id], onDelete: Cascade)
+
+  // Expenses where this employee is the payer (paid_by)
+  expensesPaidBy        Expense[]      @relation("ExpensePaidBy")
+  // Expenses where this employee is the recipient (paid_to)
+  expensesPaidTo        Expense[]      @relation("ExpensePaidTo")
+
+  // Cash advance wallet
+  cashAccount           EmployeeCashAccount?
+  cashTransactions      CashTransaction[]
+
+  // Wallet transfers
+  transfersFrom         Transfer[] @relation("TransferFrom")
+  transfersTo           Transfer[] @relation("TransferTo")
+
+  // Asset assignments
+  assignedAssets        Asset[]
+  assetOperatorLogs     AssetLog[]
+  attendanceRecords     Attendance[]
+}
+
+model Attendance {
+  id          String   @id @default(cuid())
+  employeeId  String
+  employee    Employee @relation(fields: [employeeId], references: [id])
+  date        DateTime
+  status      AttendanceStatus
+  notes       String?
+  createdBy   String
+  creator     User     @relation(fields: [createdBy], references: [id])
+  createdAt   DateTime @default(now())
+
+  @@unique([employeeId, date])
+}
+
+model Expense {
+  id             String        @id @default(cuid())
+  title          String
+  description    String?
+  category       Category
+  amount         Float
+  paymentMethod  PaymentMethod
+  paidTo         String
+  paidBy         String
+  expenseDate    DateTime
+  attachment     String?
+  tags           String?
+  notes          String?
+  currency       String        @default("AFN")
+  createdBy      String
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  // Optional employee relations
+  paidById       String?
+  paidToId       String?
+
+  // Optional contractor relations
+  paidToContractorId String?
+  paidByContractorId String?
+
+  creator        User          @relation(fields: [createdBy], references: [id], onDelete: Cascade)
+  paidByEmployee Employee?     @relation("ExpensePaidBy", fields: [paidById], references: [id], onDelete: SetNull)
+  paidToEmployee Employee?     @relation("ExpensePaidTo", fields: [paidToId], references: [id], onDelete: SetNull)
+  paidToContractor Contractor? @relation("ExpensePaidToContractor", fields: [paidToContractorId], references: [id], onDelete: SetNull)
+  paidByContractor Contractor? @relation("ExpensePaidByContractor", fields: [paidByContractorId], references: [id], onDelete: SetNull)
+
+  // Linked fuel usage
+  fuelUsage      FuelUsage[]
+}
+
+model Contractor {
+  id                  String          @id @default(cuid())
+  contractorName      String
+  fatherName          String
+  companyName         String?
+  phoneNumber         String
+  alternativePhone    String?
+  email               String?
+  address             String?
+  nationalId          String?
+  contractorType      ContractorType
+  status              ContractorStatus @default(ACTIVE)
+  notes               String?
+  createdBy           String
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
+
+  creator             User            @relation(fields: [createdBy], references: [id], onDelete: Cascade)
+
+  // Relations
+  expensesPaidTo      Expense[]        @relation("ExpensePaidToContractor")
+  expensesPaidBy      Expense[]        @relation("ExpensePaidByContractor")
+  timesheets          Timesheet[]
+  fuelUsages          FuelUsage[]
+  machinery           Machinery[]
+  fuelTransactions    FuelTransaction[]
+}
+
+model Timesheet {
+  id              String   @id @default(cuid())
+  contractorId    String
+  machineryId     String?
+  operatorName    String?
+  workSite        String?
+  date            DateTime
+  startTime       String?
+  lunchStart      String?
+  lunchEnd        String?
+  endTime         String?
+  totalHours      Float    @default(0)
+  overtimeHours   Float    @default(0)
+  approvedBy      String?
+  approvedAt      DateTime?
+  notes           String?
+  createdBy       String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  contractor      Contractor        @relation(fields: [contractorId], references: [id], onDelete: Cascade)
+  machinery       Machinery?        @relation(fields: [machineryId], references: [id], onDelete: SetNull)
+  creator         User              @relation(fields: [createdBy], references: [id], onDelete: Cascade)
+  approver        User?             @relation("TimesheetApprovedBy", fields: [approvedBy], references: [id], onDelete: SetNull)
+}
+
+model FuelUsage {
+  id              String    @id @default(cuid())
+  contractorId    String
+  machineryId     String?
+  fuelType        FuelType
+  quantity        Float
+  unitPrice       Float
+  totalCost       Float
+  date            DateTime
+  fuelStation     String?
+  receiptAttachment String?
+  linkedExpenseId String?
+  fuelTransactionId String?
+  notes           String?
+  createdBy       String
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  contractor      Contractor       @relation(fields: [contractorId], references: [id], onDelete: Cascade)
+  machinery       Machinery?       @relation(fields: [machineryId], references: [id], onDelete: SetNull)
+  linkedExpense   Expense?         @relation(fields: [linkedExpenseId], references: [id], onDelete: SetNull)
+  fuelTransaction FuelTransaction? @relation(fields: [fuelTransactionId], references: [id], onDelete: SetNull)
+  creator         User             @relation(fields: [createdBy], references: [id], onDelete: Cascade)
+}
+
+model Machinery {
+  id                    String          @id @default(cuid())
+  machineryName         String
+  machineryType         String
+  plateNumber           String?
+  model                 String?
+  driverName            String?
+  status                MachineryStatus @default(OPERATIONAL)
+  assignedContractorId  String
+  fuelType              FuelType        @default(DIESEL)
+  hourlyConsumptionRate Float           @default(0)
+  hourlyRate            Float           @default(0)
+  dailyRate             Float           @default(0)
+  monthlyRate           Float           @default(0)
+  contractDaysPerMonth  Int             @default(28)
+  workHoursPerDay       Int             @default(9)
+  contractStartDate     DateTime?
+  contractEndDate       DateTime?
+  createdBy             String
+  createdAt             DateTime        @default(now())
+  updatedAt             DateTime        @updatedAt
+
+  assignedContractor    Contractor      @relation(fields: [assignedContractorId], references: [id], onDelete: Cascade)
+  timesheets            Timesheet[]
+  fuelUsages            FuelUsage[]
+  fuelTransactions      FuelTransaction[]
+  creator               User            @relation(fields: [createdBy], references: [id], onDelete: Cascade)
+}
+
+model EmployeeCashAccount {
+  id              String   @id @default(cuid())
+
+  employeeId      String   @unique
+  employee        Employee @relation(fields: [employeeId], references: [id])
+
+  currentBalance  Float    @default(0)
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+model CashTransaction {
+  id              String             @id @default(cuid())
+
+  employeeId      String
+  employee        Employee           @relation(fields: [employeeId], references: [id])
+
+  type            CashTransactionType
+
+  amount          Float
+
+  note            String?
+  referenceNumber String?
+
+  createdById     String
+  creator         User               @relation(fields: [createdById], references: [id])
+
+  createdAt       DateTime           @default(now())
+}
+
+model Transfer {
+  id              String   @id @default(cuid())
+
+  fromEmployeeId  String
+  toEmployeeId    String
+  amount          Float
+  note            String?
+  referenceNumber String?
+
+  createdById     String
+  createdAt       DateTime @default(now())
+
+  fromEmployee    Employee @relation("TransferFrom", fields: [fromEmployeeId], references: [id])
+  toEmployee      Employee @relation("TransferTo", fields: [toEmployeeId], references: [id])
+  creator         User     @relation(fields: [createdById], references: [id])
+}
+
+model AppSettings {
+  id                String    @id @default("default")
+  companyName       String    @default("YakhshiLedger")
+  companyLogo       String?
+  address           String?
+  phone             String?
+  email             String?
+  website           String?
+  taxId             String?
+  lastSyncTimestamp DateTime?
+  updatedAt         DateTime  @updatedAt
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  action    String
+  entity    String
+  entityId  String?
+  details   String?
+  userId    String
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Asset {
+  id            String        @id @default(cuid())
+  name          String
+  category      AssetCategory
+  purchaseDate  DateTime
+  purchasePrice Float
+  currentValue  Float
+  quantity      Int           @default(1)
+  serialNumber  String?
+  plateNumber   String?
+  assignedToId  String?
+  assignedTo    Employee?     @relation(fields: [assignedToId], references: [id], onDelete: SetNull)
+  status        AssetStatus   @default(ACTIVE)
+  notes         String?
+  images        String?
+  fuelType      FuelType?
+  fuelCapacity  Float?
+  fuelLocation  String?
+  isMainContainer Boolean   @default(false)
+  createdBy     String
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  creator            User               @relation(fields: [createdBy], references: [id], onDelete: Cascade)
+  fuelTransactions   FuelTransaction[]  @relation("FuelIssuedToAsset")
+  fuelContainerTransactions  FuelTransaction[] @relation("FuelTransactionContainer")
+  fuelDestinationTransactions FuelTransaction[] @relation("FuelTransactionDestination")
+  maintenanceRecords MaintenanceRecord[]
+  assetLogs          AssetLog[]
+}
+
+model FuelTransaction {
+  id                     String              @id @default(cuid())
+  type                   FuelTransactionType
+  fuelType               FuelType
+  quantity               Float
+  unitPrice              Float?
+  totalCost              Float?
+  supplier               String?
+  assetId                String?
+  asset                  Asset?              @relation("FuelIssuedToAsset", fields: [assetId], references: [id], onDelete: SetNull)
+  containerId            String?
+  container              Asset?              @relation("FuelTransactionContainer", fields: [containerId], references: [id], onDelete: SetNull)
+  destinationContainerId String?
+  destinationContainer   Asset?              @relation("FuelTransactionDestination", fields: [destinationContainerId], references: [id], onDelete: SetNull)
+  contractorId           String?
+  contractor             Contractor?         @relation(fields: [contractorId], references: [id], onDelete: SetNull)
+  machineryId            String?
+  machinery              Machinery?          @relation(fields: [machineryId], references: [id], onDelete: SetNull)
+  issuedToName           String?
+  notes                  String?
+  date                   DateTime            @default(now())
+  createdBy              String
+  createdAt              DateTime            @default(now())
+  updatedAt              DateTime            @updatedAt
+
+  creator      User        @relation(fields: [createdBy], references: [id], onDelete: Cascade)
+  fuelUsages   FuelUsage[]
+}
+
+model MaintenanceRecord {
+  id              String          @id @default(cuid())
+  assetId         String
+  asset           Asset           @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  serviceDate     DateTime
+  serviceType     MaintenanceType
+  cost            Float
+  description     String?
+  vendor          String?
+  nextServiceDate DateTime?
+  notes           String?
+  createdBy       String
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  creator User @relation(fields: [createdBy], references: [id], onDelete: Cascade)
+}
+
+model AssetLog {
+  id               String    @id @default(cuid())
+  assetId          String
+  asset            Asset     @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  date             DateTime
+  startTime        String?
+  endTime          String?
+  operatorId       String?
+  operator         Employee? @relation(fields: [operatorId], references: [id], onDelete: SetNull)
+  startOdometer    Float?
+  endOdometer      Float?
+  distanceTraveled Float?
+  engineHoursStart Float?
+  engineHoursEnd   Float?
+  engineHoursUsed  Float?
+  fuelConsumed     Float?
+  workSite         String?
+  project          String?
+  conditions       String?
+  issues           String?
+  status           String    @default("PENDING")
+  approvedById     String?
+  approvedAt       DateTime?
+  remarks          String?
+  createdBy        String
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  creator  User      @relation(fields: [createdBy], references: [id], onDelete: Cascade)
+  approvedBy User?  @relation("ApprovedByUser", fields: [approvedById], references: [id], onDelete: SetNull)
+}
