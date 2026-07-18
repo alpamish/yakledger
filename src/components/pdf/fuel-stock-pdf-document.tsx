@@ -26,6 +26,9 @@ interface FuelStockPDFDocumentProps {
 const formatCurrency = (amount: number) =>
   `AFN ${amount.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
 
+const FIRST_PAGE_ROWS = 12;
+const CONT_PAGE_ROWS = 22;
+
 const styles = StyleSheet.create({
   page: {
     padding: 40,
@@ -178,7 +181,200 @@ const styles = StyleSheet.create({
     textAlign: "center",
     padding: 20,
   },
+  pageNumberContainer: {
+    position: "absolute",
+    bottom: 30,
+    left: 0,
+    right: 0,
+    alignItems: "center",
+  },
+  pageNumberText: {
+    fontSize: 8,
+    color: "#94a3b8",
+    fontFamily: "Vazirmatn",
+  },
 });
+
+function SummaryPage({
+  stock,
+  containerStock,
+  transactions,
+  generatedAt,
+}: {
+  stock: FuelStock[];
+  containerStock?: FuelContainerStock[];
+  transactions: FuelTransaction[];
+  generatedAt: Date;
+}) {
+  const totalPurchased = stock.reduce((s, i) => s + i.totalPurchased, 0);
+  const totalIssued = stock.reduce((s, i) => s + i.totalIssued, 0);
+  const totalBalance = stock.reduce((s, i) => s + i.balance, 0);
+  const lowStockItems = stock.filter((s) => s.balance < 50);
+
+  return (
+    <Page size="A4" orientation="landscape" style={styles.page}>
+      <Text style={styles.companyName}>YakhshiLedger</Text>
+      <Text style={styles.reportTitle}>Fuel Stock Management Report</Text>
+      <Text style={styles.generatedDate}>
+        Generated: {format(generatedAt, "MMM dd, yyyy HH:mm")}
+      </Text>
+      <View style={styles.headerDivider} />
+
+      <View style={styles.summaryRow}>
+        <View style={styles.summaryCard}>
+          <Text style={styles.summaryLabel}>Total Fuel Types</Text>
+          <Text style={styles.summaryValue}>{stock.length}</Text>
+        </View>
+        <View style={styles.summaryCard}>
+          <Text style={styles.summaryLabel}>Total Purchased</Text>
+          <Text style={styles.summaryValue}>{totalPurchased.toFixed(1)} L</Text>
+        </View>
+        <View style={styles.summaryCard}>
+          <Text style={styles.summaryLabel}>Total Issued</Text>
+          <Text style={styles.summaryValue}>{totalIssued.toFixed(1)} L</Text>
+        </View>
+        <View style={styles.summaryCard}>
+          <Text style={styles.summaryLabel}>Current Balance</Text>
+          <Text style={styles.summaryValue}>{totalBalance.toFixed(1)} L</Text>
+        </View>
+      </View>
+
+      {lowStockItems.length > 0 && (
+        <View style={styles.warningBox}>
+          <Text style={styles.warningText}>
+            Low Stock Alert: {lowStockItems.map((s) =>
+              FUEL_TYPE_LABELS[s.fuelType as keyof typeof FUEL_TYPE_LABELS] || s.fuelType
+            ).join(", ")} {lowStockItems.length === 1 ? "is" : "are"} running low (below 50L).
+          </Text>
+        </View>
+      )}
+
+      {containerStock && containerStock.length > 0 && (
+        <>
+          <Text style={styles.sectionTitle}>Fuel Containers</Text>
+          <View style={styles.stockGrid}>
+            {containerStock.map((c) => (
+              <View key={c.containerId} style={styles.stockCard}>
+                <Text style={styles.fuelTypeLabel}>
+                  {c.containerName}{c.isMainContainer ? ' (Main)' : ''}
+                </Text>
+                <Text style={{
+                  ...styles.balanceValue,
+                  color: c.usagePercent > 90 ? '#ef4444' : c.usagePercent < 20 ? '#f59e0b' : '#059669'
+                }}>
+                  {c.balance.toFixed(1)}
+                  <Text style={styles.balanceUnit}> L</Text>
+                </Text>
+                <Text style={styles.stockDetail}>
+                  {FUEL_TYPE_LABELS[c.fuelType as keyof typeof FUEL_TYPE_LABELS] || c.fuelType}
+                  {c.fuelCapacity ? ` / Capacity: ${c.fuelCapacity}L` : ''}
+                </Text>
+                <Text style={styles.stockDetail}>
+                  Usage: {c.usagePercent}%
+                </Text>
+                {c.fuelLocation && (
+                  <Text style={styles.stockDetail}>Location: {c.fuelLocation}</Text>
+                )}
+              </View>
+            ))}
+          </View>
+        </>
+      )}
+
+      <Text style={styles.sectionTitle}>Stock Summary by Fuel Type</Text>
+      <View style={styles.stockGrid}>
+        {stock.length === 0 ? (
+          <Text style={styles.emptyText}>No fuel stock data available.</Text>
+        ) : (
+          stock.map((s) => (
+            <View key={s.fuelType} style={styles.stockCard}>
+              <Text style={styles.fuelTypeLabel}>
+                {FUEL_TYPE_LABELS[s.fuelType as keyof typeof FUEL_TYPE_LABELS] || s.fuelType}
+              </Text>
+              <Text style={styles.balanceValue}>
+                {s.balance.toFixed(1)}
+                <Text style={styles.balanceUnit}> L</Text>
+              </Text>
+              <Text style={styles.stockDetail}>
+                Purchased: {s.totalPurchased.toFixed(1)}L
+              </Text>
+              <Text style={styles.stockDetail}>
+                Issued: {s.totalIssued.toFixed(1)}L
+              </Text>
+              <Text style={styles.stockDetail}>
+                Usage: {s.totalPurchased > 0
+                  ? ((s.totalIssued / s.totalPurchased) * 100).toFixed(0)
+                  : 0}%
+              </Text>
+            </View>
+          ))
+        )}
+      </View>
+
+      <View style={styles.pageNumberContainer}>
+        <Text style={styles.pageNumberText}>Page 1</Text>
+      </View>
+    </Page>
+  );
+}
+
+function TransactionsPage({
+  pageTransactions,
+  pageNum,
+}: {
+  pageTransactions: FuelTransaction[];
+  pageNum: number;
+}) {
+  return (
+    <Page size="A4" orientation="landscape" style={styles.page}>
+      <Text style={styles.companyName}>YakhshiLedger</Text>
+      <Text style={styles.reportTitle}>Fuel Stock Report — Transaction History</Text>
+      <View style={styles.headerDivider} />
+
+      <Text style={styles.sectionTitle}>Transaction History (cont.)</Text>
+      <View style={styles.table}>
+        <View style={styles.tableHeader}>
+          <Text style={styles.cellDate}>Date</Text>
+          <Text style={styles.cellType}>Type</Text>
+          <Text style={styles.cellFuel}>Fuel Type</Text>
+          <Text style={styles.cellQty}>Quantity</Text>
+          <Text style={{...styles.cellAsset, width: '15%'}}>Container</Text>
+          <Text style={{...styles.cellAsset, width: '15%'}}>Asset/Contractor</Text>
+          <Text style={{...styles.cellSupplier, width: '12%'}}>Details</Text>
+        </View>
+        {pageTransactions.map((t, idx) => (
+          <View key={t.id} style={idx % 2 === 0 ? styles.tableRow : styles.tableRowAlt}>
+            <Text style={styles.cellDate}>
+              {format(new Date(t.date), "MMM dd, yyyy")}
+            </Text>
+            <Text style={styles.cellType}>
+              {FUEL_TRANSACTION_TYPE_LABELS[t.type]}
+            </Text>
+            <Text style={styles.cellFuel}>
+              {FUEL_TYPE_LABELS[t.fuelType as keyof typeof FUEL_TYPE_LABELS] || t.fuelType}
+            </Text>
+            <Text style={styles.cellQty}>{t.quantity} L</Text>
+            <Text style={{...styles.cellAsset, width: '15%'}}>
+              {t.type === 'TRANSFER'
+                ? `${t.container?.name || '-'} → ${t.destinationContainer?.name || '-'}`
+                : t.container?.name || '-'}
+            </Text>
+            <Text style={{...styles.cellAsset, width: '15%'}}>
+              {t.asset?.name || t.contractor?.contractorName || '-'}
+            </Text>
+            <Text style={{...styles.cellSupplier, width: '12%'}}>
+              {t.supplier || t.issuedToName || t.machinery?.machineryName || '-'}
+            </Text>
+          </View>
+        ))}
+      </View>
+
+      <View style={styles.pageNumberContainer}>
+        <Text style={styles.pageNumberText}>Page {pageNum}</Text>
+      </View>
+    </Page>
+  );
+}
 
 function FuelStockPDFDocument({
   stock,
@@ -189,165 +385,38 @@ function FuelStockPDFDocument({
   const transactions = (Array.isArray(rawTransactions) ? rawTransactions : []).filter(
     (t): t is FuelTransaction => Boolean(t && t.id)
   );
-  const totalPurchased = stock.reduce((s, i) => s + i.totalPurchased, 0);
-  const totalIssued = stock.reduce((s, i) => s + i.totalIssued, 0);
-  const totalBalance = stock.reduce((s, i) => s + i.balance, 0);
-  const lowStockItems = stock.filter((s) => s.balance < 50);
+
+  const txPages: FuelTransaction[][] = [];
+  if (transactions.length > 0) {
+    let remaining = [...transactions];
+    txPages.push(remaining.slice(0, FIRST_PAGE_ROWS));
+    remaining = remaining.slice(FIRST_PAGE_ROWS);
+    while (remaining.length > 0) {
+      txPages.push(remaining.slice(0, CONT_PAGE_ROWS));
+      remaining = remaining.slice(CONT_PAGE_ROWS);
+    }
+  }
+
+  let pageCounter = 1;
 
   return (
     <Document>
-      <Page size="A4" orientation="landscape" style={styles.page}>
-        {/* Header */}
-        <Text style={styles.companyName}>YakhshiLedger</Text>
-        <Text style={styles.reportTitle}>Fuel Stock Management Report</Text>
-        <Text style={styles.generatedDate}>
-          Generated: {format(generatedAt, "MMM dd, yyyy HH:mm")}
-        </Text>
-        <View style={styles.headerDivider} />
-
-        {/* Summary Cards */}
-        <View style={styles.summaryRow}>
-          <View style={styles.summaryCard}>
-            <Text style={styles.summaryLabel}>Total Fuel Types</Text>
-            <Text style={styles.summaryValue}>{stock.length}</Text>
-          </View>
-          <View style={styles.summaryCard}>
-            <Text style={styles.summaryLabel}>Total Purchased</Text>
-            <Text style={styles.summaryValue}>{totalPurchased.toFixed(1)} L</Text>
-          </View>
-          <View style={styles.summaryCard}>
-            <Text style={styles.summaryLabel}>Total Issued</Text>
-            <Text style={styles.summaryValue}>{totalIssued.toFixed(1)} L</Text>
-          </View>
-          <View style={styles.summaryCard}>
-            <Text style={styles.summaryLabel}>Current Balance</Text>
-            <Text style={styles.summaryValue}>{totalBalance.toFixed(1)} L</Text>
-          </View>
-        </View>
-
-        {/* Low Stock Warning */}
-        {lowStockItems.length > 0 && (
-          <View style={styles.warningBox}>
-            <Text style={styles.warningText}>
-              ⚠ Low Stock Alert: {lowStockItems.map((s) =>
-                FUEL_TYPE_LABELS[s.fuelType as keyof typeof FUEL_TYPE_LABELS] || s.fuelType
-              ).join(", ")} {lowStockItems.length === 1 ? "is" : "are"} running low (below 50L).
-            </Text>
-          </View>
-        )}
-
-        {/* Container Stock Breakdown */}
-        {containerStock && containerStock.length > 0 && (
-          <>
-            <Text style={styles.sectionTitle}>Fuel Containers</Text>
-            <View style={styles.stockGrid}>
-              {containerStock.map((c) => (
-                <View key={c.containerId} style={styles.stockCard}>
-                  <Text style={styles.fuelTypeLabel}>
-                    {c.containerName}{c.isMainContainer ? ' (Main)' : ''}
-                  </Text>
-                  <Text style={{
-                    ...styles.balanceValue,
-                    color: c.usagePercent > 90 ? '#ef4444' : c.usagePercent < 20 ? '#f59e0b' : '#059669'
-                  }}>
-                    {c.balance.toFixed(1)}
-                    <Text style={styles.balanceUnit}> L</Text>
-                  </Text>
-                  <Text style={styles.stockDetail}>
-                    {FUEL_TYPE_LABELS[c.fuelType as keyof typeof FUEL_TYPE_LABELS] || c.fuelType}
-                    {c.fuelCapacity ? ` / Capacity: ${c.fuelCapacity}L` : ''}
-                  </Text>
-                  <Text style={styles.stockDetail}>
-                    Usage: {c.usagePercent}%
-                  </Text>
-                  {c.fuelLocation && (
-                    <Text style={styles.stockDetail}>Location: {c.fuelLocation}</Text>
-                  )}
-                </View>
-              ))}
-            </View>
-          </>
-        )}
-
-        {/* Stock Breakdown by Fuel Type */}
-        <Text style={styles.sectionTitle}>Stock Summary by Fuel Type</Text>
-        <View style={styles.stockGrid}>
-          {stock.length === 0 ? (
-            <Text style={styles.emptyText}>No fuel stock data available.</Text>
-          ) : (
-            stock.map((s) => (
-              <View key={s.fuelType} style={styles.stockCard}>
-                <Text style={styles.fuelTypeLabel}>
-                  {FUEL_TYPE_LABELS[s.fuelType as keyof typeof FUEL_TYPE_LABELS] || s.fuelType}
-                </Text>
-                <Text style={styles.balanceValue}>
-                  {s.balance.toFixed(1)}
-                  <Text style={styles.balanceUnit}> L</Text>
-                </Text>
-                <Text style={styles.stockDetail}>
-                  Purchased: {s.totalPurchased.toFixed(1)}L
-                </Text>
-                <Text style={styles.stockDetail}>
-                  Issued: {s.totalIssued.toFixed(1)}L
-                </Text>
-                <Text style={styles.stockDetail}>
-                  Usage: {s.totalPurchased > 0
-                    ? ((s.totalIssued / s.totalPurchased) * 100).toFixed(0)
-                    : 0}%
-                </Text>
-              </View>
-            ))
-          )}
-        </View>
-
-        {/* Transactions Table */}
-        <Text style={styles.sectionTitle}>Transaction History</Text>
-        {transactions.length === 0 ? (
-          <Text style={styles.emptyText}>No fuel transactions recorded.</Text>
-        ) : (
-          <View style={styles.table}>
-            <View style={styles.tableHeader}>
-              <Text style={styles.cellDate}>Date</Text>
-              <Text style={styles.cellType}>Type</Text>
-              <Text style={styles.cellFuel}>Fuel Type</Text>
-              <Text style={styles.cellQty}>Quantity</Text>
-              <Text style={{...styles.cellAsset, width: '15%'}}>Container</Text>
-              <Text style={{...styles.cellAsset, width: '15%'}}>Asset/Contractor</Text>
-              <Text style={{...styles.cellSupplier, width: '12%'}}>Details</Text>
-            </View>
-            {transactions.map((t, idx) => (
-              <View key={t.id} style={idx % 2 === 0 ? styles.tableRow : styles.tableRowAlt}>
-                <Text style={styles.cellDate}>
-                  {format(new Date(t.date), "MMM dd, yyyy")}
-                </Text>
-                <Text style={styles.cellType}>
-                  {FUEL_TRANSACTION_TYPE_LABELS[t.type]}
-                </Text>
-                <Text style={styles.cellFuel}>
-                  {FUEL_TYPE_LABELS[t.fuelType as keyof typeof FUEL_TYPE_LABELS] || t.fuelType}
-                </Text>
-                <Text style={styles.cellQty}>{t.quantity} L</Text>
-                <Text style={{...styles.cellAsset, width: '15%'}}>
-                  {t.type === 'TRANSFER'
-                    ? `${t.container?.name || '-'} → ${t.destinationContainer?.name || '-'}`
-                    : t.container?.name || '-'}
-                </Text>
-                <Text style={{...styles.cellAsset, width: '15%'}}>
-                  {t.asset?.name || t.contractor?.contractorName || '-'}
-                </Text>
-                <Text style={{...styles.cellSupplier, width: '12%'}}>
-                  {t.supplier || t.issuedToName || t.machinery?.machineryName || '-'}
-                </Text>
-              </View>
-            ))}
-          </View>
-        )}
-
-        {/* Footer */}
-        <Text style={styles.footer}>
-          YakhshiLedger — Fuel Stock Report — Page 1
-        </Text>
-      </Page>
+      <SummaryPage
+        stock={stock}
+        containerStock={containerStock}
+        transactions={transactions}
+        generatedAt={generatedAt}
+      />
+      {txPages.map((txPage, idx) => {
+        pageCounter++;
+        return (
+          <TransactionsPage
+            key={idx}
+            pageTransactions={txPage}
+            pageNum={pageCounter}
+          />
+        );
+      })}
     </Document>
   );
 }

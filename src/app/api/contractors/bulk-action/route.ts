@@ -11,7 +11,7 @@ const bulkActionSchema = z.object({
 // POST /api/contractors/bulk-action - Bulk actions on contractors
 export async function POST(request: NextRequest) {
   try {
-    const result = await requirePermission(request, "contractors:edit");
+    const result = await requirePermission(request, "contractors:delete");
     if ("status" in result) return result;
     const user = result.user;
 

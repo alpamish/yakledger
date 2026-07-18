@@ -14,7 +14,9 @@ import { Plus, Receipt } from 'lucide-react';
 import { usePermissions } from '@/hooks/use-permissions';
 
 export function ExpensePage() {
-  const { canCreate, canEdit, canDelete } = usePermissions();
+  const { canView, canCreate, canEdit, canDelete } = usePermissions();
+
+  if (!canView('expenses')) return null;
   const openForm = useExpenseStore((s) => s.openForm);
   const deleteExpense = useExpenseStore((s) => s.deleteExpense);
   const bulkDeleteExpenses = useExpenseStore((s) => s.bulkDeleteExpenses);

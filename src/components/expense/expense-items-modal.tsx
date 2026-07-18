@@ -35,7 +35,7 @@ import {
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Plus, Trash2, TableIcon, ClipboardPaste } from 'lucide-react';
 import type { ExpenseItem } from '@/types/expense';
-import { UNIT_OPTIONS } from '@/types/expense';
+import { UNIT_OPTIONS, UNIT_LABELS } from '@/types/expense';
 
 interface ExpenseItemsModalProps {
   open: boolean;
@@ -222,7 +222,7 @@ export default function ExpenseItemsModal({
             <SelectContent>
               {UNIT_OPTIONS.map((u) => (
                 <SelectItem key={u} value={u}>
-                  {u}
+                  {UNIT_LABELS[u]}
                 </SelectItem>
               ))}
             </SelectContent>

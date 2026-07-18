@@ -17,11 +17,18 @@ import type {
   MachinerySummaryStats,
   MachineryByContractor,
   MachineryFuelPerMachinery,
+  MachineryWorkHours,
   BulkFuelUsageRecord,
   BulkFuelUsageRequest,
   BulkFuelUsageResponse,
   BulkTimesheetRequest,
   BulkTimesheetResponse,
+  MonthlyAnalysisParams,
+  MonthlyAnalysisResponse,
+  DailyDetailParams,
+  DailyDetailResponse,
+  MachineryRate,
+  MachineryRateFormData,
 } from "@/types/contractor";
 import { getToken, ApiError } from "./api";
 
@@ -158,6 +165,15 @@ export const contractorsApi = {
       `/contractors/list${qs}`
     );
   },
+
+  getFinancialReport: async (
+    params?: { dateFrom?: string; dateTo?: string }
+  ): Promise<ApiResponse<unknown>> => {
+    return request<ApiResponse<unknown>>("/contractors/financial-report", {
+      method: "POST",
+      body: JSON.stringify(params ?? {}),
+    });
+  },
 };
 
 // ─── Timesheets API ─────────────────────────────────────────────────────────
@@ -235,10 +251,19 @@ export const timesheetsApi = {
 // ─── Fuel Usage API ─────────────────────────────────────────────────────────
 
 export const fuelUsageApi = {
-  getSummary: async (params?: { dateFrom?: string; dateTo?: string }): Promise<ApiResponse<FuelUsageSummary>> => {
+  getSummary: async (params?: {
+    dateFrom?: string;
+    dateTo?: string;
+    fuelType?: string;
+    machineryType?: string;
+    machineryId?: string;
+  }): Promise<ApiResponse<FuelUsageSummary>> => {
     const searchParams = new URLSearchParams();
     if (params?.dateFrom) searchParams.set("dateFrom", params.dateFrom);
     if (params?.dateTo) searchParams.set("dateTo", params.dateTo);
+    if (params?.fuelType) searchParams.set("fuelType", params.fuelType);
+    if (params?.machineryType) searchParams.set("machineryType", params.machineryType);
+    if (params?.machineryId) searchParams.set("machineryId", params.machineryId);
     const qs = searchParams.toString();
     return request<ApiResponse<FuelUsageSummary>>(`/fuel-usage/summary${qs ? `?${qs}` : ""}`);
   },
@@ -307,6 +332,40 @@ export const fuelUsageApi = {
       method: "POST",
       body: JSON.stringify(data),
     });
+  },
+
+  getMonthlyAnalysis: async (params?: MonthlyAnalysisParams): Promise<ApiResponse<MonthlyAnalysisResponse[]>> => {
+    const searchParams = new URLSearchParams();
+    if (params?.machineryId) searchParams.set("machineryId", params.machineryId);
+    if (params?.year) searchParams.set("year", String(params.year));
+    if (params?.fuelType) searchParams.set("fuelType", params.fuelType);
+    if (params?.dateFrom) searchParams.set("dateFrom", params.dateFrom);
+    if (params?.dateTo) searchParams.set("dateTo", params.dateTo);
+    const qs = searchParams.toString();
+    return request<ApiResponse<MonthlyAnalysisResponse[]>>(`/fuel-usage/monthly-analysis${qs ? `?${qs}` : ""}`);
+  },
+
+  getDailyDetail: async (params: DailyDetailParams): Promise<ApiResponse<DailyDetailResponse>> => {
+    const searchParams = new URLSearchParams();
+    searchParams.set("machineryId", params.machineryId);
+    searchParams.set("month", params.month);
+    return request<ApiResponse<DailyDetailResponse>>(`/fuel-usage/monthly-analysis/daily-detail?${searchParams.toString()}`);
+  },
+
+  getMonthlyAnalysisPdf: async (params?: MonthlyAnalysisParams): Promise<Blob> => {
+    const searchParams = new URLSearchParams();
+    if (params?.machineryId) searchParams.set("machineryId", params.machineryId);
+    if (params?.year) searchParams.set("year", String(params.year));
+    if (params?.fuelType) searchParams.set("fuelType", params.fuelType);
+    if (params?.dateFrom) searchParams.set("dateFrom", params.dateFrom);
+    if (params?.dateTo) searchParams.set("dateTo", params.dateTo);
+    const qs = searchParams.toString();
+    const token = getToken();
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+    const response = await fetch(`${API_BASE}/fuel-usage/monthly-analysis/pdf${qs ? `?${qs}` : ""}`, { headers });
+    if (!response.ok) throw new ApiError("Failed to generate PDF", response.status);
+    return response.blob();
   },
 };
 
@@ -417,12 +476,47 @@ export const machineryApi = {
     return request<ApiResponse<PaginatedResponse<MachineryFuelPerMachinery>>>(`/machinery/fuel-summary${qs ? `?${qs}` : ""}`);
   },
 
+  getWorkHoursSummary: async (
+    params?: { search?: string; page?: number; pageSize?: number }
+  ): Promise<ApiResponse<PaginatedResponse<MachineryWorkHours>>> => {
+    const searchParams = new URLSearchParams();
+    if (params?.search) searchParams.set("search", params.search);
+    if (params?.page) searchParams.set("page", String(params.page));
+    if (params?.pageSize) searchParams.set("pageSize", String(params.pageSize));
+    const qs = searchParams.toString();
+    return request<ApiResponse<PaginatedResponse<MachineryWorkHours>>>(`/machinery/work-hours-summary${qs ? `?${qs}` : ""}`);
+  },
+
   getList: async (
     status?: string
-  ): Promise<ApiResponse<Pick<Machinery, "id" | "machineryName" | "machineryType" | "plateNumber" | "driverName" | "status">[]>> => {
+  ): Promise<ApiResponse<(Pick<Machinery, "id" | "machineryName" | "machineryType" | "plateNumber" | "driverName" | "status" | "assignedContractorId" | "model" | "fuelType" | "hourlyConsumptionRate" | "hourlyRate" | "dailyRate" | "monthlyRate" | "contractDaysPerMonth" | "workHoursPerDay" | "contractStartDate" | "contractEndDate"> & { assignedContractor?: { contractorName: string; contractorType: string } | null })[]>> => {
     const qs = status ? `?status=${status}` : "";
-    return request<ApiResponse<Pick<Machinery, "id" | "machineryName" | "machineryType" | "plateNumber" | "driverName" | "status">[]>>(
+    return request<ApiResponse<(Pick<Machinery, "id" | "machineryName" | "machineryType" | "plateNumber" | "driverName" | "status" | "assignedContractorId" | "model" | "fuelType" | "hourlyConsumptionRate" | "hourlyRate" | "dailyRate" | "monthlyRate" | "contractDaysPerMonth" | "workHoursPerDay" | "contractStartDate" | "contractEndDate"> & { assignedContractor?: { contractorName: string; contractorType: string } | null })[]>>(
       `/machinery/list${qs}`
     );
+  },
+
+  getRates: async (machineryId: string): Promise<ApiResponse<MachineryRate[]>> => {
+    return request<ApiResponse<MachineryRate[]>>(`/machinery/${machineryId}/rates`);
+  },
+
+  createRate: async (machineryId: string, data: MachineryRateFormData): Promise<ApiResponse<MachineryRate>> => {
+    return request<ApiResponse<MachineryRate>>(`/machinery/${machineryId}/rates`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  },
+
+  updateRate: async (machineryId: string, rateId: string, data: Partial<MachineryRateFormData>): Promise<ApiResponse<MachineryRate>> => {
+    return request<ApiResponse<MachineryRate>>(`/machinery/${machineryId}/rates/${rateId}`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    });
+  },
+
+  deleteRate: async (machineryId: string, rateId: string): Promise<ApiResponse<void>> => {
+    return request<ApiResponse<void>>(`/machinery/${machineryId}/rates/${rateId}`, {
+      method: "DELETE",
+    });
   },
 };

@@ -53,10 +53,13 @@ export async function GET(
           select: {
             id: true,
             title: true,
+            description: true,
+            notes: true,
             amount: true,
             category: true,
             expenseDate: true,
             paymentMethod: true,
+            paidBy: true,
           },
           orderBy: { expenseDate: "desc" },
           take: 20,
@@ -64,7 +67,25 @@ export async function GET(
         timesheets: {
           orderBy: { date: "desc" },
           take: 20,
-          include: {
+          select: {
+            id: true,
+            machineryId: true,
+            machineryRateId: true,
+            date: true,
+            totalHours: true,
+            overtimeHours: true,
+            startTime: true,
+            lunchStart: true,
+            lunchEnd: true,
+            endTime: true,
+            operatorName: true,
+            workSite: true,
+            notes: true,
+            approvedBy: true,
+            approvedAt: true,
+            createdBy: true,
+            createdAt: true,
+            updatedAt: true,
             machinery: {
               select: { id: true, machineryName: true, machineryType: true, plateNumber: true },
             },
@@ -132,10 +153,19 @@ export async function GET(
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([month, amount]) => ({ month, amount }));
 
+    // Fetch machineryRates for all machinery belonging to this contractor
+    const contractorMachineryIds = contractor.machinery.map((m) => m.id);
+    const machineryRates = contractorMachineryIds.length > 0
+      ? await db.machineryRate.findMany({
+          where: { machineryId: { in: contractorMachineryIds } },
+        })
+      : [];
+
     const responseData = {
       ...contractor,
       totalExpensesPaid,
       monthlyExpenses,
+      machineryRates,
     };
 
     return NextResponse.json({

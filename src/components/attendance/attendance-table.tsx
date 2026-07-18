@@ -41,6 +41,7 @@ interface AttendanceTableProps {
   dateTo: string;
   selectedEmployeeId: string | null;
   employeeName: string;
+  search?: string;
   onPageChange: (page: number) => void;
   onDateFromChange: (date: string) => void;
   onDateToChange: (date: string) => void;
@@ -58,6 +59,7 @@ export function AttendanceTable({
   dateTo,
   selectedEmployeeId,
   employeeName,
+  search,
   onPageChange,
   onDateFromChange,
   onDateToChange,
@@ -107,7 +109,9 @@ export function AttendanceTable({
           <p className="text-xs mt-1">
             {selectedEmployeeId
               ? `No records for ${employeeName} in the selected period`
-              : 'Select an employee and date range to view records'}
+              : search
+                ? `No records matching "${search}" in the selected period`
+                : 'Select an employee and date range to view records'}
           </p>
         </div>
       ) : (

@@ -14,11 +14,6 @@ import {
   CommandItem,
   CommandList,
 } from '@/components/ui/command';
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from '@/components/ui/popover';
 import { AttendanceCalendar } from './attendance-calendar';
 import { AttendanceTable } from './attendance-table';
 import { BulkAttendanceForm } from './bulk-attendance-form';
@@ -32,10 +27,10 @@ import {
   ClipboardCheck,
   RefreshCw,
   Check,
-  ChevronsUpDown,
-  Users,
   Loader2,
   RotateCcw,
+  Search,
+  X,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
@@ -83,9 +78,11 @@ export function AttendancePanel() {
   // Local employee selection
   const [localEmployeeId, setLocalEmployeeId] = React.useState<string | null>(null);
   const [localEmployeeName, setLocalEmployeeName] = React.useState('');
-  const [employeeSelectOpen, setEmployeeSelectOpen] = React.useState(false);
   const [employeeList, setEmployeeList] = React.useState<EmployeeListItem[]>([]);
   const [employeeListLoading, setEmployeeListLoading] = React.useState(false);
+
+  // Search state
+  const [searchText, setSearchText] = React.useState('');
 
   // Fetch employee list on mount
   React.useEffect(() => {
@@ -106,8 +103,22 @@ export function AttendancePanel() {
     [employeeList]
   );
 
+  // Client-side filtered employees for the search list
+  const filteredEmployees = React.useMemo(
+    () => {
+      if (!searchText.trim()) return activeEmployees;
+      const q = searchText.toLowerCase();
+      return activeEmployees.filter((e) =>
+        e.fullName.toLowerCase().includes(q) ||
+        (e.jobTitle && e.jobTitle.toLowerCase().includes(q))
+      );
+    },
+    [activeEmployees, searchText]
+  );
+
   const targetEmployeeId = localEmployeeId ?? selectedEmployee?.id ?? null;
   const employeeName = localEmployeeName || selectedEmployee?.fullName || '';
+  const effectiveSearch = targetEmployeeId ? undefined : (searchText.trim() || undefined);
 
   const bulkEmployeeIds: { id: string; fullName: string }[] = React.useMemo(
     () => activeEmployees.map((e) => ({ id: e.id, fullName: e.fullName })),
@@ -116,6 +127,7 @@ export function AttendancePanel() {
 
   const fetchRecords = React.useCallback(async (params?: {
     employeeId?: string;
+    search?: string;
     dateFrom?: string;
     dateTo?: string;
     page?: number;
@@ -124,6 +136,7 @@ export function AttendancePanel() {
     try {
       const res = await attendanceApi.getAll({
         employeeId: params?.employeeId ?? targetEmployeeId ?? undefined,
+        search: params?.search ?? effectiveSearch,
         dateFrom: params?.dateFrom ?? (dateFrom || undefined),
         dateTo: params?.dateTo ?? (dateTo || undefined),
         page: params?.page ?? page,
@@ -138,10 +151,10 @@ export function AttendancePanel() {
     } finally {
       setIsLoading(false);
     }
-  }, [targetEmployeeId, dateFrom, dateTo, page, pageSize]);
+  }, [targetEmployeeId, effectiveSearch, dateFrom, dateTo, page, pageSize]);
 
   React.useEffect(() => {
-    if (targetEmployeeId || dateFrom || dateTo) {
+    if (targetEmployeeId || dateFrom || dateTo || effectiveSearch) {
       fetchRecords();
     } else {
       const now = new Date();
@@ -149,7 +162,7 @@ export function AttendancePanel() {
       const to = format(endOfMonth(now), 'yyyy-MM-dd');
       fetchRecords({ dateFrom: from, dateTo: to });
     }
-  }, [targetEmployeeId, dateFrom, dateTo, page]);
+  }, [targetEmployeeId, effectiveSearch, dateFrom, dateTo, page]);
 
   React.useEffect(() => {
     if (targetEmployeeId && activeTab === 'calendar' && calendarMonth) {
@@ -273,75 +286,99 @@ export function AttendancePanel() {
 
   return (
     <div className="space-y-4">
-      {/* Employee Selector */}
+      {/* Search Employee */}
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="flex items-center gap-2 text-base">
-            <Users className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
-            Select Employee
+            <Search className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
+            Search Employee
           </CardTitle>
-          <CardDescription>Choose an active employee to manage their attendance</CardDescription>
+          <CardDescription>Type an employee name to find and manage their attendance</CardDescription>
         </CardHeader>
         <CardContent>
-          <Popover open={employeeSelectOpen} onOpenChange={setEmployeeSelectOpen}>
-            <PopoverTrigger asChild>
+          <Command className="rounded-lg border" shouldFilter={false}>
+            <CommandInput
+              placeholder="Search employee by name..."
+              value={searchText}
+              onValueChange={setSearchText}
+            />
+            <CommandList>
+              {(searchText.length > 0 || activeEmployees.length > 0) && (
+                <>
+                  {filteredEmployees.length === 0 && (
+                    <CommandEmpty>No employee found.</CommandEmpty>
+                  )}
+                  {filteredEmployees.length > 0 && (
+                    <CommandGroup heading="Matching Employees">
+                      {filteredEmployees.map((emp) => (
+                        <CommandItem
+                          key={emp.id}
+                          value={emp.id}
+                          onSelect={() => {
+                            if (localEmployeeId === emp.id) {
+                              setLocalEmployeeId(null);
+                              setLocalEmployeeName('');
+                              setSearchText('');
+                            } else {
+                              setLocalEmployeeId(emp.id);
+                              setLocalEmployeeName(emp.fullName);
+                              setSearchText('');
+                            }
+                          }}
+                        >
+                          <Check
+                            className={cn(
+                              'mr-2 h-4 w-4',
+                              localEmployeeId === emp.id ? 'opacity-100' : 'opacity-0'
+                            )}
+                          />
+                          <div className="flex flex-col">
+                            <span>{emp.fullName}</span>
+                            <span className="text-xs text-muted-foreground">{emp.jobTitle}</span>
+                          </div>
+                        </CommandItem>
+                      ))}
+                    </CommandGroup>
+                  )}
+                </>
+              )}
+              {!employeeListLoading && activeEmployees.length === 0 && searchText.length === 0 && (
+                <div className="py-6 text-center text-sm text-muted-foreground">
+                  No active employees found
+                </div>
+              )}
+              {employeeListLoading && (
+                <div className="flex items-center justify-center py-4">
+                  <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                </div>
+              )}
+            </CommandList>
+          </Command>
+          {localEmployeeName && !searchText && (
+            <div className="flex items-center gap-2 mt-2">
+              <span className="text-xs text-muted-foreground">Selected:</span>
+              <span className="text-sm font-medium">{localEmployeeName}</span>
               <Button
-                variant="outline"
-                role="combobox"
-                aria-expanded={employeeSelectOpen}
-                className="w-full justify-between"
-                disabled={employeeListLoading}
+                variant="ghost"
+                size="sm"
+                className="h-6 text-xs text-muted-foreground"
+                onClick={() => {
+                  setLocalEmployeeId(null);
+                  setLocalEmployeeName('');
+                }}
               >
-                {targetEmployeeId && employeeName ? (
-                  <span className="truncate">{employeeName}</span>
-                ) : (
-                  <span className="text-muted-foreground">Select employee...</span>
-                )}
-                {employeeListLoading ? (
-                  <Loader2 className="ml-2 h-4 w-4 shrink-0 animate-spin opacity-50" />
-                ) : (
-                  <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                )}
+                <X className="h-3 w-3 mr-1" />
+                Clear
               </Button>
-            </PopoverTrigger>
-            <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0">
-              <Command>
-                <CommandInput placeholder="Search active employees..." />
-                <CommandList>
-                  <CommandEmpty>No active employee found.</CommandEmpty>
-                  <CommandGroup heading="Active Employees">
-                    {activeEmployees.map((emp) => (
-                      <CommandItem
-                        key={emp.id}
-                        value={emp.id}
-                        onSelect={(currentValue) => {
-                          if (currentValue === localEmployeeId) {
-                            setLocalEmployeeId(null);
-                            setLocalEmployeeName('');
-                          } else {
-                            setLocalEmployeeId(emp.id);
-                            setLocalEmployeeName(emp.fullName);
-                          }
-                          setEmployeeSelectOpen(false);
-                        }}
-                      >
-                        <Check
-                          className={cn(
-                            'mr-2 h-4 w-4',
-                            localEmployeeId === emp.id ? 'opacity-100' : 'opacity-0'
-                          )}
-                        />
-                        <div className="flex flex-col">
-                          <span>{emp.fullName}</span>
-                          <span className="text-xs text-muted-foreground">{emp.jobTitle}</span>
-                        </div>
-                      </CommandItem>
-                    ))}
-                  </CommandGroup>
-                </CommandList>
-              </Command>
-            </PopoverContent>
-          </Popover>
+            </div>
+          )}
+          {effectiveSearch && !localEmployeeName && (
+            <div className="flex items-center gap-2 mt-2">
+              <span className="text-xs text-muted-foreground">
+                Searching attendance for: &quot;{effectiveSearch}&quot;
+              </span>
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -460,18 +497,20 @@ export function AttendancePanel() {
           <CardDescription>
             {targetEmployeeId
               ? `${employeeName}'s attendance`
-              : 'Select an employee above to view their attendance'}
+              : effectiveSearch
+                ? `Attendance records matching "${effectiveSearch}"`
+                : 'Search for an employee or type a name to view attendance'}
           </CardDescription>
         </CardHeader>
         <CardContent>
-          {!targetEmployeeId ? (
+          {!targetEmployeeId && !effectiveSearch && !isLoading && records.length === 0 ? (
             <p className="text-sm text-muted-foreground text-center py-8">
-              Select an employee using the dropdown above to start tracking attendance
+              Search for an employee above to start tracking attendance
             </p>
           ) : (
             <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'list' | 'calendar')}>
               <TabsList className="mb-4">
-                <TabsTrigger value="calendar" className="gap-1.5">
+                <TabsTrigger value="calendar" className="gap-1.5" disabled={!targetEmployeeId}>
                   <CalendarDays className="h-4 w-4" />
                   Calendar
                 </TabsTrigger>
@@ -482,16 +521,24 @@ export function AttendancePanel() {
               </TabsList>
 
               <TabsContent value="calendar">
-                <AttendanceCalendar
-                  records={records}
-                  selectedDate={selectedCalendarDate}
-                  onSelectDate={handleCalendarDateClick}
-                  currentMonth={calendarMonth}
-                  onMonthChange={setCalendarMonth}
-                />
-                <p className="text-xs text-muted-foreground mt-3 text-center">
-                  Click a date to toggle status: {ATTENDANCE_STATUSES.map((s) => ATTENDANCE_STATUS_LABELS[s]).join(' → ')}
-                </p>
+                {targetEmployeeId ? (
+                  <>
+                    <AttendanceCalendar
+                      records={records}
+                      selectedDate={selectedCalendarDate}
+                      onSelectDate={handleCalendarDateClick}
+                      currentMonth={calendarMonth}
+                      onMonthChange={setCalendarMonth}
+                    />
+                    <p className="text-xs text-muted-foreground mt-3 text-center">
+                      Click a date to toggle status: {ATTENDANCE_STATUSES.map((s) => ATTENDANCE_STATUS_LABELS[s]).join(' → ')}
+                    </p>
+                  </>
+                ) : (
+                  <p className="text-sm text-muted-foreground text-center py-8">
+                    Select a specific employee to view the calendar
+                  </p>
+                )}
               </TabsContent>
 
               <TabsContent value="list">
@@ -505,6 +552,7 @@ export function AttendancePanel() {
                   dateTo={dateTo}
                   selectedEmployeeId={targetEmployeeId}
                   employeeName={employeeName}
+                  search={effectiveSearch}
                   onPageChange={setPage}
                   onDateFromChange={(d) => { setDateFrom(d); setPage(1); }}
                   onDateToChange={(d) => { setDateTo(d); setPage(1); }}

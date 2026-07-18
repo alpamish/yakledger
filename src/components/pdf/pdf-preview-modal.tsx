@@ -18,6 +18,7 @@ import ExpensePDFDocument, {
   type PdfFilters,
 } from "@/components/pdf/expense-pdf-document";
 import { settingsApi } from "@/services/settings";
+import { usePermissions } from "@/hooks/use-permissions";
 
 interface PdfPreviewModalProps {
   open: boolean;
@@ -36,6 +37,7 @@ export default function PdfPreviewModal({
   expenses,
   filters,
 }: PdfPreviewModalProps) {
+  const { hasPermission } = usePermissions();
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -195,19 +197,21 @@ export default function PdfPreviewModal({
                 <Printer className="size-4 mr-1.5" />
                 Print
               </Button>
-              <Button
-                size="sm"
-                onClick={handleDownload}
-                disabled={!pdfUrl || isGenerating}
-                className="bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm hover:shadow-md transition-all"
-              >
-                {isGenerating ? (
-                  <Loader2 className="size-4 animate-spin mr-1.5" />
-                ) : (
-                  <Download className="size-4 mr-1.5" />
-                )}
-                Download PDF
-              </Button>
+              {hasPermission('reports:generatePdf') && (
+                <Button
+                  size="sm"
+                  onClick={handleDownload}
+                  disabled={!pdfUrl || isGenerating}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm hover:shadow-md transition-all"
+                >
+                  {isGenerating ? (
+                    <Loader2 className="size-4 animate-spin mr-1.5" />
+                  ) : (
+                    <Download className="size-4 mr-1.5" />
+                  )}
+                  Download PDF
+                </Button>
+              )}
             </div>
           </div>
         </DialogFooter>

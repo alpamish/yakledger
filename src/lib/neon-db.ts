@@ -6,6 +6,8 @@ const globalForNeon = globalThis as unknown as {
 
 export const neonDb: typeof PrismaClient.prototype =
   globalForNeon.neonPrisma ??
-  new PrismaClient();
+  new PrismaClient({
+    log: process.env.NODE_ENV === "development" ? ["warn", "error"] : ["error"],
+  });
 
-if (process.env.NODE_ENV !== "production") globalForNeon.neonPrisma = neonDb;
+globalForNeon.neonPrisma = neonDb;

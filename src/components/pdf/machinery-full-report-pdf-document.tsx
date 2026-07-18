@@ -253,7 +253,7 @@ function FilterSummary({ dateFrom, dateTo }: { dateFrom?: string; dateTo?: strin
   );
 }
 
-type MachineryListItem = Pick<Machinery, "id" | "machineryName" | "machineryType" | "plateNumber" | "driverName" | "status">;
+type MachineryListItem = Pick<Machinery, "id" | "machineryName" | "machineryType" | "plateNumber" | "driverName" | "status" | "assignedContractorId"> & { assignedContractor?: { contractorName: string } | null };
 
 type TableRow =
   | { kind: "header"; machineryType: string; count: number }
@@ -291,13 +291,7 @@ function MachineryInfoSection({
   dateFrom?: string;
   dateTo?: string;
 }) {
-  const items = groupedRows.filter((r): r is { kind: "item"; data: MachineryListItem; globalIndex: number } => r.kind === "item");
-  const machineryList = items.map((r) => r.data);
-  const totalOperational = machineryList.filter((m) => m.status === "OPERATIONAL").length;
-  const totalMaintenance = machineryList.filter((m) => m.status === "UNDER_MAINTENANCE").length;
-  const totalOutOfService = machineryList.filter((m) => m.status === "OUT_OF_SERVICE").length;
-
-  const COL = { num: 24, name: 102, type: 72, plate: 68, driver: 80, status: 64 };
+  const COL = { num: 24, name: 90, type: 66, plate: 60, driver: 60, contractor: 76, status: 60 };
   const ROWS_PER_PAGE = FIRST_PAGE_ROWS;
 
   const pages: TableRow[][] = [];
@@ -320,24 +314,6 @@ function MachineryInfoSection({
             <Text style={styles.generatedDate}>Generated on: {format(new Date(), "MMMM d, yyyy")}</Text>
             <View style={styles.divider} />
             {(dateFrom || dateTo) && <FilterSummary dateFrom={dateFrom} dateTo={dateTo} />}
-            <View style={styles.summaryCards}>
-              <View style={styles.summaryCard}>
-                <Text style={styles.summaryCardLabel}>Total Machinery</Text>
-                <Text style={styles.summaryCardValue}>{machineryList.length}</Text>
-              </View>
-              <View style={styles.summaryCard}>
-                <Text style={styles.summaryCardLabel}>Operational</Text>
-                <Text style={styles.summaryCardValue}>{totalOperational}</Text>
-              </View>
-              <View style={styles.summaryCard}>
-                <Text style={styles.summaryCardLabel}>Under Maintenance</Text>
-                <Text style={styles.summaryCardValue}>{totalMaintenance}</Text>
-              </View>
-              <View style={styles.summaryCard}>
-                <Text style={styles.summaryCardLabel}>Out of Service</Text>
-                <Text style={styles.summaryCardValue}>{totalOutOfService}</Text>
-              </View>
-            </View>
           </View>
         )}
 
@@ -349,6 +325,7 @@ function MachineryInfoSection({
               <Text style={[styles.tableHeaderCell, { width: COL.type }]}>Type</Text>
               <Text style={[styles.tableHeaderCell, { width: COL.plate }]}>Plate Number</Text>
               <Text style={[styles.tableHeaderCell, { width: COL.driver }]}>Driver</Text>
+              <Text style={[styles.tableHeaderCell, { width: COL.contractor }]}>Contractor</Text>
               <Text style={[styles.tableHeaderCell, { width: COL.status }]}>Status</Text>
             </View>
             {pageData.filter(Boolean).map((row, ri) => {
@@ -370,6 +347,7 @@ function MachineryInfoSection({
                   <Text style={[styles.tableDataCell, { width: COL.type }]}>{truncate(m.machineryType, 14)}</Text>
                   <Text style={[styles.tableDataCell, { width: COL.plate }]}>{m.plateNumber || "-"}</Text>
                   <Text style={[styles.tableDataCell, { width: COL.driver }]}>{m.driverName || "-"}</Text>
+                  <Text style={[styles.tableDataCell, { width: COL.contractor }]}>{m.assignedContractor?.contractorName || "-"}</Text>
                   <Text style={[styles.tableDataCell, { width: COL.status }]}>{statusLabel}</Text>
                 </View>
               );
@@ -767,7 +745,7 @@ function MachineryFullReportPDFDocument({
     sections.push(...MachineryFuelSection({ fuelUsages, companyName }));
   }
 
-  if (reportType === "info" || reportType === "full") {
+  if (reportType === "full") {
     sections.push(
       <MachineryTypeSummaryPage
         key="type-summary"

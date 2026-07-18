@@ -24,6 +24,10 @@ interface FuelFinancialPDFDocumentProps {
 const formatCurrency = (amount: number) =>
   `AFN ${amount.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
 
+const FIRST_PAGE_ROWS = 12;
+const CONT_PAGE_ROWS = 20;
+const MACHINERY_PER_PAGE = 8;
+
 const COL = {
   date: "14%",
   type: "10%",
@@ -168,6 +172,18 @@ const styles = StyleSheet.create({
     borderTopColor: "#e5e7eb",
     paddingTop: 8,
   },
+  pageNumberContainer: {
+    position: "absolute",
+    bottom: 30,
+    left: 0,
+    right: 0,
+    alignItems: "center",
+  },
+  pageNumberText: {
+    fontSize: 8,
+    color: "#94a3b8",
+    fontFamily: "Vazirmatn",
+  },
   emptyText: {
     fontSize: 9,
     color: "#94a3b8",
@@ -236,66 +252,6 @@ function PurchaseHistoryTable({ purchases = [] }: { purchases?: FuelTransaction[
   );
 }
 
-function MachineryDeliveryBreakdown({ data }: { data: FuelFinancialSummary }) {
-  const machineryList = data.byMachinery || [];
-  if (machineryList.length === 0) {
-    return <Text style={styles.emptyText}>No machinery deliveries recorded</Text>;
-  }
-
-  return (
-    <>
-      {machineryList.map((m) => (
-        <View key={m.machineryId} style={styles.machinerySection}>
-          <Text style={styles.machineryHeader}>{m.machineryName}</Text>
-          <Text style={styles.machinerySubtext}>
-            Contractor: {m.contractorName}{m.plateNumber ? ` | Plate: ${m.plateNumber}` : ""}
-          </Text>
-          <View style={styles.machineryStats}>
-            <Text style={styles.machineryStat}>
-              Total Received: <Text style={{ fontWeight: "bold" }}>{m.totalQty.toFixed(1)} L</Text>
-            </Text>
-            <Text style={styles.machineryStat}>
-              Total Cost: <Text style={{ fontWeight: "bold" }}>{formatCurrency(m.totalCost)}</Text>
-            </Text>
-            <Text style={styles.machineryStat}>
-              Deliveries: <Text style={{ fontWeight: "bold" }}>{m.issues.length}</Text>
-            </Text>
-          </View>
-
-          <View style={styles.subTable}>
-            <View style={styles.subTableHeader}>
-              <Text style={{ width: "20%", padding: 3, fontSize: 7 }}>Date</Text>
-              <Text style={{ width: "15%", padding: 3, fontSize: 7 }}>Fuel Type</Text>
-              <Text style={{ width: "15%", padding: 3, fontSize: 7, textAlign: "right" }}>Quantity</Text>
-              <Text style={{ width: "20%", padding: 3, fontSize: 7, textAlign: "right" }}>Unit Price</Text>
-              <Text style={{ width: "15%", padding: 3, fontSize: 7, textAlign: "right" }}>Total Cost</Text>
-              <Text style={{ width: "15%", padding: 3, fontSize: 7 }}>Container</Text>
-            </View>
-            {m.issues.map((issue, idx) => (
-              <View key={issue.id} style={idx % 2 === 0 ? styles.tableRow : styles.tableRowAlt}>
-                <Text style={{ width: "20%", padding: 3, fontSize: 7 }}>
-                  {format(new Date(issue.date), "MMM dd, yyyy")}
-                </Text>
-                <Text style={{ width: "15%", padding: 3, fontSize: 7 }}>
-                  {FUEL_TYPE_LABELS[issue.fuelType as keyof typeof FUEL_TYPE_LABELS] || issue.fuelType}
-                </Text>
-                <Text style={{ width: "15%", padding: 3, fontSize: 7, textAlign: "right" }}>{issue.quantity} L</Text>
-                <Text style={{ width: "20%", padding: 3, fontSize: 7, textAlign: "right" }}>
-                  {issue.unitPrice ? formatCurrency(issue.unitPrice) : formatCurrency(data.avgUnitPrice)}
-                </Text>
-                <Text style={{ width: "15%", padding: 3, fontSize: 7, textAlign: "right" }}>
-                  {issue.totalCost ? formatCurrency(issue.totalCost) : formatCurrency(issue.quantity * data.avgUnitPrice)}
-                </Text>
-                <Text style={{ width: "15%", padding: 3, fontSize: 7 }}>{issue.container?.name || "-"}</Text>
-              </View>
-            ))}
-          </View>
-        </View>
-      ))}
-    </>
-  );
-}
-
 function AllTransactionsTable({ transactions = [] }: { transactions?: FuelTransaction[] }) {
   if (transactions.length === 0) {
     return <Text style={styles.emptyText}>No transactions recorded</Text>;
@@ -335,61 +291,201 @@ function AllTransactionsTable({ transactions = [] }: { transactions?: FuelTransa
   );
 }
 
+function SummaryPage({
+  data,
+  generatedAt,
+}: {
+  data: FuelFinancialSummary;
+  generatedAt: Date;
+}) {
+  return (
+    <Page size="A4" orientation="landscape" style={styles.page}>
+      <Text style={styles.companyName}>YakhshiLedger</Text>
+      <Text style={styles.reportTitle}>Fuel Financial Report</Text>
+      <Text style={styles.generatedDate}>
+        Generated: {format(generatedAt, "MMM dd, yyyy HH:mm")}
+      </Text>
+      <View style={styles.headerDivider} />
+
+      <Text style={styles.sectionTitle}>Financial Summary</Text>
+      <View style={styles.summaryRow}>
+        <View style={styles.summaryCard}>
+          <Text style={styles.summaryLabel}>Total Purchased</Text>
+          <Text style={styles.summaryValue}>{data.totalPurchasedQty.toFixed(1)} L</Text>
+          <Text style={styles.summarySubValue}>{formatCurrency(data.totalPurchasedCost)}</Text>
+        </View>
+        <View style={styles.summaryCard}>
+          <Text style={styles.summaryLabel}>Total Issued / Delivered</Text>
+          <Text style={styles.summaryValue}>{data.totalIssuedQty.toFixed(1)} L</Text>
+          <Text style={styles.summarySubValue}>{formatCurrency(data.totalIssuedCost)}</Text>
+        </View>
+        <View style={styles.summaryCard}>
+          <Text style={styles.summaryLabel}>Remaining Balance</Text>
+          <Text style={styles.summaryValue}>{data.remainingQty.toFixed(1)} L</Text>
+          <Text style={styles.summarySubValue}>{formatCurrency(data.remainingValue)}</Text>
+        </View>
+        <View style={styles.summaryCard}>
+          <Text style={styles.summaryLabel}>Avg Unit Price</Text>
+          <Text style={styles.summaryValue}>{formatCurrency(data.avgUnitPrice)}</Text>
+          <Text style={styles.summarySubValue}>per liter</Text>
+        </View>
+      </View>
+
+      <Text style={styles.sectionTitle}>Purchase History</Text>
+      <PurchaseHistoryTable purchases={data.purchaseTransactions} />
+
+      <Text style={styles.sectionTitle}>Delivery Breakdown by Machinery</Text>
+      <MachineryBreakdownSummary data={data} />
+
+      <View style={styles.pageNumberContainer}>
+        <Text style={styles.pageNumberText}>Page 1</Text>
+      </View>
+    </Page>
+  );
+}
+
+function MachineryBreakdownSummary({ data }: { data: FuelFinancialSummary }) {
+  const machineryList = data.byMachinery || [];
+  if (machineryList.length === 0) {
+    return <Text style={styles.emptyText}>No machinery deliveries recorded</Text>;
+  }
+
+  return (
+    <>
+      {machineryList.map((m) => (
+        <View key={m.machineryId} style={styles.machinerySection}>
+          <Text style={styles.machineryHeader}>{m.machineryName}</Text>
+          <Text style={styles.machinerySubtext}>
+            Contractor: {m.contractorName}{m.plateNumber ? ` | Plate: ${m.plateNumber}` : ""}
+          </Text>
+          <View style={styles.machineryStats}>
+            <Text style={styles.machineryStat}>
+              Total Received: <Text style={{ fontWeight: "bold" }}>{m.totalQty.toFixed(1)} L</Text>
+            </Text>
+            <Text style={styles.machineryStat}>
+              Total Cost: <Text style={{ fontWeight: "bold" }}>{formatCurrency(m.totalCost)}</Text>
+            </Text>
+            <Text style={styles.machineryStat}>
+              Deliveries: <Text style={{ fontWeight: "bold" }}>{m.issues.length}</Text>
+            </Text>
+          </View>
+        </View>
+      ))}
+    </>
+  );
+}
+
+function MachineryDetailPages({ data }: { data: FuelFinancialSummary }) {
+  const machineryList = (data.byMachinery || []).filter(m => m.issues.length > 0);
+  if (machineryList.length === 0) return null;
+
+  const chunks: typeof machineryList[] = [];
+  for (let i = 0; i < machineryList.length; i += MACHINERY_PER_PAGE) {
+    chunks.push(machineryList.slice(i, i + MACHINERY_PER_PAGE));
+  }
+
+  return (
+    <>
+      {chunks.map((chunk, pageIdx) => (
+        <Page key={`mach-${pageIdx}`} size="A4" orientation="landscape" style={styles.page}>
+          <Text style={styles.companyName}>YakhshiLedger</Text>
+          <Text style={styles.reportTitle}>Fuel Financial Report — Machinery Delivery Details</Text>
+          <View style={styles.headerDivider} />
+
+          {chunk.map((m) => (
+            <View key={m.machineryId} style={styles.machinerySection}>
+              <Text style={styles.machineryHeader}>{m.machineryName}</Text>
+              <Text style={styles.machinerySubtext}>
+                Contractor: {m.contractorName}{m.plateNumber ? ` | Plate: ${m.plateNumber}` : ""}
+              </Text>
+              <View style={styles.subTable}>
+                <View style={styles.subTableHeader}>
+                  <Text style={{ width: "20%", padding: 3, fontSize: 7 }}>Date</Text>
+                  <Text style={{ width: "15%", padding: 3, fontSize: 7 }}>Fuel Type</Text>
+                  <Text style={{ width: "15%", padding: 3, fontSize: 7, textAlign: "right" }}>Quantity</Text>
+                  <Text style={{ width: "20%", padding: 3, fontSize: 7, textAlign: "right" }}>Unit Price</Text>
+                  <Text style={{ width: "15%", padding: 3, fontSize: 7, textAlign: "right" }}>Total Cost</Text>
+                  <Text style={{ width: "15%", padding: 3, fontSize: 7 }}>Container</Text>
+                </View>
+                {m.issues.map((issue, idx) => (
+                  <View key={issue.id} style={idx % 2 === 0 ? styles.tableRow : styles.tableRowAlt}>
+                    <Text style={{ width: "20%", padding: 3, fontSize: 7 }}>
+                      {format(new Date(issue.date), "MMM dd, yyyy")}
+                    </Text>
+                    <Text style={{ width: "15%", padding: 3, fontSize: 7 }}>
+                      {FUEL_TYPE_LABELS[issue.fuelType as keyof typeof FUEL_TYPE_LABELS] || issue.fuelType}
+                    </Text>
+                    <Text style={{ width: "15%", padding: 3, fontSize: 7, textAlign: "right" }}>{issue.quantity} L</Text>
+                    <Text style={{ width: "20%", padding: 3, fontSize: 7, textAlign: "right" }}>
+                      {issue.unitPrice ? formatCurrency(issue.unitPrice) : formatCurrency(data.avgUnitPrice)}
+                    </Text>
+                    <Text style={{ width: "15%", padding: 3, fontSize: 7, textAlign: "right" }}>
+                      {issue.totalCost ? formatCurrency(issue.totalCost) : formatCurrency(issue.quantity * data.avgUnitPrice)}
+                    </Text>
+                    <Text style={{ width: "15%", padding: 3, fontSize: 7 }}>{issue.container?.name || "-"}</Text>
+                  </View>
+                ))}
+              </View>
+            </View>
+          ))}
+
+          <View style={styles.pageNumberContainer}>
+            <Text style={styles.pageNumberText}>Page {pageIdx + 2}</Text>
+          </View>
+        </Page>
+      ))}
+    </>
+  );
+}
+
+function TransactionPages({ transactions = [] }: { transactions?: FuelTransaction[] }) {
+  if (transactions.length === 0) return null;
+
+  const txPages: FuelTransaction[][] = [];
+  let remaining = [...transactions];
+  txPages.push(remaining.slice(0, FIRST_PAGE_ROWS));
+  remaining = remaining.slice(FIRST_PAGE_ROWS);
+  while (remaining.length > 0) {
+    txPages.push(remaining.slice(0, CONT_PAGE_ROWS));
+    remaining = remaining.slice(CONT_PAGE_ROWS);
+  }
+
+  const machCount = (transactions[0] && (transactions[0] as any).__machCount) || 0;
+  const offset = 2 + Math.ceil(
+    ((transactions[0] as any)?.byMachinery?.length || 0) / MACHINERY_PER_PAGE
+  );
+
+  return (
+    <>
+      {txPages.map((txPage, idx) => (
+        <Page key={`tx-${idx}`} size="A4" orientation="landscape" style={styles.page}>
+          <Text style={styles.companyName}>YakhshiLedger</Text>
+          <Text style={styles.reportTitle}>Fuel Financial Report — Full Transaction History</Text>
+          <View style={styles.headerDivider} />
+
+          <Text style={styles.sectionTitle}>
+            {idx === 0 ? "Full Transaction History" : "Transaction History (cont.)"}
+          </Text>
+          <AllTransactionsTable transactions={txPage} />
+
+          <View style={styles.pageNumberContainer}>
+            <Text style={styles.pageNumberText}>Page {offset + idx + 1}</Text>
+          </View>
+        </Page>
+      ))}
+    </>
+  );
+}
+
 function FuelFinancialPDFDocument({
   data,
   generatedAt,
 }: FuelFinancialPDFDocumentProps) {
   return (
     <Document title="Fuel Financial Report" author="YakhshiLedger">
-      <Page size="A4" orientation="landscape" style={styles.page}>
-        <Text style={styles.companyName}>YakhshiLedger</Text>
-        <Text style={styles.reportTitle}>Fuel Financial Report</Text>
-        <Text style={styles.generatedDate}>
-          Generated: {format(generatedAt, "MMM dd, yyyy HH:mm")}
-        </Text>
-        <View style={styles.headerDivider} />
-
-        {/* Financial Summary Cards */}
-        <Text style={styles.sectionTitle}>Financial Summary</Text>
-        <View style={styles.summaryRow}>
-          <View style={styles.summaryCard}>
-            <Text style={styles.summaryLabel}>Total Purchased</Text>
-            <Text style={styles.summaryValue}>{data.totalPurchasedQty.toFixed(1)} L</Text>
-            <Text style={styles.summarySubValue}>{formatCurrency(data.totalPurchasedCost)}</Text>
-          </View>
-          <View style={styles.summaryCard}>
-            <Text style={styles.summaryLabel}>Total Issued / Delivered</Text>
-            <Text style={styles.summaryValue}>{data.totalIssuedQty.toFixed(1)} L</Text>
-            <Text style={styles.summarySubValue}>{formatCurrency(data.totalIssuedCost)}</Text>
-          </View>
-          <View style={styles.summaryCard}>
-            <Text style={styles.summaryLabel}>Remaining Balance</Text>
-            <Text style={styles.summaryValue}>{data.remainingQty.toFixed(1)} L</Text>
-            <Text style={styles.summarySubValue}>{formatCurrency(data.remainingValue)}</Text>
-          </View>
-          <View style={styles.summaryCard}>
-            <Text style={styles.summaryLabel}>Avg Unit Price</Text>
-            <Text style={styles.summaryValue}>{formatCurrency(data.avgUnitPrice)}</Text>
-            <Text style={styles.summarySubValue}>per liter</Text>
-          </View>
-        </View>
-
-        {/* Purchase History */}
-        <Text style={styles.sectionTitle}>Purchase History</Text>
-        <PurchaseHistoryTable purchases={data.purchaseTransactions} />
-
-        {/* Machinery Delivery Breakdown */}
-        <Text style={styles.sectionTitle}>Delivery Breakdown by Machinery</Text>
-        <MachineryDeliveryBreakdown data={data} />
-
-        {/* Transaction History */}
-        <Text style={styles.sectionTitle}>Full Transaction History</Text>
-        <AllTransactionsTable transactions={data.allTransactions} />
-
-        <Text style={styles.footer}>
-          YakhshiLedger — Fuel Financial Report — Page 1
-        </Text>
-      </Page>
+      <SummaryPage data={data} generatedAt={generatedAt} />
+      <MachineryDetailPages data={data} />
+      <TransactionPages transactions={data.allTransactions} />
     </Document>
   );
 }

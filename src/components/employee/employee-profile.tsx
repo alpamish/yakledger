@@ -2,6 +2,7 @@
 
 import * as React from 'react';
 import { useEmployeeStore } from '@/hooks/use-employee-store';
+import { usePermissions } from '@/hooks/use-permissions';
 import { cashAdvanceApi, expensesApi, attendanceApi } from '@/services/api';
 import { employeesApi } from '@/services/employee-api';
 import {
@@ -95,6 +96,7 @@ export function EmployeeProfile() {
   const clearSelectedEmployee = useEmployeeStore((s) => s.clearSelectedEmployee);
   const openForm = useEmployeeStore((s) => s.openForm);
   const updateEmployee = useEmployeeStore((s) => s.updateEmployee);
+  const { canEdit, hasPermission } = usePermissions();
 
   const [showExpensesDialog, setShowExpensesDialog] = React.useState(false);
   const [expenseType, setExpenseType] = React.useState<'taken' | 'spent'>('taken');
@@ -375,17 +377,21 @@ export function EmployeeProfile() {
           <h2 className="text-2xl font-bold tracking-tight">Employee Profile</h2>
           <p className="text-muted-foreground">Detailed employee information</p>
         </div>
-        <Button onClick={() => openForm(emp)} className="bg-emerald-600 hover:bg-emerald-700 text-white">
-          Edit Employee
-        </Button>
-        <Button
-          variant="outline"
-          onClick={() => setShowPdfDialog(true)}
-          className="gap-1.5"
-        >
-          <Download className="h-4 w-4" />
-          Download PDF Report
-        </Button>
+        {canEdit('employees') && (
+          <Button onClick={() => openForm(emp)} className="bg-emerald-600 hover:bg-emerald-700 text-white">
+            Edit Employee
+          </Button>
+        )}
+        {hasPermission('reports:generatePdf') && (
+          <Button
+            variant="outline"
+            onClick={() => setShowPdfDialog(true)}
+            className="gap-1.5"
+          >
+            <Download className="h-4 w-4" />
+            Download PDF Report
+          </Button>
+        )}
       </div>
 
       {/* Profile Header Card */}
@@ -613,15 +619,17 @@ export function EmployeeProfile() {
                     alt="ID Front" 
                     className="w-full h-48 rounded-lg border object-contain bg-muted"
                   />
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="mt-2 w-full"
-                    onClick={() => { setIdImageSide('front'); setShowIdImageDialog(true); }}
-                  >
-                    <Upload className="h-4 w-4 mr-2" />
-                    Update Front
-                  </Button>
+                  {canEdit('employees') && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="mt-2 w-full"
+                      onClick={() => { setIdImageSide('front'); setShowIdImageDialog(true); }}
+                    >
+                      <Upload className="h-4 w-4 mr-2" />
+                      Update Front
+                    </Button>
+                  )}
                 </div>
               ) : (
                 <label
@@ -654,15 +662,17 @@ export function EmployeeProfile() {
                     alt="ID Back" 
                     className="w-full h-48 rounded-lg border object-contain bg-muted"
                   />
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="mt-2 w-full"
-                    onClick={() => { setIdImageSide('back'); setShowIdImageDialog(true); }}
-                  >
-                    <Upload className="h-4 w-4 mr-2" />
-                    Update Back
-                  </Button>
+                  {canEdit('employees') && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="mt-2 w-full"
+                      onClick={() => { setIdImageSide('back'); setShowIdImageDialog(true); }}
+                    >
+                      <Upload className="h-4 w-4 mr-2" />
+                      Update Back
+                    </Button>
+                  )}
                 </div>
               ) : (
                 <label
@@ -1033,44 +1043,46 @@ export function EmployeeProfile() {
                 </Button>
               </div>
             </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={async () => {
-                setIsGeneratingPdf(true);
-                try {
-                  const EmployeeExpensePDFDocument = await getEmployeeExpensePDFDocument();
-                  const blob = await pdf(
-                    <EmployeeExpensePDFDocument 
-                      expenses={expenseList} 
-                      employeeName={emp.fullName}
-                      type={expenseType}
-                    />
-                  ).toBlob();
+            {hasPermission('reports:generatePdf') && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={async () => {
+                  setIsGeneratingPdf(true);
+                  try {
+                    const EmployeeExpensePDFDocument = await getEmployeeExpensePDFDocument();
+                    const blob = await pdf(
+                      <EmployeeExpensePDFDocument 
+                        expenses={expenseList} 
+                        employeeName={emp.fullName}
+                        type={expenseType}
+                      />
+                    ).toBlob();
 
-                  const url = URL.createObjectURL(blob);
-                  const link = document.createElement("a");
-                  link.href = url;
-                  link.download = `${expenseType === 'taken' ? 'paid-to' : 'paid-by'}-${emp.fullName.replace(/\s+/g, '-').toLowerCase()}-${format(new Date(), 'yyyy-MM-dd')}.pdf`;
-                  document.body.appendChild(link);
-                  link.click();
-                  document.body.removeChild(link);
-                  URL.revokeObjectURL(url);
-                } catch (error) {
-                  console.error("Failed to generate PDF:", error);
-                } finally {
-                  setIsGeneratingPdf(false);
-                }
-              }}
-              disabled={isGeneratingPdf || expenseList.length === 0}
-            >
-              {isGeneratingPdf ? (
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-              ) : (
-                <Download className="h-4 w-4 mr-2" />
-              )}
-              Generate PDF
-            </Button>
+                    const url = URL.createObjectURL(blob);
+                    const link = document.createElement("a");
+                    link.href = url;
+                    link.download = `${expenseType === 'taken' ? 'paid-to' : 'paid-by'}-${emp.fullName.replace(/\s+/g, '-').toLowerCase()}-${format(new Date(), 'yyyy-MM-dd')}.pdf`;
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                    URL.revokeObjectURL(url);
+                  } catch (error) {
+                    console.error("Failed to generate PDF:", error);
+                  } finally {
+                    setIsGeneratingPdf(false);
+                  }
+                }}
+                disabled={isGeneratingPdf || expenseList.length === 0}
+              >
+                {isGeneratingPdf ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <Download className="h-4 w-4 mr-2" />
+                )}
+                Generate PDF
+              </Button>
+            )}
           </div>
         </DialogContent>
       </Dialog>
@@ -1125,18 +1137,20 @@ export function EmployeeProfile() {
             <Button variant="outline" onClick={() => setShowPdfDialog(false)}>
               Cancel
             </Button>
-            <Button
-              onClick={handleDownloadPDF}
-              disabled={isPdfGenerating}
-              className="bg-emerald-600 hover:bg-emerald-700 text-white gap-1.5"
-            >
-              {isPdfGenerating ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Download className="h-4 w-4" />
-              )}
-              {isPdfGenerating ? 'Generating...' : 'Generate PDF'}
-            </Button>
+            {hasPermission('reports:generatePdf') && (
+              <Button
+                onClick={handleDownloadPDF}
+                disabled={isPdfGenerating}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white gap-1.5"
+              >
+                {isPdfGenerating ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Download className="h-4 w-4" />
+                )}
+                {isPdfGenerating ? 'Generating...' : 'Generate PDF'}
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>

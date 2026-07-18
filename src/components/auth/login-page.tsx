@@ -72,6 +72,18 @@ export function LoginPage() {
   const [showLoginPassword, setShowLoginPassword] = React.useState(false);
   const [showRegisterPassword, setShowRegisterPassword] = React.useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = React.useState(false);
+  const [allowSignup, setAllowSignup] = React.useState(true);
+
+  React.useEffect(() => {
+    fetch("/api/settings")
+      .then((res) => res.json())
+      .then((json) => {
+        if (json.success && json.data) {
+          setAllowSignup(json.data.allowSignup ?? false);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   // ─── Login Form ──────────────────────────────────────────────────────────
 
@@ -165,13 +177,15 @@ export function LoginPage() {
 
         <CardContent className="pt-4">
           <Tabs defaultValue="login" className="w-full">
-            <TabsList className="grid w-full grid-cols-2">
+            <TabsList className={`grid w-full ${allowSignup ? "grid-cols-2" : "grid-cols-1"}`}>
               <TabsTrigger value="login" className="text-sm">
                 Sign In
               </TabsTrigger>
-              <TabsTrigger value="register" className="text-sm">
-                Create Account
-              </TabsTrigger>
+              {allowSignup && (
+                <TabsTrigger value="register" className="text-sm">
+                  Create Account
+                </TabsTrigger>
+              )}
             </TabsList>
 
             {/* ─── Login Tab ─────────────────────────────────────────── */}
@@ -278,6 +292,7 @@ export function LoginPage() {
             </TabsContent>
 
             {/* ─── Register Tab ──────────────────────────────────────── */}
+            {allowSignup && (
             <TabsContent value="register" className="mt-5">
               <Form {...registerForm}>
                 <form
@@ -424,6 +439,7 @@ export function LoginPage() {
                 </form>
               </Form>
             </TabsContent>
+            )}
           </Tabs>
         </CardContent>
       </Card>

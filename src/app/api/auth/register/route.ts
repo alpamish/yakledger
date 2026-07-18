@@ -24,6 +24,19 @@ export async function POST(request: NextRequest) {
 
     const { email, name, password } = result.data;
 
+    // Check if registration is allowed
+    const appSettings = await db.appSettings.findUnique({
+      where: { id: "default" },
+      select: { allowSignup: true },
+    });
+
+    if (!appSettings?.allowSignup) {
+      return NextResponse.json(
+        { success: false, error: "Registration is currently disabled" },
+        { status: 403 }
+      );
+    }
+
     // Check if user already exists
     const existingUser = await db.user.findUnique({
       where: { email },

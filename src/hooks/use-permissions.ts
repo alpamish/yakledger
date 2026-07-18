@@ -30,6 +30,7 @@ export function usePermissions() {
   const canEdit = useCallback((module: Module): boolean => can(module, "edit"), [can]);
   const canDelete = useCallback((module: Module): boolean => can(module, "delete"), [can]);
   const canApprove = useCallback((module: Module): boolean => can(module, "approve"), [can]);
+  const canManagePermissions = useCallback((module: Module): boolean => can(module, "managePermissions"), [can]);
 
-  return { hasPermission, can, canView, canCreate, canEdit, canDelete, canApprove };
+  return { hasPermission, can, canView, canCreate, canEdit, canDelete, canApprove, canManagePermissions };
 }

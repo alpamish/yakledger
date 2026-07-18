@@ -6,7 +6,7 @@ import { Prisma } from "@prisma/client";
 
 const DEPARTMENT_VALUES = [
   "ADMINISTRATION", "FINANCE", "OPERATIONS", "ENGINEERING",
-  "LOGISTICS", "SECURITY", "MACHINERY_TEAM", "LABOR",
+  "LOGISTICS", "SECURITY", "MACHINERY_TEAM", "LABOR", "KITCHEN",
 ] as const;
 
 const EMPLOYMENT_TYPE_VALUES = [
@@ -161,44 +161,47 @@ export async function POST(request: NextRequest) {
 
     const data = parsed.data;
 
-    const employee = await db.employee.create({
-      data: {
-        fullName: data.fullName,
-        fatherName: data.fatherName,
-        gender: data.gender,
-        dateOfBirth: data.dateOfBirth ? new Date(data.dateOfBirth) : null,
-        phoneNumber: data.phoneNumber,
-        email: data.email ?? null,
-        address: data.address ?? null,
-        nationalId: data.nationalId ?? null,
-        jobTitle: data.jobTitle,
-        department: data.department,
-        employmentType: data.employmentType,
-        salary: data.salary,
-        hireDate: new Date(data.hireDate),
-        status: data.status,
-        idImageFront: data.idImageFront ?? null,
-        idImageBack: data.idImageBack ?? null,
-        emergencyContactName: data.emergencyContactName ?? null,
-        emergencyContactPhone: data.emergencyContactPhone ?? null,
-        createdBy: user.id,
-      },
-      include: {
-        creator: {
-          select: { id: true, email: true, name: true, role: true, avatar: true },
+    const employee = await db.$transaction(async (tx) => {
+      const created = await tx.employee.create({
+        data: {
+          fullName: data.fullName,
+          fatherName: data.fatherName,
+          gender: data.gender,
+          dateOfBirth: data.dateOfBirth ? new Date(data.dateOfBirth) : null,
+          phoneNumber: data.phoneNumber,
+          email: data.email ?? null,
+          address: data.address ?? null,
+          nationalId: data.nationalId ?? null,
+          jobTitle: data.jobTitle,
+          department: data.department,
+          employmentType: data.employmentType,
+          salary: data.salary,
+          hireDate: new Date(data.hireDate),
+          status: data.status,
+          idImageFront: data.idImageFront ?? null,
+          idImageBack: data.idImageBack ?? null,
+          emergencyContactName: data.emergencyContactName ?? null,
+          emergencyContactPhone: data.emergencyContactPhone ?? null,
+          createdBy: user.id,
         },
-      },
-    });
+        include: {
+          creator: {
+            select: { id: true, email: true, name: true, role: true, avatar: true },
+          },
+        },
+      });
 
-    // Create audit log entry
-    await db.auditLog.create({
-      data: {
-        action: "CREATE",
-        entity: "Employee",
-        entityId: employee.id,
-        details: `Created employee: ${employee.fullName} (${employee.jobTitle})`,
-        userId: user.id,
-      },
+      await tx.auditLog.create({
+        data: {
+          action: "CREATE",
+          entity: "Employee",
+          entityId: created.id,
+          details: `Created employee: ${created.fullName} (${created.jobTitle})`,
+          userId: user.id,
+        },
+      });
+
+      return created;
     });
 
     return NextResponse.json(

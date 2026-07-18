@@ -7,6 +7,7 @@ import { Prisma } from "@prisma/client";
 const createTimesheetSchema = z.object({
   contractorId: z.string().min(1, "Contractor is required"),
   machineryId: z.string().min(1, "Machinery is required"),
+  machineryRateId: z.string().optional().nullable(),
   operatorName: z.string().optional().nullable(),
   workSite: z.string().optional().nullable(),
   date: z.string().min(1, "Date is required"),
@@ -163,42 +164,46 @@ export async function POST(request: NextRequest) {
       totalHours = calculateTotalHours(data.startTime, data.lunchStart, data.lunchEnd, data.endTime);
     }
 
-    const timesheet = await db.timesheet.create({
-      data: {
-        contractorId: data.contractorId,
-        machineryId: data.machineryId,
-        operatorName: data.operatorName ?? null,
-        workSite: data.workSite ?? null,
-        date: new Date(data.date),
-        startTime: data.startTime ?? null,
-        lunchStart: data.lunchStart ?? null,
-        lunchEnd: data.lunchEnd ?? null,
-        endTime: data.endTime ?? null,
-        totalHours,
-        overtimeHours: data.overtimeHours,
-        approvedBy: data.approvedBy ?? null,
-        notes: data.notes ?? null,
-        createdBy: user.id,
-      },
-      include: {
-        contractor: {
-          select: { id: true, contractorName: true, contractorType: true },
+    const timesheet = await db.$transaction(async (tx) => {
+      const created = await tx.timesheet.create({
+        data: {
+          contractorId: data.contractorId,
+          machineryId: data.machineryId,
+          machineryRateId: data.machineryRateId ?? null,
+          operatorName: data.operatorName ?? null,
+          workSite: data.workSite ?? null,
+          date: new Date(data.date),
+          startTime: data.startTime ?? null,
+          lunchStart: data.lunchStart ?? null,
+          lunchEnd: data.lunchEnd ?? null,
+          endTime: data.endTime ?? null,
+          totalHours,
+          overtimeHours: data.overtimeHours,
+          approvedBy: data.approvedBy ?? null,
+          notes: data.notes ?? null,
+          createdBy: user.id,
         },
-        machinery: {
-          select: { id: true, machineryName: true, machineryType: true, plateNumber: true },
+        include: {
+          contractor: {
+            select: { id: true, contractorName: true, contractorType: true },
+          },
+          machinery: {
+            select: { id: true, machineryName: true, machineryType: true, plateNumber: true },
+          },
         },
-      },
-    });
+      });
 
-    // Create audit log entry
-    await db.auditLog.create({
-      data: {
-        action: "CREATE",
-        entity: "Timesheet",
-        entityId: timesheet.id,
-        details: `Created timesheet for ${timesheet.operatorName || "contractor"} on ${data.date}`,
-        userId: user.id,
-      },
+      await tx.auditLog.create({
+        data: {
+          action: "CREATE",
+          entity: "Timesheet",
+          entityId: created.id,
+          details: `Created timesheet for ${created.operatorName || "contractor"} on ${data.date}`,
+          userId: user.id,
+        },
+      });
+
+      return created;
     });
 
     return NextResponse.json(

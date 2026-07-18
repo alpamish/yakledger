@@ -17,7 +17,9 @@ import { EmployeeWalletDetail } from './employee-wallet-detail';
 import { usePermissions } from '@/hooks/use-permissions';
 
 export function CashAdvancePage() {
-  const { canCreate } = usePermissions();
+  const { canView, canCreate } = usePermissions();
+
+  if (!canView('cashAdvance')) return null;
   const [activeTab, setActiveTab] = React.useState('wallets');
   const [selectedEmployeeId, setSelectedEmployeeId] = React.useState<string | null>(null);
 

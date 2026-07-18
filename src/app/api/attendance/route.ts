@@ -14,6 +14,7 @@ export async function GET(request: NextRequest) {
 
     const { searchParams } = new URL(request.url);
     const employeeId = searchParams.get("employeeId");
+    const search = searchParams.get("search");
     const dateFrom = searchParams.get("dateFrom");
     const dateTo = searchParams.get("dateTo");
     const status = searchParams.get("status");
@@ -24,6 +25,10 @@ export async function GET(request: NextRequest) {
 
     if (employeeId) where.employeeId = employeeId;
     if (status) where.status = status;
+
+    if (search) {
+      where.employee = { fullName: { contains: search } };
+    }
 
     if (dateFrom || dateTo) {
       const dateFilter: Record<string, Date> = {};

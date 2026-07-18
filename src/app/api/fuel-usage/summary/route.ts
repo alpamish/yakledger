@@ -9,12 +9,27 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const dateFrom = searchParams.get("dateFrom") || undefined;
     const dateTo = searchParams.get("dateTo") || undefined;
+    const fuelType = searchParams.get("fuelType") || undefined;
+    const machineryType = searchParams.get("machineryType") || undefined;
+    const machineryId = searchParams.get("machineryId") || undefined;
 
     const dateFilter: Record<string, unknown> = {};
     if (dateFrom || dateTo) {
       dateFilter.date = {};
       if (dateFrom) (dateFilter.date as Record<string, unknown>).gte = new Date(dateFrom);
       if (dateTo) (dateFilter.date as Record<string, unknown>).lte = new Date(dateTo + "T23:59:59.999Z");
+    }
+
+    if (fuelType) {
+      dateFilter.fuelType = fuelType;
+    }
+
+    if (machineryId) {
+      dateFilter.machineryId = machineryId;
+    }
+
+    if (machineryType) {
+      dateFilter.machinery = { machineryType };
     }
 
     const [aggregation, dailyGroup, typeGroup, fuelGroup, count] = await Promise.all([

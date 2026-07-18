@@ -620,14 +620,18 @@ export function EmployeeTable({
       {selectedEmployeeIds.size > 0 && (
         <div className="flex items-center gap-3 p-3 rounded-lg border bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800">
           <span className="text-sm font-medium">{selectedEmployeeIds.size} selected</span>
-          <Button size="sm" variant="outline" onClick={() => onBulkAction('activate')}>
-            <UserCheck className="mr-2 h-4 w-4" />
-            Activate
-          </Button>
-          <Button size="sm" variant="outline" onClick={() => onBulkAction('deactivate')}>
-            <UserX className="mr-2 h-4 w-4" />
-            Deactivate
-          </Button>
+          {canEdit('employees') && (
+            <Button size="sm" variant="outline" onClick={() => onBulkAction('activate')}>
+              <UserCheck className="mr-2 h-4 w-4" />
+              Activate
+            </Button>
+          )}
+          {canEdit('employees') && (
+            <Button size="sm" variant="outline" onClick={() => onBulkAction('deactivate')}>
+              <UserX className="mr-2 h-4 w-4" />
+              Deactivate
+            </Button>
+          )}
           {canDelete('employees') && (
             <Button size="sm" variant="destructive" onClick={() => onBulkAction('delete')}>
               <Trash2 className="mr-2 h-4 w-4" />

@@ -7,8 +7,8 @@ import { walletService } from "@/services/wallet.service";
 
 // Schema for creating an expense
 const createExpenseSchema = z.object({
-  title: z.string().min(1, "Title is required"),
-  description: z.string().optional().nullable(),
+  title: z.string().min(1, "Title is required").max(500, "Title too long"),
+  description: z.string().max(2000, "Description too long").optional().nullable(),
   category: z.enum([
     "FUEL",
     "SALARY",
@@ -22,7 +22,7 @@ const createExpenseSchema = z.object({
     "OFFICE_EXPENSE",
     "MISCELLANEOUS",
   ]),
-  amount: z.number().positive("Amount must be positive"),
+  amount: z.number().positive("Amount must be positive").max(999_999_999, "Amount too large"),
   paymentMethod: z.enum([
     "CASH",
     "BANK_TRANSFER",
@@ -32,17 +32,17 @@ const createExpenseSchema = z.object({
     "MOBILE_PAYMENT",
     "OTHER",
   ]),
-  paidTo: z.string().min(1, "Paid to is required"),
-  paidBy: z.string().min(1, "Paid by is required"),
+  paidTo: z.string().min(1, "Paid to is required").max(200, "Paid to too long"),
+  paidBy: z.string().min(1, "Paid by is required").max(200, "Paid by too long"),
   expenseDate: z.string().min(1, "Expense date is required"),
-  attachment: z.string().optional().nullable(),
-  tags: z.string().optional().nullable(),
-  notes: z.string().optional().nullable(),
-  currency: z.string().optional().default("AFN"),
-  paidById: z.string().optional().nullable(),
-  paidToId: z.string().optional().nullable(),
-  paidToContractorId: z.string().optional().nullable(),
-  paidByContractorId: z.string().optional().nullable(),
+  attachment: z.string().max(500).optional().nullable(),
+  tags: z.string().max(500).optional().nullable(),
+  notes: z.string().max(2000, "Notes too long").optional().nullable(),
+  currency: z.string().max(10).optional().default("AFN"),
+  paidById: z.string().max(100).optional().nullable(),
+  paidToId: z.string().max(100).optional().nullable(),
+  paidToContractorId: z.string().max(100).optional().nullable(),
+  paidByContractorId: z.string().max(100).optional().nullable(),
 });
 
 // GET /api/expenses - Get all expenses with filtering, pagination, sorting
@@ -237,6 +237,9 @@ export async function GET(request: NextRequest) {
         pageSize,
         totalPages,
       },
+      headers: {
+        "Cache-Control": "private, max-age=10, must-revalidate",
+      },
     });
   } catch (error) {
     console.error("Get expenses error:", error);
@@ -275,40 +278,54 @@ export async function POST(request: NextRequest) {
       expenseDate = new Date(data.expenseDate);
     }
 
-    const expense = await db.expense.create({
-      data: {
-        title: data.title,
-        description: data.description ?? null,
-        category: data.category,
-        amount: data.amount,
-        paymentMethod: data.paymentMethod,
-        paidTo: data.paidTo,
-        paidBy: data.paidBy,
-        expenseDate,
-        attachment: data.attachment ?? null,
-        tags: data.tags ?? null,
-        notes: data.notes ?? null,
-        currency: data.currency,
-        paidById: data.paidById ?? null,
-        paidToId: data.paidToId ?? null,
-        paidToContractorId: data.paidToContractorId ?? null,
-        paidByContractorId: data.paidByContractorId ?? null,
-        createdBy: user.id,
-      },
-      include: {
-        creator: {
-          select: {
-            id: true,
-            email: true,
-            name: true,
-            role: true,
-            avatar: true,
+    const expense = await db.$transaction(async (tx) => {
+      const created = await tx.expense.create({
+        data: {
+          title: data.title,
+          description: data.description ?? null,
+          category: data.category,
+          amount: data.amount,
+          paymentMethod: data.paymentMethod,
+          paidTo: data.paidTo,
+          paidBy: data.paidBy,
+          expenseDate,
+          attachment: data.attachment ?? null,
+          tags: data.tags ?? null,
+          notes: data.notes ?? null,
+          currency: data.currency,
+          paidById: data.paidById ?? null,
+          paidToId: data.paidToId ?? null,
+          paidToContractorId: data.paidToContractorId ?? null,
+          paidByContractorId: data.paidByContractorId ?? null,
+          createdBy: user.id,
+        },
+        include: {
+          creator: {
+            select: {
+              id: true,
+              email: true,
+              name: true,
+              role: true,
+              avatar: true,
+            },
           },
         },
-      },
+      });
+
+      await tx.auditLog.create({
+        data: {
+          action: "CREATE",
+          entity: "Expense",
+          entityId: created.id,
+          details: `Created expense: ${created.title} ($${created.amount})`,
+          userId: user.id,
+        },
+      });
+
+      return created;
     });
 
-    // If expense is paid by an employee, auto-deduct from their wallet
+    // If expense is paid by an employee, auto-deduct from their wallet (best-effort)
     if (data.paidById) {
       try {
         await walletService.deductFromWallet(data.paidById, data.amount, user.id);
@@ -316,17 +333,6 @@ export async function POST(request: NextRequest) {
         console.warn("Wallet deduction failed (wallet may not exist yet):", walletErr);
       }
     }
-
-    // Create audit log entry
-    await db.auditLog.create({
-      data: {
-        action: "CREATE",
-        entity: "Expense",
-        entityId: expense.id,
-        details: `Created expense: ${expense.title} ($${expense.amount})`,
-        userId: user.id,
-      },
-    });
 
     return NextResponse.json(
       {

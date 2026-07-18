@@ -6,6 +6,7 @@ import { requirePermission } from "@/lib/permissions";
 const updateTimesheetSchema = z.object({
   contractorId: z.string().min(1).optional(),
   machineryId: z.string().min(1).optional(),
+  machineryRateId: z.string().optional().nullable(),
   operatorName: z.string().optional().nullable(),
   workSite: z.string().optional().nullable(),
   date: z.string().min(1).optional(),

@@ -104,23 +104,37 @@ export async function PUT(
     if (data.paidToContractorId !== undefined) updateData.paidToContractorId = data.paidToContractorId;
     if (data.paidByContractorId !== undefined) updateData.paidByContractorId = data.paidByContractorId;
 
-    const expense = await db.expense.update({
-      where: { id },
-      data: updateData,
-      include: {
-        creator: {
-          select: {
-            id: true,
-            email: true,
-            name: true,
-            role: true,
-            avatar: true,
+    const expense = await db.$transaction(async (tx) => {
+      const updated = await tx.expense.update({
+        where: { id },
+        data: updateData,
+        include: {
+          creator: {
+            select: {
+              id: true,
+              email: true,
+              name: true,
+              role: true,
+              avatar: true,
+            },
           },
         },
-      },
+      });
+
+      await tx.auditLog.create({
+        data: {
+          action: "UPDATE",
+          entity: "Expense",
+          entityId: updated.id,
+          details: `Updated expense: ${updated.title}`,
+          userId: user.id,
+        },
+      });
+
+      return updated;
     });
 
-    // If amount changed, adjust wallet balance
+    // If amount changed, adjust wallet balance (best-effort)
     const newPaidById = data.paidById !== undefined ? data.paidById : existingExpense.paidById;
     const oldAmount = existingExpense.amount;
     const newAmount = data.amount !== undefined ? data.amount : oldAmount;
@@ -135,17 +149,6 @@ export async function PUT(
         catch (e) { console.warn("Wallet add-back on update failed:", e); }
       }
     }
-
-    // Create audit log entry
-    await db.auditLog.create({
-      data: {
-        action: "UPDATE",
-        entity: "Expense",
-        entityId: expense.id,
-        details: `Updated expense: ${expense.title}`,
-        userId: user.id,
-      },
-    });
 
     return NextResponse.json({
       success: true,
@@ -185,7 +188,23 @@ export async function DELETE(
       );
     }
 
-    // If expense was paid by an employee, add back to their wallet
+    await db.$transaction(async (tx) => {
+      await tx.auditLog.create({
+        data: {
+          action: "DELETE",
+          entity: "Expense",
+          entityId: id,
+          details: `Deleted expense: ${existingExpense.title} ($${existingExpense.amount})`,
+          userId: user.id,
+        },
+      });
+
+      await tx.expense.delete({
+        where: { id },
+      });
+    });
+
+    // If expense was paid by an employee, add back to their wallet (best-effort)
     if (existingExpense.paidById) {
       try {
         await walletService.addBackToWallet(existingExpense.paidById, existingExpense.amount, user.id);
@@ -193,22 +212,6 @@ export async function DELETE(
         console.warn("Wallet add-back failed:", walletErr);
       }
     }
-
-    // Create audit log entry before deleting (entityId will be set to null on delete)
-    await db.auditLog.create({
-      data: {
-        action: "DELETE",
-        entity: "Expense",
-        entityId: id,
-        details: `Deleted expense: ${existingExpense.title} ($${existingExpense.amount})`,
-        userId: user.id,
-      },
-    });
-
-    // Delete the expense
-    await db.expense.delete({
-      where: { id },
-    });
 
     return NextResponse.json({
       success: true,

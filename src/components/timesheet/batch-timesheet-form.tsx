@@ -53,12 +53,14 @@ import { timesheetsApi, machineryApi } from '@/services/contractor-api';
 import type {
   BulkTimesheetRecord,
   BulkTimesheetRequest,
+  MachineryRate,
 } from '@/types/contractor';
 
 interface BatchTimesheetRow {
   id: string;
   contractorId: string;
   machineryId: string;
+  machineryRateId?: string;
   operatorName: string;
   workSite: string;
   date: string;
@@ -152,6 +154,66 @@ function MachineryCell({ value, rowIndex, machineryList, onUpdate }: MachineryCe
   );
 }
 
+interface MachineryRateCellProps {
+  machineryId: string;
+  value?: string;
+  rowIndex: number;
+  rates: MachineryRate[];
+  onUpdate: (index: number, field: keyof BatchTimesheetRow, value: string | number) => void;
+}
+
+function MachineryRateCell({ machineryId, value, rowIndex, rates, onUpdate }: MachineryRateCellProps) {
+  const [open, setOpen] = useState(false);
+  const filtered = machineryId ? rates : [];
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          variant="outline"
+          role="combobox"
+          className="h-8 w-full justify-between border-0 shadow-none focus-visible:ring-1 bg-transparent px-1 text-xs font-normal"
+          disabled={!machineryId}
+        >
+          {value
+            ? (() => {
+                const r = filtered.find((r) => r.id === value);
+                return r ? <span className="truncate">{r.rateName}</span> : 'Default';
+              })()
+            : 'Default'}
+          <ChevronDown className="ml-1 h-3 w-3 shrink-0 opacity-50" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-[220px] p-0">
+        <Command>
+          <CommandInput placeholder="Search rate tier..." />
+          <CommandList>
+            <CommandEmpty>No rates available.</CommandEmpty>
+            {filtered.map((r) => (
+              <CommandItem
+                key={r.id}
+                value={r.rateName}
+                onSelect={() => {
+                  onUpdate(rowIndex, 'machineryRateId', r.id);
+                  setOpen(false);
+                }}
+              >
+                <Check
+                  className="mr-2 h-4 w-4"
+                  style={{ opacity: value === r.id ? 1 : 0 }}
+                />
+                <span>{r.rateName}</span>
+                <span className="ml-auto text-muted-foreground text-xs">
+                  {r.rateName === 'Default' ? `${r.hourlyRate}/hr` : `${r.monthlyRate}/mo`}
+                </span>
+              </CommandItem>
+            ))}
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 function calculateRowHours(
   startTime: string,
   lunchStart: string,
@@ -204,6 +266,7 @@ function createEmptyRow(
     id: generateId(),
     contractorId: overrides?.contractorId ?? '',
     machineryId: overrides?.machineryId ?? '',
+    machineryRateId: undefined,
     operatorName: '',
     workSite: overrides?.workSite ?? '',
     date,
@@ -221,6 +284,7 @@ export function BatchTimesheetForm({ open, onOpenChange, onSuccess }: BatchTimes
   const [rows, setRows] = useState<BatchTimesheetRow[]>([]);
   const [globalDate, setGlobalDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [globalMachineryId, setGlobalMachineryId] = useState('');
+  const [globalMachineryRateId, setGlobalMachineryRateId] = useState('');
   const [globalStartTime, setGlobalStartTime] = useState('07:00');
   const [globalLunchStart, setGlobalLunchStart] = useState('12:00');
   const [globalLunchEnd, setGlobalLunchEnd] = useState('13:00');
@@ -231,6 +295,9 @@ export function BatchTimesheetForm({ open, onOpenChange, onSuccess }: BatchTimes
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isLoadingData, setIsLoadingData] = useState(false);
   const [globalMachineryPopoverOpen, setGlobalMachineryPopoverOpen] = useState(false);
+  const [machineryRatesMap, setMachineryRatesMap] = useState<Map<string, MachineryRate[]>>(new Map());
+  const machineryRatesRef = useRef(machineryRatesMap);
+  machineryRatesRef.current = machineryRatesMap;
   const tableContainerRef = useRef<HTMLDivElement>(null);
   const cellRefs = useRef<Map<string, HTMLTableCellElement>>(new Map());
   const focusAfterRender = useRef<{ row: number; col: string } | null>(null);
@@ -247,7 +314,8 @@ export function BatchTimesheetForm({ open, onOpenChange, onSuccess }: BatchTimes
       setGlobalEndTime('17:00');
       setGlobalWorkSite('');
       setGlobalNotes('');
-      setIsLoadingData(true);
+        setGlobalMachineryRateId('');
+    setIsLoadingData(true);
 
       machineryApi.getAll({ pageSize: 1000, statuses: ['OPERATIONAL', 'UNDER_MAINTENANCE'] })
         .then((res) => {
@@ -266,17 +334,42 @@ export function BatchTimesheetForm({ open, onOpenChange, onSuccess }: BatchTimes
     setRows((prev) => prev.map((r) => ({ ...r, date: value })));
   }, []);
 
+  const fetchRatesForMachinery = useCallback(async (machineryId: string) => {
+    if (machineryRatesRef.current.has(machineryId)) return;
+    try {
+      const res = await machineryApi.getRates(machineryId);
+      if (res.data) {
+        setMachineryRatesMap((prev) => {
+          const next = new Map(prev);
+          next.set(machineryId, res.data!);
+          return next;
+        });
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  const getDefaultRateId = useCallback((machineryId: string): string | undefined => {
+    const rates = machineryRatesRef.current.get(machineryId);
+    return rates?.find((r) => r.isDefault)?.id ?? rates?.[0]?.id;
+  }, []);
+
   const handleGlobalMachineryChange = useCallback((value: string) => {
     setGlobalMachineryId(value);
     const selected = machineryList.find((m) => m.id === value);
+    fetchRatesForMachinery(value);
+    const defaultRateId = getDefaultRateId(value);
+    setGlobalMachineryRateId(defaultRateId ?? '');
     setRows((prev) =>
       prev.map((r) => ({
         ...r,
         machineryId: value,
+        machineryRateId: defaultRateId,
         contractorId: selected?.assignedContractorId ?? '',
       }))
     );
-  }, [machineryList]);
+  }, [machineryList, fetchRatesForMachinery, getDefaultRateId]);
 
   const handleGlobalTimeChange = useCallback(
     (field: 'startTime' | 'lunchStart' | 'lunchEnd' | 'endTime', value: string) => {
@@ -303,6 +396,13 @@ export function BatchTimesheetForm({ open, onOpenChange, onSuccess }: BatchTimes
     []
   );
 
+  const handleGlobalRateChange = useCallback((value: string) => {
+    setGlobalMachineryRateId(value);
+    setRows((prev) =>
+      prev.map((r) => ({ ...r, machineryRateId: value || undefined }))
+    );
+  }, []);
+
   const handleGlobalWorkSiteChange = useCallback((value: string) => {
     setGlobalWorkSite(value);
     setRows((prev) => prev.map((r) => ({ ...r, workSite: value })));
@@ -317,11 +417,15 @@ export function BatchTimesheetForm({ open, onOpenChange, onSuccess }: BatchTimes
     (index: number, field: keyof BatchTimesheetRow, value: string | number) => {
       if (field === 'machineryId') {
         const selectedMachinery = machineryList.find((m) => m.id === value);
+        const machId = String(value);
+        fetchRatesForMachinery(machId);
+        const defaultRateId = getDefaultRateId(machId);
         setRows((prev) => {
           const updated = prev.map((r) => ({ ...r }));
           const target = updated[index];
           if (!target) return prev;
-          target.machineryId = String(value);
+          target.machineryId = machId;
+          target.machineryRateId = defaultRateId;
           target.contractorId = selectedMachinery?.assignedContractorId ?? '';
           return updated;
         });
@@ -351,7 +455,7 @@ export function BatchTimesheetForm({ open, onOpenChange, onSuccess }: BatchTimes
         });
       }
     },
-    [machineryList]
+    [machineryList, fetchRatesForMachinery, getDefaultRateId]
   );
 
   const removeRow = useCallback((index: number) => {
@@ -405,6 +509,20 @@ export function BatchTimesheetForm({ open, onOpenChange, onSuccess }: BatchTimes
           />
         ),
         size: 260,
+      },
+      {
+        id: 'machineryRateId',
+        header: 'Rate Tier',
+        cell: ({ row }) => (
+          <MachineryRateCell
+            machineryId={row.original.machineryId}
+            value={row.original.machineryRateId}
+            rowIndex={row.index}
+            rates={machineryRatesMap.get(row.original.machineryId) ?? []}
+            onUpdate={updateItem}
+          />
+        ),
+        size: 120,
       },
       {
         id: 'operatorName',
@@ -568,7 +686,7 @@ export function BatchTimesheetForm({ open, onOpenChange, onSuccess }: BatchTimes
     },
   });
 
-  const navigableColumnIds = ['machineryId', 'operatorName', 'workSite', 'date', 'startTime', 'lunchStart', 'lunchEnd', 'endTime', 'notes'];
+  const navigableColumnIds = ['machineryId', 'machineryRateId', 'operatorName', 'workSite', 'date', 'startTime', 'lunchStart', 'lunchEnd', 'endTime', 'notes'];
 
   useEffect(() => {
     const target = focusAfterRender.current;
@@ -668,6 +786,7 @@ export function BatchTimesheetForm({ open, onOpenChange, onSuccess }: BatchTimes
       const records: BulkTimesheetRecord[] = valid.map((r) => ({
         contractorId: r.contractorId,
         machineryId: r.machineryId || undefined,
+        machineryRateId: r.machineryRateId || undefined,
         operatorName: r.operatorName || undefined,
         workSite: r.workSite || undefined,
         date: r.date,
@@ -768,6 +887,51 @@ export function BatchTimesheetForm({ open, onOpenChange, onSuccess }: BatchTimes
                         {m.driverName && (
                           <span className="ml-1.5 text-muted-foreground">- {m.driverName}</span>
                         )}
+                      </CommandItem>
+                    ))}
+                  </CommandList>
+                </Command>
+              </PopoverContent>
+            </Popover>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-muted-foreground whitespace-nowrap">Rate Tier:</span>
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  role="combobox"
+                  className="h-8 w-[160px] justify-between text-xs font-normal"
+                  disabled={!globalMachineryId}
+                >
+                  {globalMachineryRateId
+                    ? (() => {
+                        const r = machineryRatesMap.get(globalMachineryId)?.find((r) => r.id === globalMachineryRateId);
+                        return <span className="truncate">{r?.rateName ?? 'Default'}</span>;
+                      })()
+                    : 'Default'}
+                  <ChevronDown className="ml-1 h-3 w-3 shrink-0 opacity-50" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-[220px] p-0">
+                <Command>
+                  <CommandInput placeholder="Search rate tier..." />
+                  <CommandList>
+                    <CommandEmpty>No rates available.</CommandEmpty>
+                    {(machineryRatesMap.get(globalMachineryId) ?? []).map((r) => (
+                      <CommandItem
+                        key={r.id}
+                        value={r.rateName}
+                        onSelect={() => handleGlobalRateChange(r.id)}
+                      >
+                        <Check
+                          className="mr-2 h-4 w-4"
+                          style={{ opacity: globalMachineryRateId === r.id ? 1 : 0 }}
+                        />
+                        <span>{r.rateName}</span>
+                        <span className="ml-auto text-muted-foreground text-xs">
+                          {r.rateName === 'Default' ? `${r.hourlyRate}/hr` : `${r.monthlyRate}/mo`}
+                        </span>
                       </CommandItem>
                     ))}
                   </CommandList>

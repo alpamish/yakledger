@@ -19,6 +19,7 @@ import { Input } from "@/components/ui/input";
 import { FileDown, Loader2, FileText, Calendar } from "lucide-react";
 import { toast } from "sonner";
 import { settingsApi } from "@/services/settings-api";
+import { usePermissions } from "@/hooks/use-permissions";
 import type { Machinery, Contractor } from "@/types/contractor";
 import MachineryTimesheetForm, {
   type TimesheetFormMode,
@@ -51,6 +52,7 @@ export function TimesheetFormDialog({
   const [companyAddress, setCompanyAddress] = useState<string | null>(null);
   const [companyPhone, setCompanyPhone] = useState<string | null>(null);
   const [companyEmail, setCompanyEmail] = useState<string | null>(null);
+  const { hasPermission } = usePermissions();
   const [isGenerating, setIsGenerating] = useState(false);
 
   useEffect(() => {
@@ -257,18 +259,20 @@ export function TimesheetFormDialog({
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button
-            onClick={handleGenerate}
-            disabled={isGenerating}
-            className="bg-emerald-600 hover:bg-emerald-700 text-white"
-          >
-            {isGenerating ? (
-              <Loader2 className="size-4 animate-spin mr-1.5" />
-            ) : (
-              <FileDown className="size-4 mr-1.5" />
-            )}
-            {isGenerating ? "Generating..." : "Download PDF"}
-          </Button>
+          {hasPermission('reports:generatePdf') && (
+            <Button
+              onClick={handleGenerate}
+              disabled={isGenerating}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white"
+            >
+              {isGenerating ? (
+                <Loader2 className="size-4 animate-spin mr-1.5" />
+              ) : (
+                <FileDown className="size-4 mr-1.5" />
+              )}
+              {isGenerating ? "Generating..." : "Download PDF"}
+            </Button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>

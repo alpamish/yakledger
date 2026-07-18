@@ -114,33 +114,37 @@ export async function POST(request: NextRequest) {
     }
 
     const data = parsed.data;
-    const asset = await db.asset.create({
-      data: {
-        name: data.name,
-        category: data.category,
-        purchaseDate: new Date(data.purchaseDate),
-        purchasePrice: data.purchasePrice,
-        currentValue: data.currentValue,
-        quantity: data.quantity,
-        serialNumber: data.serialNumber ?? null,
-        plateNumber: data.plateNumber ?? null,
-        assignedToId: data.assignedToId ?? null,
-        status: data.status,
-        notes: data.notes ?? null,
-        images: data.images ?? null,
-        fuelType: data.fuelType ?? null,
-        fuelCapacity: data.fuelCapacity ?? null,
-        fuelLocation: data.fuelLocation ?? null,
-        isMainContainer: data.isMainContainer ?? false,
-        createdBy: user.id,
-      },
-      include: {
-        assignedTo: { select: { id: true, fullName: true, jobTitle: true } },
-      },
-    });
+    const asset = await db.$transaction(async (tx) => {
+      const created = await tx.asset.create({
+        data: {
+          name: data.name,
+          category: data.category,
+          purchaseDate: new Date(data.purchaseDate),
+          purchasePrice: data.purchasePrice,
+          currentValue: data.currentValue,
+          quantity: data.quantity,
+          serialNumber: data.serialNumber ?? null,
+          plateNumber: data.plateNumber ?? null,
+          assignedToId: data.assignedToId ?? null,
+          status: data.status,
+          notes: data.notes ?? null,
+          images: data.images ?? null,
+          fuelType: data.fuelType ?? null,
+          fuelCapacity: data.fuelCapacity ?? null,
+          fuelLocation: data.fuelLocation ?? null,
+          isMainContainer: data.isMainContainer ?? false,
+          createdBy: user.id,
+        },
+        include: {
+          assignedTo: { select: { id: true, fullName: true, jobTitle: true } },
+        },
+      });
 
-    await db.auditLog.create({
-      data: { action: "CREATE", entity: "Asset", entityId: asset.id, details: `Created asset: ${asset.name} (${asset.category})`, userId: user.id },
+      await tx.auditLog.create({
+        data: { action: "CREATE", entity: "Asset", entityId: created.id, details: `Created asset: ${created.name} (${created.category})`, userId: user.id },
+      });
+
+      return created;
     });
 
     return NextResponse.json({ success: true, data: asset, message: "Asset created successfully" }, { status: 201 });

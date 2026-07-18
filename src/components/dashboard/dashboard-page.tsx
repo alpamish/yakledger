@@ -2,6 +2,7 @@
 
 import * as React from 'react';
 import { useExpenseStore } from '@/hooks/use-expense-store';
+import { usePermissions } from '@/hooks/use-permissions';
 import { CATEGORY_LABELS, CATEGORY_COLORS } from '@/types/expense';
 import type { Category } from '@/types/expense';
 import {
@@ -172,15 +173,19 @@ function StatCard({ title, value, description, icon: Icon }: StatCardProps) {
 // ─── Main Dashboard Component ─────────────────────────────────────
 
 export function DashboardPage() {
+  const { canView } = usePermissions();
   const { dashboardStats, fetchDashboard, isLoading } = useExpenseStore();
   const [hasFetched, setHasFetched] = React.useState(false);
 
   React.useEffect(() => {
+    if (!canView('dashboard')) return;
     if (!hasFetched) {
       fetchDashboard();
       setHasFetched(true);
     }
-  }, [fetchDashboard, hasFetched]);
+  }, [canView, fetchDashboard, hasFetched]);
+
+  if (!canView('dashboard')) return null;
 
   // ─── Loading state ──────────────────────────────────────────
   if (isLoading && !dashboardStats) {

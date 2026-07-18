@@ -8,7 +8,7 @@ import {
 } from "@react-pdf/renderer";
 import { format } from "date-fns";
 import type { Expense, Category, PaymentMethod } from "@/types/expense";
-import { CATEGORY_LABELS, PAYMENT_METHOD_LABELS } from "@/types/expense";
+import { CATEGORY_LABELS, CATEGORY_COLORS, PAYMENT_METHOD_LABELS } from "@/types/expense";
 
 // ─── Filter type ───────────────────────────────────────────────
 export interface PdfFilters {
@@ -266,6 +266,169 @@ const styles = StyleSheet.create({
   },
 });
 
+// ─── Category Summary Styles ───────────────────────────────────
+const summaryStyles = StyleSheet.create({
+  page: {
+    padding: 50,
+    fontSize: 9,
+    fontFamily: "Vazirmatn",
+    color: "#1e293b",
+  },
+  title: {
+    fontSize: 18,
+    fontFamily: "Vazirmatn",
+    color: "#059669",
+    marginBottom: 2,
+  },
+  subtitle: {
+    fontSize: 13,
+    color: "#334155",
+    marginBottom: 4,
+  },
+  date: {
+    fontSize: 9,
+    color: "#64748b",
+    marginBottom: 12,
+  },
+  divider: {
+    height: 2,
+    backgroundColor: "#059669",
+    marginBottom: 16,
+  },
+  table: {
+    width: "100%",
+  },
+  headerRow: {
+    flexDirection: "row",
+    backgroundColor: "#059669",
+    borderTopLeftRadius: 3,
+    borderTopRightRadius: 3,
+    minHeight: 22,
+    alignItems: "center",
+  },
+  headerCell: {
+    paddingHorizontal: 6,
+    paddingVertical: 4,
+    color: "#ffffff",
+    fontFamily: "Vazirmatn",
+    fontSize: 8,
+  },
+  dataRow: {
+    flexDirection: "row",
+    minHeight: 20,
+    alignItems: "center",
+    borderBottomWidth: 0.5,
+    borderBottomColor: "#e2e8f0",
+  },
+  dataCell: {
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    fontSize: 8,
+    color: "#334155",
+  },
+  totalRow: {
+    flexDirection: "row",
+    minHeight: 22,
+    alignItems: "center",
+    backgroundColor: "#f0fdf4",
+    borderBottomWidth: 1,
+    borderBottomColor: "#059669",
+  },
+  totalCell: {
+    paddingHorizontal: 6,
+    paddingVertical: 4,
+    fontSize: 8,
+    fontFamily: "Vazirmatn",
+    color: "#059669",
+  },
+  note: {
+    fontSize: 7,
+    color: "#94a3b8",
+    textAlign: "center",
+    marginTop: 8,
+  },
+  colCategory: { width: "30%" },
+  colCount: { width: "15%" },
+  colAmount: { width: "30%" },
+  colPercent: { width: "25%" },
+  categoryRow: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  swatch: {
+    width: 8,
+    height: 8,
+    borderRadius: 1,
+    marginRight: 4,
+  },
+});
+
+// ─── Category Summary Table ────────────────────────────────────
+function CategorySummaryTable({ expenses }: { expenses: Expense[] }) {
+  const categoryMap = new Map<string, { count: number; amount: number }>();
+
+  for (const e of expenses) {
+    const cat = e.category;
+    const existing = categoryMap.get(cat) ?? { count: 0, amount: 0 };
+    existing.count += 1;
+    existing.amount += e.amount;
+    categoryMap.set(cat, existing);
+  }
+
+  const rows = Array.from(categoryMap.entries())
+    .map(([cat, { count, amount }]) => ({
+      cat,
+      label: CATEGORY_LABELS[cat as Category] ?? cat,
+      count,
+      amount,
+    }))
+    .sort((a, b) => b.amount - a.amount);
+
+  const grandTotal = rows.reduce((s, r) => s + r.amount, 0);
+
+  return (
+    <View style={summaryStyles.table}>
+      <View style={summaryStyles.headerRow}>
+        <Text style={[summaryStyles.headerCell, summaryStyles.colCategory]}>Category</Text>
+        <Text style={[summaryStyles.headerCell, summaryStyles.colCount]}>Count</Text>
+        <Text style={[summaryStyles.headerCell, summaryStyles.colAmount]}>Amount</Text>
+        <Text style={[summaryStyles.headerCell, summaryStyles.colPercent]}>% of Total</Text>
+      </View>
+      {rows.length === 0 ? (
+        <View style={summaryStyles.dataRow}>
+          <Text style={[summaryStyles.dataCell, { width: "100%", textAlign: "center" }]}>—</Text>
+        </View>
+      ) : (
+        rows.map((row, i) => {
+          const pct = grandTotal > 0 ? ((row.amount / grandTotal) * 100).toFixed(1) : "0.0";
+          return (
+            <View
+              key={row.cat}
+              style={[summaryStyles.dataRow, { backgroundColor: i % 2 === 0 ? "#f8fafc" : "#ffffff" }]}
+            >
+              <View style={[summaryStyles.dataCell, summaryStyles.colCategory]}>
+              <View style={summaryStyles.categoryRow}>
+                <View style={[summaryStyles.swatch, { backgroundColor: CATEGORY_COLORS[row.cat as Category] ?? "#78716c" }]} />
+                <Text>{row.label}</Text>
+              </View>
+            </View>
+              <Text style={[summaryStyles.dataCell, summaryStyles.colCount]}>{row.count}</Text>
+              <Text style={[summaryStyles.dataCell, summaryStyles.colAmount]}>{formatCurrency(row.amount)}</Text>
+              <Text style={[summaryStyles.dataCell, summaryStyles.colPercent]}>{pct}%</Text>
+            </View>
+          );
+        })
+      )}
+      <View style={summaryStyles.totalRow}>
+        <Text style={[summaryStyles.totalCell, summaryStyles.colCategory]}>Grand Total</Text>
+        <Text style={[summaryStyles.totalCell, summaryStyles.colCount]}>{rows.reduce((s, r) => s + r.count, 0)}</Text>
+        <Text style={[summaryStyles.totalCell, summaryStyles.colAmount]}>{formatCurrency(grandTotal)}</Text>
+        <Text style={[summaryStyles.totalCell, summaryStyles.colPercent]}>100%</Text>
+      </View>
+    </View>
+  );
+}
+
 // ─── Filter Summary ────────────────────────────────────────────
 function FilterSummary({ filters }: { filters: PdfFilters }) {
   const parts: string[] = [];
@@ -445,6 +608,19 @@ function ExpensePDFDocument({ expenses, filters, companyName = "YakhshiLedger" }
       author={companyName}
       creator={companyName}
     >
+      {validExpenses.length > 0 && (
+        <Page size={{ width: 842, height: 595 }} style={summaryStyles.page}>
+          <Text style={summaryStyles.title}>{companyName}</Text>
+          <Text style={summaryStyles.subtitle}>Category Summary</Text>
+          <Text style={summaryStyles.date}>Generated on: {generatedDate}</Text>
+          <View style={summaryStyles.divider} />
+          <CategorySummaryTable expenses={validExpenses} />
+          <Text style={summaryStyles.note}>
+            Detailed expense report follows on the next pages.
+          </Text>
+        </Page>
+      )}
+
       {pages.map((pageExpenses, pageIdx) => {
         const isFirstPage = pageIdx === 0;
         const isLastPage = pageIdx === pages.length - 1;

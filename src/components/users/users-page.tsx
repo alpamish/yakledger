@@ -63,6 +63,7 @@ import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { LoadingSpinner } from "@/components/common/loading-spinner";
 import { usePermissions } from "@/hooks/use-permissions";
+import { getToken } from "@/services/api";
 import type { Role } from "@/types/expense";
 import { ROLES, ROLE_LABELS } from "@/types/expense";
 
@@ -112,7 +113,9 @@ function getRoleColor(role: string): string {
 }
 
 export function UsersPage() {
-  const { canCreate, canEdit, canDelete } = usePermissions();
+  const { canView, canCreate, canEdit, canDelete, canManagePermissions } = usePermissions();
+
+  if (!canView('users')) return null;
   const [users, setUsers] = useState<UserItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [createOpen, setCreateOpen] = useState(false);
@@ -138,7 +141,10 @@ export function UsersPage() {
 
   const fetchUsers = useCallback(async () => {
     try {
-      const res = await fetch("/api/users");
+      const token = getToken();
+      const res = await fetch("/api/users", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
       if (res.ok) {
         const body = await res.json();
         setUsers(body.data ?? []);
@@ -168,9 +174,10 @@ export function UsersPage() {
     }
     setCreating(true);
     try {
+      const token = getToken();
       const res = await fetch("/api/users", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ name: newName, email: newEmail, password: newPassword, role: newRole }),
       });
       const body = await res.json();
@@ -204,9 +211,10 @@ export function UsersPage() {
       const data: Record<string, unknown> = { name: editName, email: editEmail, role: editRole };
       if (editPassword) data.password = editPassword;
 
+      const token = getToken();
       const res = await fetch(`/api/users/${editUser.id}`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify(data),
       });
       const body = await res.json();
@@ -227,7 +235,11 @@ export function UsersPage() {
   const handleDelete = async (user: UserItem) => {
     if (!confirm(`Are you sure you want to delete ${user.name}?`)) return;
     try {
-      const res = await fetch(`/api/users/${user.id}`, { method: "DELETE" });
+      const token = getToken();
+      const res = await fetch(`/api/users/${user.id}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
       const body = await res.json();
       if (res.ok) {
         toast.success(body.message ?? "User deleted");
@@ -244,7 +256,10 @@ export function UsersPage() {
     setPermUser(user);
     setLoadingPerms(true);
     try {
-      const res = await fetch(`/api/users/${user.id}/permissions`);
+      const token = getToken();
+      const res = await fetch(`/api/users/${user.id}/permissions`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
       if (res.ok) {
         const body = await res.json();
         setPermissions(body.data ?? []);
@@ -258,7 +273,7 @@ export function UsersPage() {
 
   const togglePermission = async (perm: PermissionItem) => {
     if (!permUser) return;
-    let newGranted: boolean;
+    let newGranted: boolean | null = null;
     let method = "PUT";
     let body: Record<string, unknown>;
 
@@ -269,8 +284,9 @@ export function UsersPage() {
       newGranted = false;
       body = { permissionName: perm.name, granted: false };
     } else {
-      newGranted = true;
-      body = { permissionName: perm.name, granted: true };
+      newGranted = null;
+      method = "DELETE";
+      body = { permissionName: perm.name };
     }
 
     setPermissions((prev) =>
@@ -278,9 +294,10 @@ export function UsersPage() {
     );
 
     try {
+      const token = getToken();
       const res = await fetch(`/api/users/${permUser.id}/permissions`, {
         method,
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
         body: JSON.stringify(body),
       });
       if (!res.ok) {
@@ -427,10 +444,12 @@ export function UsersPage() {
                             Edit
                           </DropdownMenuItem>
                         )}
-                        <DropdownMenuItem onClick={() => openPermissions(user)}>
-                          <Shield className="mr-2 h-4 w-4" />
-                          Permissions
-                        </DropdownMenuItem>
+                        {canManagePermissions("users") && (
+                          <DropdownMenuItem onClick={() => openPermissions(user)}>
+                            <Shield className="mr-2 h-4 w-4" />
+                            Permissions
+                          </DropdownMenuItem>
+                        )}
                         {canDelete("users") && (
                           <>
                             <DropdownMenuSeparator />

@@ -69,6 +69,8 @@ const ROLE_PERMISSIONS: Record<string, string[]> = {
     "cashAdvance:view", "cashAdvance:create",
     "reports:view",
     "settings:view",
+    "users:view", "users:create", "users:edit",
+    "users:managePermissions",
   ],
   USER: [
     "dashboard:view",

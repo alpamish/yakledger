@@ -73,6 +73,7 @@ export interface Contractor {
   timesheets?: Timesheet[];
   fuelUsages?: FuelUsage[];
   machinery?: Machinery[];
+  machineryRates?: MachineryRate[];
   totalExpensesPaid?: number;
   monthlyExpenses?: { month: string; amount: number }[];
 }
@@ -81,6 +82,7 @@ export interface Timesheet {
   id: string;
   contractorId: string;
   machineryId?: string | null;
+  machineryRateId?: string | null;
   operatorName?: string | null;
   workSite?: string | null;
   date: string;
@@ -98,6 +100,7 @@ export interface Timesheet {
   updatedAt: string;
   contractor?: Pick<Contractor, "id" | "contractorName" | "contractorType">;
   machinery?: Pick<Machinery, "id" | "machineryName" | "machineryType" | "plateNumber" | "driverName">;
+  machineryRate?: Pick<MachineryRate, "id" | "rateName" | "hourlyRate" | "dailyRate" | "monthlyRate">;
   approver?: { id: string; name: string } | null;
 }
 
@@ -173,20 +176,48 @@ export interface Machinery {
   createdAt: string;
   updatedAt: string;
   assignedContractor?: Pick<Contractor, "id" | "contractorName" | "contractorType">;
+  machineryRates?: MachineryRate[];
   _count?: {
     timesheets?: number;
     fuelUsages?: number;
   };
 }
 
+export interface MachineryRate {
+  id: string;
+  machineryId: string;
+  rateName: string;
+  monthlyRate: number;
+  dailyRate: number;
+  hourlyRate: number;
+  contractDaysPerMonth: number;
+  workHoursPerDay: number;
+  isDefault: boolean;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface MachineryRateFormData {
+  rateName: string;
+  monthlyRate: number;
+  dailyRate: number;
+  hourlyRate: number;
+  contractDaysPerMonth: number;
+  workHoursPerDay: number;
+  isDefault: boolean;
+}
+
 export interface ExpenseBrief {
   id: string;
   title: string;
   description?: string | null;
+  notes?: string | null;
   amount: number;
   category: string;
   expenseDate: string;
   paymentMethod?: string;
+  paidBy?: string;
 }
 
 export interface ContractorFormData {
@@ -225,6 +256,7 @@ export interface InlineMachineryEntry {
 export interface TimesheetFormData {
   contractorId: string;
   machineryId: string;
+  machineryRateId?: string;
   operatorName?: string;
   workSite?: string;
   date: string;
@@ -256,6 +288,7 @@ export interface FuelUsageFormData {
 export interface BulkTimesheetRecord {
   contractorId: string;
   machineryId?: string;
+  machineryRateId?: string;
   operatorName?: string;
   workSite?: string;
   date: string;
@@ -313,6 +346,22 @@ export interface MachineryByContractor {
   totalHours: number;
   totalFuelQuantity: number;
   totalFuelCost: number;
+}
+
+export interface MachineryWorkHours {
+  machineryId: string;
+  machineryName: string;
+  driverName: string | null;
+  contractorName: string | null;
+  totalHours: number;
+  hourlyRate: number;
+  dailyRate: number;
+  monthlyRate: number;
+  workHoursPerDay: number;
+  contractDaysPerMonth: number;
+  efficiency: number;
+  totalCost: number;
+  rateName?: string;
 }
 
 export interface MachineryFuelPerMachinery {
@@ -422,6 +471,90 @@ export interface ContractorDashboardStats {
   monthlyPaymentTrend: { month: string; amount: number }[];
   recentContractors: Contractor[];
   topContractorsByExpense: { id: string; contractorName: string; totalAmount: number }[];
+}
+
+// ─── Monthly Fuel Analysis Types ─────────────────────────────────────────────
+
+export interface MonthlyFuelData {
+  month: string; // "2026-01"
+  monthLabel: string; // "January"
+  totalLiters: number;
+  totalCost: number;
+  totalHours: number;
+  litersPerHour: number;
+  expectedRate: number;
+  deviationPercent: number; // vs expected rate
+  prevMonthLitersPerHour: number | null;
+  monthOverMonthPercent: number | null; // change from prev month
+  recordCount: number;
+  hasTimesheetData: boolean; // whether we had real timesheet hours vs fallback
+  ytdLiters: number; // cumulative liters from Jan to this month
+  ytdCost: number; // cumulative cost from Jan to this month
+}
+
+export interface DailyFuelData {
+  date: string;
+  totalLiters: number;
+  totalCost: number;
+  totalHours: number;
+  litersPerHour: number;
+  monthlyAvgLitersPerHour: number;
+  deviationPercent: number;
+  isAbnormal: boolean;
+  hasTimesheetData: boolean;
+}
+
+export interface FuelAnomaly {
+  type: 'month_over_month' | 'vs_expected' | 'day_deviation';
+  severity: 'warning' | 'critical';
+  message: string;
+  month?: string;
+  date?: string;
+  actualValue: number;
+  expectedValue: number;
+  deviationPercent: number;
+}
+
+export interface MachineryInfo {
+  id: string;
+  machineryName: string;
+  machineryType: string;
+  plateNumber: string | null;
+  driverName: string | null;
+  hourlyConsumptionRate: number;
+  workHoursPerDay: number;
+  contractorName?: string | null;
+}
+
+export interface MonthlyAnalysisResponse {
+  machinery: MachineryInfo;
+  year: number;
+  monthlyData: MonthlyFuelData[];
+  dailyData?: DailyFuelData[];
+  anomalies: FuelAnomaly[];
+}
+
+export interface MonthlyAnalysisParams {
+  machineryId?: string;
+  year?: number;
+  fuelType?: string;
+  dateFrom?: string;
+  dateTo?: string;
+}
+
+export interface DailyDetailParams {
+  machineryId: string;
+  month: string;
+}
+
+export interface DailyDetailResponse {
+  machinery: MachineryInfo;
+  year: number;
+  month: string;
+  monthLabel: string;
+  monthlyAvgLitersPerHour: number;
+  dailyData: DailyFuelData[];
+  anomalies: FuelAnomaly[];
 }
 
 // Label mappings

@@ -12,6 +12,7 @@ import {
 } from '@tanstack/react-table';
 import { format } from 'date-fns';
 import { useAssetStore } from '@/hooks/use-asset-store';
+import { usePermissions } from '@/hooks/use-permissions';
 import { fuelApi } from '@/services/asset-api';
 import { settingsApi } from '@/services/settings';
 import { Button } from '@/components/ui/button';
@@ -47,7 +48,7 @@ import {
   PaginationPrevious,
 } from '@/components/ui/pagination';
 import { Badge } from '@/components/ui/badge';
-import { Fuel, Plus, Trash2, FileText, FileBarChart, Loader2, ArrowRightLeft, ArrowUpDown, ArrowUp, ArrowDown, Search, Pencil, Eye, Filter, X, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Fuel, Plus, Trash2, FileBarChart, FileSpreadsheet, Loader2, ArrowRightLeft, ArrowUpDown, ArrowUp, ArrowDown, Search, Pencil, Eye, Filter, X, ChevronLeft, ChevronRight } from 'lucide-react';
 import { FuelPurchaseForm } from './fuel-purchase-form';
 import { FuelIssueForm } from './fuel-issue-form';
 import { FuelTransferForm } from './fuel-transfer-form';
@@ -60,8 +61,8 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '
 import { Skeleton } from '@/components/ui/skeleton';
 import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
-import { pdf } from '@react-pdf/renderer';
-import type { FuelContainerStock, FuelStock, FuelTransaction, FuelFinancialSummary } from '@/types/asset';
+import * as XLSX from 'xlsx';
+import type { FuelTransaction, FuelStock, FuelContainerStock, FuelFinancialSummary } from '@/types/asset';
 
 const LOW_STOCK_THRESHOLD = 50;
 
@@ -83,8 +84,9 @@ export function FuelPage() {
     id: null,
   });
   const [financialSummary, setFinancialSummary] = useState<FuelFinancialSummary | null>(null);
-  const [financialPdfGenerating, setFinancialPdfGenerating] = useState(false);
+  const [financialExcelGenerating, setFinancialExcelGenerating] = useState(false);
   const [summaryPdfGenerating, setSummaryPdfGenerating] = useState(false);
+  const [stockExcelGenerating, setStockExcelGenerating] = useState(false);
   const [sortingState, setSortingState] = useState<SortingState>([]);
   const [searchInput, setSearchInput] = useState('');
   const debouncedSearch = useDebounce(searchInput, 300);
@@ -100,6 +102,8 @@ export function FuelPage() {
   const [detailTransaction, setDetailTransaction] = useState<FuelTransaction | null>(null);
   const [editingTransaction, setEditingTransaction] = useState<FuelTransaction | null>(null);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
+
+  const { hasPermission } = usePermissions();
 
   const loadData = useCallback(() => {
     fetchFuelTransactions();
@@ -165,46 +169,13 @@ export function FuelPage() {
     setDeleteConfirm({ open: false, id: null });
   };
 
-  const handleDownloadFinancialPDF = async () => {
-    setFinancialPdfGenerating(true);
-    try {
-      const { default: FuelFinancialPDFDocument } = await import('@/components/pdf/fuel-financial-pdf-document');
-      if (!financialSummary) {
-        const res = await fuelApi.getFinancialSummary();
-        if (!res.data) throw new Error('No data');
-        setFinancialSummary(res.data);
-        const blob = await pdf(
-          <FuelFinancialPDFDocument data={res.data} generatedAt={new Date()} />
-        ).toBlob();
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = `fuel-financial-report-${new Date().toISOString().split('T')[0]}.pdf`;
-        link.click();
-        URL.revokeObjectURL(url);
-      } else {
-        const blob = await pdf(
-          <FuelFinancialPDFDocument data={financialSummary} generatedAt={new Date()} />
-        ).toBlob();
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = `fuel-financial-report-${new Date().toISOString().split('T')[0]}.pdf`;
-        link.click();
-        URL.revokeObjectURL(url);
-      }
-      toast.success('Financial report PDF downloaded successfully');
-    } catch (err) {
-      console.error('PDF generation failed:', err);
-      toast.error('Failed to generate financial report PDF');
-    }
-    setFinancialPdfGenerating(false);
-  };
+
 
   const handleDownloadSummaryPDF = async () => {
     setSummaryPdfGenerating(true);
     try {
       const { default: FuelSummaryPDFDocument } = await import('@/components/pdf/fuel-summary-pdf-document');
+      const { pdf } = await import('@react-pdf/renderer');
       const params: { dateFrom?: string; dateTo?: string } = {};
       if (dateFrom) params.dateFrom = dateFrom;
       if (dateTo) params.dateTo = dateTo;
@@ -226,6 +197,167 @@ export function FuelPage() {
     }
     setSummaryPdfGenerating(false);
   };
+
+
+  const handleExportStockExcel = useCallback(async () => {
+    if (stockByType.length === 0 && containerStock.length === 0) return;
+    setStockExcelGenerating(true);
+    try {
+      const stock = stockByType.length > 0
+        ? stockByType
+        : await fuelApi.getStock().then(r => r.data?.stock ?? []);
+      const containers = containerStock.length > 0
+        ? containerStock
+        : await fuelApi.getStock().then(r => r.data?.containerStock ?? []);
+
+      const stockSheet = XLSX.utils.json_to_sheet(
+        (Array.isArray(stock) ? stock : []).map((s) => ({
+          'Fuel Type': s.fuelType,
+          'Total Purchased': s.totalPurchased,
+          'Total Issued': s.totalIssued,
+          Balance: s.balance,
+        }))
+      );
+
+      const containerSheet = XLSX.utils.json_to_sheet(
+        (Array.isArray(containers) ? containers : []).map((c) => ({
+          Container: c.containerName,
+          'Fuel Type': c.fuelType,
+          Location: c.fuelLocation ?? '',
+          Capacity: c.fuelCapacity ?? '',
+          'Total Purchased': c.totalPurchased,
+          'Transferred In': c.totalTransferredIn,
+          'Transferred Out': c.totalTransferredOut,
+          'Total Issued': c.totalIssued,
+          Balance: c.balance,
+          'Usage %': `${c.usagePercent.toFixed(1)}%`,
+        }))
+      );
+
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, stockSheet, 'Stock by Type');
+      XLSX.utils.book_append_sheet(wb, containerSheet, 'Container Stock');
+      XLSX.writeFile(wb, `fuel-stock-report-${new Date().toISOString().split('T')[0]}.xlsx`);
+      toast.success('Stock report exported to Excel');
+    } catch (err) {
+      console.error('Excel export failed:', err);
+      toast.error('Failed to export stock report');
+    }
+    setStockExcelGenerating(false);
+  }, [stockByType, containerStock]);
+
+  const handleExportFinancialExcel = useCallback(async () => {
+    if (!financialSummary) {
+      try {
+        const res = await fuelApi.getFinancialSummary();
+        if (!res.data) throw new Error('No data');
+        setFinancialSummary(res.data);
+        buildFinancialExcel(res.data);
+      } catch {
+        toast.error('Failed to load financial data');
+        return;
+      }
+    } else {
+      buildFinancialExcel(financialSummary);
+    }
+  }, [financialSummary]);
+
+  function buildFinancialExcel(data: FuelFinancialSummary) {
+    setFinancialExcelGenerating(true);
+    try {
+      const wb = XLSX.utils.book_new();
+
+      const overviewSheet = XLSX.utils.json_to_sheet([
+        {
+          Metric: 'Total Purchased Qty',
+          Value: data.totalPurchasedQty,
+        },
+        {
+          Metric: 'Total Purchased Cost',
+          Value: data.totalPurchasedCost,
+        },
+        {
+          Metric: 'Total Issued Qty',
+          Value: data.totalIssuedQty,
+        },
+        {
+          Metric: 'Total Issued Cost',
+          Value: data.totalIssuedCost,
+        },
+        {
+          Metric: 'Remaining Qty',
+          Value: data.remainingQty,
+        },
+        {
+          Metric: 'Remaining Value',
+          Value: data.remainingValue,
+        },
+        {
+          Metric: 'Avg Unit Price',
+          Value: data.avgUnitPrice,
+        },
+      ]);
+      XLSX.utils.book_append_sheet(wb, overviewSheet, 'Overview');
+
+      if (data.byMachinery?.length) {
+        const machinerySheet = XLSX.utils.json_to_sheet(
+          data.byMachinery.map((m) => ({
+            Machinery: m.machineryName,
+            Type: m.machineryType,
+            Contractor: m.contractorName,
+            'Plate Number': m.plateNumber ?? '',
+            'Total Qty': m.totalQty,
+            'Total Cost': m.totalCost,
+          }))
+        );
+        XLSX.utils.book_append_sheet(wb, machinerySheet, 'By Machinery');
+      }
+
+      if (data.purchaseTransactions?.length) {
+        const purchaseSheet = XLSX.utils.json_to_sheet(
+          data.purchaseTransactions.map((t) => ({
+            Date: t.date,
+            Type: FUEL_TRANSACTION_TYPE_LABELS[t.type] || t.type,
+            'Fuel Type': t.fuelType,
+            Quantity: t.quantity,
+            'Unit Price': t.unitPrice ?? '',
+            'Total Cost': t.totalCost ?? '',
+            Supplier: t.supplier ?? '',
+            Container: t.container?.name ?? '',
+            Notes: t.notes ?? '',
+          }))
+        );
+        XLSX.utils.book_append_sheet(wb, purchaseSheet, 'Purchase Transactions');
+      }
+
+      if (data.allTransactions?.length) {
+        const allSheet = XLSX.utils.json_to_sheet(
+          data.allTransactions.map((t) => ({
+            Date: t.date,
+            Type: FUEL_TRANSACTION_TYPE_LABELS[t.type] || t.type,
+            'Fuel Type': t.fuelType,
+            Quantity: t.quantity,
+            'Unit Price': t.unitPrice ?? '',
+            'Total Cost': t.totalCost ?? '',
+            Supplier: t.supplier ?? '',
+            Container: t.container?.name ?? '',
+            Machinery: t.machinery?.machineryName ?? '',
+            Contractor: t.contractor?.contractorName ?? '',
+            'Issued To': t.issuedToName ?? '',
+            Notes: t.notes ?? '',
+          }))
+        );
+        XLSX.utils.book_append_sheet(wb, allSheet, 'All Transactions');
+      }
+
+      XLSX.writeFile(wb, `fuel-financial-report-${new Date().toISOString().split('T')[0]}.xlsx`);
+      toast.success('Financial report exported to Excel');
+    } catch (err) {
+      console.error('Excel export failed:', err);
+      toast.error('Failed to export financial report');
+    }
+    setFinancialExcelGenerating(false);
+  }
 
   const fmtCurrency = (value: number | null | undefined) => {
     if (value == null) return '-';
@@ -489,32 +621,51 @@ export function FuelPage() {
           )}
         </div>
         <div className="flex gap-2 flex-wrap">
-          <Button
-            variant="outline"
-            className="border-amber-600 text-amber-600"
-            onClick={handleDownloadSummaryPDF}
-            disabled={summaryPdfGenerating}
-          >
-            {summaryPdfGenerating ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            ) : (
-              <FileBarChart className="mr-2 h-4 w-4" />
-            )}
-            {summaryPdfGenerating ? 'Generating...' : 'Summary PDF'}
-          </Button>
-          <Button
-            variant="outline"
-            className="border-violet-600 text-violet-600"
-            onClick={handleDownloadFinancialPDF}
-            disabled={financialPdfGenerating}
-          >
-            {financialPdfGenerating ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            ) : (
-              <FileText className="mr-2 h-4 w-4" />
-            )}
-            {financialPdfGenerating ? 'Generating...' : 'Financial Report PDF'}
-          </Button>
+          {hasPermission('reports:generatePdf') && (
+            <Button
+              variant="outline"
+              className="border-emerald-600 text-emerald-600"
+              onClick={handleExportStockExcel}
+              disabled={stockExcelGenerating}
+            >
+              {stockExcelGenerating ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <FileSpreadsheet className="mr-2 h-4 w-4" />
+              )}
+              {stockExcelGenerating ? 'Exporting...' : 'Stock Excel'}
+            </Button>
+          )}
+          {hasPermission('reports:generatePdf') && (
+            <Button
+              variant="outline"
+              className="border-amber-600 text-amber-600"
+              onClick={handleDownloadSummaryPDF}
+              disabled={summaryPdfGenerating}
+            >
+              {summaryPdfGenerating ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <FileBarChart className="mr-2 h-4 w-4" />
+              )}
+              {summaryPdfGenerating ? 'Generating...' : 'Summary PDF'}
+            </Button>
+          )}
+          {hasPermission('reports:generatePdf') && (
+            <Button
+              variant="outline"
+              className="border-violet-600 text-violet-600"
+              onClick={handleExportFinancialExcel}
+              disabled={financialExcelGenerating}
+            >
+              {financialExcelGenerating ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <FileSpreadsheet className="mr-2 h-4 w-4" />
+              )}
+              {financialExcelGenerating ? 'Exporting...' : 'Financial Excel'}
+            </Button>
+          )}
           <Dialog open={transferOpen} onOpenChange={setTransferOpen}>
             <DialogTrigger asChild>
               <Button variant="outline" className="border-blue-600 text-blue-600">
@@ -522,7 +673,7 @@ export function FuelPage() {
                 Transfer
               </Button>
             </DialogTrigger>
-            <DialogContent className="sm:max-w-[500px]">
+            <DialogContent className="sm:max-w-[500px] max-h-[90vh] overflow-y-auto">
               <DialogHeader>
                 <DialogTitle>Transfer Fuel Between Containers</DialogTitle>
               </DialogHeader>
@@ -541,7 +692,7 @@ export function FuelPage() {
                 Add Purchase
               </Button>
             </DialogTrigger>
-            <DialogContent className="sm:max-w-[500px]">
+            <DialogContent className="sm:max-w-[500px] max-h-[90vh] overflow-y-auto">
               <DialogHeader>
                 <DialogTitle>Record Fuel Purchase</DialogTitle>
               </DialogHeader>
@@ -560,7 +711,7 @@ export function FuelPage() {
                 Issue Fuel
               </Button>
             </DialogTrigger>
-            <DialogContent className="sm:max-w-[550px]">
+            <DialogContent className="sm:max-w-[550px] max-h-[90vh] overflow-y-auto">
               <DialogHeader>
                 <DialogTitle>Issue Fuel from Container</DialogTitle>
               </DialogHeader>
@@ -726,7 +877,7 @@ export function FuelPage() {
         <CardHeader className="pb-3">
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
             <CardTitle className="text-lg shrink-0">Transaction History</CardTitle>
-            <div className="flex items-center gap-2 w-full sm:w-auto">
+            <div className="flex flex-wrap items-center gap-2 w-full sm:flex-nowrap sm:w-auto">
               <div className="relative flex-1 sm:w-64">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <input
@@ -792,7 +943,7 @@ export function FuelPage() {
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 <div className="space-y-2">
                   <label className="text-sm font-medium">Date Range</label>
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2 sm:flex-nowrap">
                     <Input
                       type="date"
                       value={dateFrom}
@@ -1099,7 +1250,7 @@ export function FuelPage() {
 
       {/* Edit Dialog */}
       <Dialog open={editDialogOpen} onOpenChange={(open) => { if (!open) { setEditDialogOpen(false); setEditingTransaction(null); } }}>
-        <DialogContent className="sm:max-w-[550px]">
+        <DialogContent className="sm:max-w-[550px] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
               Edit {editingTransaction ? FUEL_TRANSACTION_TYPE_LABELS[editingTransaction.type as keyof typeof FUEL_TRANSACTION_TYPE_LABELS] : ''} Transaction

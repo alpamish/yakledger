@@ -3,20 +3,26 @@ import { Geist, Geist_Mono, Vazirmatn } from "next/font/google";
 import "./globals.css";
 import { Toaster } from "@/components/ui/sonner";
 import { ThemeProvider } from "@/components/theme-provider";
+import { QueryProvider } from "@/components/query-provider";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
   subsets: ["latin"],
+  display: "swap",
 });
 
 const geistMono = Geist_Mono({
   variable: "--font-geist-mono",
   subsets: ["latin"],
+  display: "optional",
+  preload: false,
 });
 
 const vazirmatn = Vazirmatn({
   variable: "--font-vazirmatn",
   subsets: ["latin", "arabic"],
+  display: "optional",
+  preload: false,
 });
 
 export const metadata: Metadata = {
@@ -40,7 +46,9 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} ${vazirmatn.variable} antialiased bg-background text-foreground`}
       >
         <ThemeProvider>
-          {children}
+          <QueryProvider>
+            {children}
+          </QueryProvider>
           <Toaster />
         </ThemeProvider>
       </body>

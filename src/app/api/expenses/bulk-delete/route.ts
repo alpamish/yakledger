@@ -42,20 +42,20 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Create audit log entries for each expense
-    await db.auditLog.createMany({
-      data: expenses.map((expense) => ({
-        action: "BULK_DELETE",
-        entity: "Expense",
-        entityId: expense.id,
-        details: `Bulk deleted expense: ${expense.title} ($${expense.amount})`,
-        userId: user.id,
-      })),
-    });
+    const deleted = await db.$transaction(async (tx) => {
+      await tx.auditLog.createMany({
+        data: expenses.map((expense) => ({
+          action: "BULK_DELETE",
+          entity: "Expense",
+          entityId: expense.id,
+          details: `Bulk deleted expense: ${expense.title} ($${expense.amount})`,
+          userId: user.id,
+        })),
+      });
 
-    // Delete all matching expenses
-    const deleted = await db.expense.deleteMany({
-      where: { id: { in: ids } },
+      return tx.expense.deleteMany({
+        where: { id: { in: ids } },
+      });
     });
 
     return NextResponse.json({

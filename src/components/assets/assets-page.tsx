@@ -2,6 +2,7 @@
 
 import { useEffect } from 'react';
 import { useAssetStore } from '@/hooks/use-asset-store';
+import { usePermissions } from '@/hooks/use-permissions';
 import { AssetsListPage } from './assets-list-page';
 import { AssetFormPage } from './asset-form-page';
 import { AssetDetailPage } from './asset-detail-page';
@@ -12,6 +13,9 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Package, Fuel, Wrench, ClipboardList } from 'lucide-react';
 
 export function AssetsPage() {
+  const { canView } = usePermissions();
+
+  if (!canView('assets')) return null;
   const activeView = useAssetStore((s) => s.activeView);
   const setActiveView = useAssetStore((s) => s.setActiveView);
 

@@ -13,14 +13,12 @@ const updateSettingsSchema = z.object({
   email: z.string().email("Invalid email").optional().nullable().or(z.literal("")),
   website: z.string().optional().nullable(),
   taxId: z.string().optional().nullable(),
+  allowSignup: z.boolean().optional(),
 });
 
 // GET /api/settings - Fetch app settings
 export async function GET(request: NextRequest) {
   try {
-    const result = await requirePermission(request, "settings:view");
-    if ("status" in result) return result;
-
     const settings = await db.appSettings.findUnique({
       where: { id: SETTINGS_ID },
     });
@@ -57,26 +55,25 @@ export async function PUT(request: NextRequest) {
 
     const data = parsed.data;
 
+    const updateData: any = {
+      companyName: data.companyName,
+      companyLogo: data.companyLogo ?? null,
+      address: data.address ?? null,
+      phone: data.phone ?? null,
+      email: data.email ?? null,
+      website: data.website ?? null,
+      taxId: data.taxId ?? null,
+    };
+    if (data.allowSignup !== undefined) {
+      updateData.allowSignup = data.allowSignup;
+    }
+
     const settings = await db.appSettings.upsert({
       where: { id: SETTINGS_ID },
-      update: {
-        companyName: data.companyName,
-        companyLogo: data.companyLogo ?? null,
-        address: data.address ?? null,
-        phone: data.phone ?? null,
-        email: data.email ?? null,
-        website: data.website ?? null,
-        taxId: data.taxId ?? null,
-      },
+      update: updateData,
       create: {
         id: SETTINGS_ID,
-        companyName: data.companyName,
-        companyLogo: data.companyLogo ?? null,
-        address: data.address ?? null,
-        phone: data.phone ?? null,
-        email: data.email ?? null,
-        website: data.website ?? null,
-        taxId: data.taxId ?? null,
+        ...updateData,
       },
     });
 

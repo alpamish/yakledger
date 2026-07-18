@@ -22,6 +22,20 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover';
+import {
+  Command,
+  CommandInput,
+  CommandList,
+  CommandEmpty,
+  CommandItem,
+} from '@/components/ui/command';
+import { ChevronDown, Check, Loader2 } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import { type Asset, type AssetLog } from '@/types/asset';
 import { assetsApi, assetLogApi } from '@/services/asset-api';
 import { employeesApi } from '@/services/api';
@@ -96,6 +110,15 @@ export function AssetLogForm({ onSuccess, log }: AssetLogFormProps) {
   const engStart = form.watch('engineHoursStart');
   const engEnd = form.watch('engineHoursEnd');
   const engHours = engStart && engEnd ? Math.max(0, engEnd - engStart) : 0;
+
+  const selectedAssetId = form.watch('assetId');
+  useEffect(() => {
+    if (!selectedAssetId || isEdit) return;
+    const asset = vehicles.find((v) => v.id === selectedAssetId);
+    if (asset?.assignedToId) {
+      form.setValue('operatorId', asset.assignedToId);
+    }
+  }, [selectedAssetId, vehicles, form, isEdit]);
 
   const onSubmit = async (data: FormValues) => {
     try {
@@ -209,23 +232,59 @@ export function AssetLogForm({ onSuccess, log }: AssetLogFormProps) {
           control={form.control}
           name="operatorId"
           render={({ field }) => (
-            <FormItem>
+            <FormItem className="flex flex-col">
               <FormLabel>Operator</FormLabel>
-              <Select onValueChange={field.onChange} value={field.value || ''}>
-                <FormControl>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select operator" />
-                  </SelectTrigger>
-                </FormControl>
-                <SelectContent>
-                  <SelectItem value="none">Not specified</SelectItem>
-                  {employees.map((e) => (
-                    <SelectItem key={e.id} value={e.id}>
-                      {e.fullName}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <FormControl>
+                    <Button
+                      variant="outline"
+                      role="combobox"
+                      className="w-full justify-between font-normal"
+                    >
+                      {field.value && field.value !== 'none'
+                        ? employees.find((e) => e.id === field.value)?.fullName ?? 'Search operator...'
+                        : 'Search operator...'}
+                      <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                    </Button>
+                  </FormControl>
+                </PopoverTrigger>
+                <PopoverContent className="w-[90vw] sm:w-[400px] p-0">
+                  <Command>
+                    <CommandInput placeholder="Search operator by name..." />
+                    <CommandList>
+                      <CommandEmpty>No operator found.</CommandEmpty>
+                      <CommandItem
+                        value="none"
+                        onSelect={() => field.onChange('')}
+                      >
+                        <Check
+                          className={cn(
+                            'mr-2 h-4 w-4',
+                            !field.value || field.value === 'none' ? 'opacity-100' : 'opacity-0'
+                          )}
+                        />
+                        Not specified
+                      </CommandItem>
+                      {employees.map((e) => (
+                        <CommandItem
+                          key={e.id}
+                          value={e.fullName}
+                          onSelect={() => field.onChange(e.id)}
+                        >
+                          <Check
+                            className={cn(
+                              'mr-2 h-4 w-4',
+                              field.value === e.id ? 'opacity-100' : 'opacity-0'
+                            )}
+                          />
+                          {e.fullName}
+                        </CommandItem>
+                      ))}
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
               <FormMessage />
             </FormItem>
           )}

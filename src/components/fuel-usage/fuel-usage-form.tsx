@@ -240,7 +240,7 @@ export function FuelUsageForm({ open, onOpenChange, editingFuelUsage, onSuccess 
                         <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                       </Button>
                     </PopoverTrigger>
-                    <PopoverContent className="w-[400px] p-0">
+                    <PopoverContent className="w-[90vw] sm:w-[400px] p-0">
                       <Command>
                         <CommandInput placeholder="Search contractor..." />
                         <CommandList>

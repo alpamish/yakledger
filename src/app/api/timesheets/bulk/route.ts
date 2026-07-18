@@ -6,6 +6,7 @@ import { requirePermission } from "@/lib/permissions";
 const bulkRecordSchema = z.object({
   contractorId: z.string().min(1, "Contractor is required"),
   machineryId: z.string().optional().nullable(),
+  machineryRateId: z.string().optional().nullable(),
   operatorName: z.string().optional().nullable(),
   workSite: z.string().optional().nullable(),
   date: z.string().min(1, "Date is required"),
@@ -91,6 +92,7 @@ export async function POST(request: NextRequest) {
           data: {
             contractorId: record.contractorId,
             machineryId: record.machineryId ?? null,
+            machineryRateId: record.machineryRateId ?? null,
             operatorName: record.operatorName ?? null,
             workSite: record.workSite ?? null,
             date: new Date(record.date),

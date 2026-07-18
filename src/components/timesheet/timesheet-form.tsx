@@ -35,7 +35,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { cn } from '@/lib/utils';
-import type { Timesheet, TimesheetFormData, Machinery } from '@/types/contractor';
+import type { Timesheet, TimesheetFormData, Machinery, MachineryRate } from '@/types/contractor';
 import { timesheetsApi, contractorsApi, machineryApi } from '@/services/contractor-api';
 import { AlertCircle, Check, ChevronsUpDown, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -43,6 +43,7 @@ import { toast } from 'sonner';
 const formSchema = z.object({
   contractorId: z.string().min(1, 'Contractor is required'),
   machineryId: z.string().min(1, 'Machinery is required'),
+  machineryRateId: z.string().optional().nullable(),
   operatorName: z.string().optional().nullable(),
   workSite: z.string().optional().nullable(),
   date: z.string().min(1, 'Date is required'),
@@ -76,6 +77,7 @@ export function TimesheetForm({ open, onOpenChange, editingTimesheet, onSuccess 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [contractors, setContractors] = useState<ContractorOption[]>([]);
   const [machineryOptions, setMachineryOptions] = useState<Pick<Machinery, 'id' | 'machineryName' | 'plateNumber'>[]>([]);
+  const [machineryRates, setMachineryRates] = useState<MachineryRate[]>([]);
   const [loadingContractors, setLoadingContractors] = useState(false);
   const [contractorPopoverOpen, setContractorPopoverOpen] = useState(false);
   const [workHoursPerDay, setWorkHoursPerDay] = useState(9);
@@ -87,6 +89,7 @@ export function TimesheetForm({ open, onOpenChange, editingTimesheet, onSuccess 
     defaultValues: {
       contractorId: '',
       machineryId: '',
+      machineryRateId: '',
       operatorName: '',
       workSite: '',
       date: format(new Date(), 'yyyy-MM-dd'),
@@ -114,6 +117,7 @@ export function TimesheetForm({ open, onOpenChange, editingTimesheet, onSuccess 
         form.reset({
           contractorId: editingTimesheet.contractorId,
           machineryId: editingTimesheet.machineryId ?? '',
+          machineryRateId: editingTimesheet.machineryRateId ?? '',
           operatorName: editingTimesheet.operatorName ?? '',
           workSite: editingTimesheet.workSite ?? '',
           date: format(new Date(editingTimesheet.date), 'yyyy-MM-dd'),
@@ -130,6 +134,7 @@ export function TimesheetForm({ open, onOpenChange, editingTimesheet, onSuccess 
         form.reset({
           contractorId: '',
           machineryId: '',
+          machineryRateId: '',
           operatorName: '',
           workSite: '',
           date: format(new Date(), 'yyyy-MM-dd'),
@@ -163,6 +168,29 @@ export function TimesheetForm({ open, onOpenChange, editingTimesheet, onSuccess 
       setWorkHoursPerDay(9);
     }
   }, [selectedContractorId]);
+
+  const selectedMachineryId = form.watch('machineryId');
+
+  useEffect(() => {
+    if (selectedMachineryId) {
+      machineryApi.getRates(selectedMachineryId).then((res) => {
+        const rates = res.data ?? [];
+        setMachineryRates(rates);
+        const currentRateId = form.getValues('machineryRateId');
+        if (!currentRateId) {
+          const defaultRate = rates.find((r) => r.isDefault);
+          if (defaultRate) {
+            form.setValue('machineryRateId', defaultRate.id);
+          }
+        }
+      }).catch(() => {
+        setMachineryRates([]);
+      });
+    } else {
+      setMachineryRates([]);
+      form.setValue('machineryRateId', '');
+    }
+  }, [selectedMachineryId, form]);
 
   const startTime = form.watch('startTime');
   const lunchStart = form.watch('lunchStart');
@@ -199,6 +227,7 @@ export function TimesheetForm({ open, onOpenChange, editingTimesheet, onSuccess 
       const data: TimesheetFormData = {
         ...values,
         machineryId: values.machineryId,
+        machineryRateId: values.machineryRateId || undefined,
         operatorName: values.operatorName || undefined,
         workSite: values.workSite || undefined,
         startTime: values.startTime || undefined,
@@ -415,6 +444,33 @@ export function TimesheetForm({ open, onOpenChange, editingTimesheet, onSuccess 
                 </FormItem>
               )} />
             </div>
+
+            {/* Row: Rate Tier (only when rates exist) */}
+            {machineryRates.length > 0 && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <FormField control={form.control} name="machineryRateId" render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Rate Tier</FormLabel>
+                    <Select onValueChange={field.onChange} value={field.value ?? ''}>
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select rate tier" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {machineryRates.map((r) => (
+                          <SelectItem key={r.id} value={r.id}>
+                            {r.rateName} — Afs {r.monthlyRate.toLocaleString()}/mo
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )} />
+                <div />
+              </div>
+            )}
 
             {/* Notes */}
             <FormField control={form.control} name="notes" render={({ field }) => (

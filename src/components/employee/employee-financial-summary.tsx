@@ -33,6 +33,7 @@ import {
   Loader2,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { usePermissions } from '@/hooks/use-permissions';
 
 function formatCurrency(amount: number): string {
   return new Intl.NumberFormat('en-US', {
@@ -61,6 +62,7 @@ export function EmployeeFinancialSummary({
   const [isLoading, setIsLoading] = React.useState(false);
   const [isPdfGenerating, setIsPdfGenerating] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  const { hasPermission } = usePermissions();
 
   React.useEffect(() => {
     if (!open || employeeIds.length === 0) return;
@@ -275,7 +277,7 @@ export function EmployeeFinancialSummary({
           </div>
         )}
 
-        {!isLoading && !error && employees.length > 0 && (
+        {!isLoading && !error && employees.length > 0 && hasPermission('reports:generatePdf') && (
           <DialogFooter className="border-t pt-4">
             <Button
               onClick={handleDownloadPDF}

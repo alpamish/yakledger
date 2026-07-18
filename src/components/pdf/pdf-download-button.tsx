@@ -5,6 +5,7 @@ import { pdf } from "@react-pdf/renderer";
 import { format } from "date-fns";
 import { Download, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { usePermissions } from "@/hooks/use-permissions";
 import type { Expense } from "@/types/expense";
 import ExpensePDFDocument, {
   type PdfFilters,
@@ -34,6 +35,7 @@ export function PdfDownloadButton({
 }: PdfDownloadButtonProps) {
   const [isGenerating, setIsGenerating] = useState(false);
   const [companyName, setCompanyName] = useState("YakhshiLedger");
+  const { hasPermission } = usePermissions();
 
   useEffect(() => {
     settingsApi.get().then((res) => {
@@ -72,6 +74,8 @@ export function PdfDownloadButton({
       setIsGenerating(false);
     }
   }, [expenses, filters, isGenerating, selectedOnly]);
+
+  if (!hasPermission('reports:generatePdf')) return null;
 
   return (
     <Button

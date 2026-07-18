@@ -35,6 +35,7 @@ model User {
 
   userPermissions UserPermission[]
   timesheetApprovals  Timesheet[] @relation("TimesheetApprovedBy")
+  machineryRates      MachineryRate[]
 }
 
 model Permission {
@@ -110,6 +111,13 @@ model Employee {
   assignedAssets        Asset[]
   assetOperatorLogs     AssetLog[]
   attendanceRecords     Attendance[]
+
+  @@index([phoneNumber])
+  @@index([email])
+  @@index([nationalId])
+  @@index([department])
+  @@index([status])
+  @@index([createdBy])
 }
 
 model Expense {
@@ -143,6 +151,14 @@ model Expense {
   paidByContractor Contractor? @relation("ExpensePaidByContractor", fields: [paidByContractorId], references: [id], onDelete: SetNull)
 
   fuelUsage      FuelUsage[]
+
+  @@index([expenseDate])
+  @@index([category])
+  @@index([createdBy])
+  @@index([paidById])
+  @@index([paidToId])
+  @@index([paidToContractorId])
+  @@index([paidByContractorId])
 }
 
 model Contractor {
@@ -170,12 +186,18 @@ model Contractor {
   fuelUsages          FuelUsage[]
   machinery           Machinery[]
   fuelTransactions    FuelTransaction[]
+
+  @@index([phoneNumber])
+  @@index([nationalId])
+  @@index([status])
+  @@index([createdBy])
 }
 
 model Timesheet {
   id              String   @id @default(cuid())
   contractorId    String
   machineryId     String?
+  machineryRateId String?
   operatorName    String?
   workSite        String?
   date            DateTime
@@ -194,8 +216,15 @@ model Timesheet {
 
   contractor      Contractor        @relation(fields: [contractorId], references: [id], onDelete: Cascade)
   machinery       Machinery?        @relation(fields: [machineryId], references: [id], onDelete: SetNull)
+  machineryRate   MachineryRate?    @relation(fields: [machineryRateId], references: [id], onDelete: SetNull)
   creator         User              @relation(fields: [createdBy], references: [id], onDelete: Cascade)
   approver        User?             @relation("TimesheetApprovedBy", fields: [approvedBy], references: [id], onDelete: SetNull)
+
+  @@index([contractorId, date])
+  @@index([machineryId])
+  @@index([machineryId, date])
+  @@index([approvedBy])
+  @@index([createdBy])
 }
 
 model FuelUsage {
@@ -221,6 +250,13 @@ model FuelUsage {
   linkedExpense   Expense?         @relation(fields: [linkedExpenseId], references: [id], onDelete: SetNull)
   fuelTransaction FuelTransaction? @relation(fields: [fuelTransactionId], references: [id], onDelete: SetNull)
   creator         User             @relation(fields: [createdBy], references: [id], onDelete: Cascade)
+
+  @@index([contractorId, date])
+  @@index([machineryId])
+  @@index([machineryId, date])
+  @@index([linkedExpenseId])
+  @@index([fuelTransactionId])
+  @@index([createdBy])
 }
 
 model Machinery {
@@ -246,24 +282,55 @@ model Machinery {
   updatedAt             DateTime        @updatedAt
 
   assignedContractor    Contractor      @relation(fields: [assignedContractorId], references: [id], onDelete: Cascade)
+  machineryRates        MachineryRate[]
   timesheets            Timesheet[]
   fuelUsages            FuelUsage[]
   fuelTransactions      FuelTransaction[]
   creator               User            @relation(fields: [createdBy], references: [id], onDelete: Cascade)
+
+  @@index([assignedContractorId])
+  @@index([plateNumber])
+  @@index([status])
+  @@index([createdBy])
+}
+
+model MachineryRate {
+  id                    String    @id @default(cuid())
+  machineryId           String
+  rateName              String
+  monthlyRate           Float     @default(0)
+  dailyRate             Float     @default(0)
+  hourlyRate            Float     @default(0)
+  contractDaysPerMonth  Int       @default(28)
+  workHoursPerDay       Int       @default(9)
+  isDefault             Boolean   @default(false)
+  createdBy             String
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  machinery             Machinery  @relation(fields: [machineryId], references: [id], onDelete: Cascade)
+  creator               User       @relation(fields: [createdBy], references: [id], onDelete: Cascade)
+  timesheets            Timesheet[]
+
+  @@index([machineryId])
 }
 
 model Attendance {
   id          String   @id @default(cuid())
   employeeId  String
-  employee    Employee @relation(fields: [employeeId], references: [id])
+  employee      Employee @relation(fields: [employeeId], references: [id])
   date        DateTime
-  status      String   // PRESENT | ABSENT | HALF_DAY | LEAVE | HOLIDAY
+  status      String
   notes       String?
   createdBy   String
   creator     User     @relation(fields: [createdBy], references: [id])
   createdAt   DateTime @default(now())
 
   @@unique([employeeId, date])
+  @@index([employeeId])
+  @@index([date])
+  @@index([status])
+  @@index([createdBy])
 }
 
 model EmployeeCashAccount {
@@ -295,6 +362,11 @@ model CashTransaction {
   creator         User               @relation(fields: [createdById], references: [id])
 
   createdAt       DateTime           @default(now())
+
+  @@index([employeeId])
+  @@index([type])
+  @@index([createdById])
+  @@index([createdAt])
 }
 
 model Transfer {
@@ -312,6 +384,10 @@ model Transfer {
   fromEmployee    Employee @relation("TransferFrom", fields: [fromEmployeeId], references: [id])
   toEmployee      Employee @relation("TransferTo", fields: [toEmployeeId], references: [id])
   creator         User     @relation(fields: [createdById], references: [id])
+
+  @@index([fromEmployeeId])
+  @@index([toEmployeeId])
+  @@index([createdById])
 }
 
 model AppSettings {
@@ -323,6 +399,7 @@ model AppSettings {
   email             String?
   website           String?
   taxId             String?
+  allowSignup       Boolean   @default(false)
   lastSyncTimestamp DateTime?
   updatedAt         DateTime  @updatedAt
 }
@@ -337,6 +414,11 @@ model AuditLog {
   createdAt DateTime @default(now())
 
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([entity, entityId])
+  @@index([userId])
+  @@index([createdAt])
+  @@index([action])
 }
 
 model Asset {
@@ -368,6 +450,13 @@ model Asset {
   fuelDestinationTransactions FuelTransaction[] @relation("FuelTransactionDestination")
   maintenanceRecords MaintenanceRecord[]
   assetLogs         AssetLog[]
+
+  @@index([assignedToId])
+  @@index([category])
+  @@index([status])
+  @@index([serialNumber])
+  @@index([plateNumber])
+  @@index([createdBy])
 }
 
 model FuelTransaction {
@@ -397,6 +486,15 @@ model FuelTransaction {
 
   creator      User        @relation(fields: [createdBy], references: [id], onDelete: Cascade)
   fuelUsages   FuelUsage[]
+
+  @@index([type])
+  @@index([fuelType])
+  @@index([assetId])
+  @@index([containerId])
+  @@index([contractorId])
+  @@index([machineryId])
+  @@index([date])
+  @@index([createdBy])
 }
 
 model MaintenanceRecord {
@@ -415,6 +513,10 @@ model MaintenanceRecord {
   updatedAt       DateTime        @updatedAt
 
   creator User @relation(fields: [createdBy], references: [id], onDelete: Cascade)
+
+  @@index([assetId])
+  @@index([serviceDate])
+  @@index([createdBy])
 }
 
 model AssetLog {
@@ -447,4 +549,11 @@ model AssetLog {
 
   creator  User      @relation(fields: [createdBy], references: [id], onDelete: Cascade)
   approvedBy User?  @relation("ApprovedByUser", fields: [approvedById], references: [id], onDelete: SetNull)
+
+  @@index([assetId])
+  @@index([operatorId])
+  @@index([date])
+  @@index([status])
+  @@index([approvedById])
+  @@index([createdBy])
 }

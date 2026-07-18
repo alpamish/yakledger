@@ -120,6 +120,9 @@ export async function GET(request: NextRequest) {
         monthlyTrend,
         recentExpenses,
       },
+      headers: {
+        "Cache-Control": "private, max-age=15, must-revalidate",
+      },
     });
   } catch (error) {
     console.error("Dashboard stats error:", error);

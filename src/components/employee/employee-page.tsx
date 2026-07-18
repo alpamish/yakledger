@@ -18,7 +18,9 @@ import { toast } from 'sonner';
 import { usePermissions } from '@/hooks/use-permissions';
 
 export function EmployeePage() {
-  const { canCreate, canEdit, canDelete } = usePermissions();
+  const { canView, canCreate, canEdit, canDelete } = usePermissions();
+
+  if (!canView('employees')) return null;
   const openForm = useEmployeeStore((s) => s.openForm);
   const deleteEmployee = useEmployeeStore((s) => s.deleteEmployee);
   const bulkAction = useEmployeeStore((s) => s.bulkAction);

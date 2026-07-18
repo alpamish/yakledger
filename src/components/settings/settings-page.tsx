@@ -5,7 +5,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { toast } from "sonner";
-import { Save, Loader2, Upload, Image as ImageIcon, Building, Cloud, CloudOff, RefreshCw } from "lucide-react";
+import { Save, Loader2, Upload, Image as ImageIcon, Building, Cloud, CloudOff, RefreshCw, UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -24,6 +24,8 @@ import {
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { LoadingSpinner } from "@/components/common/loading-spinner";
 import { settingsApi, type AppSettings } from "@/services/settings";
@@ -39,12 +41,15 @@ const settingsSchema = z.object({
   email: z.string().email("Invalid email").optional().or(z.literal("")),
   website: z.string().optional(),
   taxId: z.string().optional(),
+  allowSignup: z.boolean(),
 });
 
 type SettingsFormValues = z.infer<typeof settingsSchema>;
 
 export function SettingsPage() {
-  const { canEdit } = usePermissions();
+  const { canView, canEdit } = usePermissions();
+
+  if (!canView('settings')) return null;
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
@@ -72,6 +77,7 @@ export function SettingsPage() {
       email: "",
       website: "",
       taxId: "",
+      allowSignup: false,
     },
   });
 
@@ -91,6 +97,7 @@ export function SettingsPage() {
           email: res.data.email ?? "",
           website: res.data.website ?? "",
           taxId: res.data.taxId ?? "",
+          allowSignup: res.data.allowSignup ?? false,
         });
         setLogoPath(res.data.companyLogo ?? null);
       }
@@ -380,6 +387,30 @@ export function SettingsPage() {
                       </FormControl>
                       <FormMessage />
                     </FormItem>
+                  )}
+                />
+              </div>
+
+              <div className="flex items-center justify-between rounded-lg border p-4">
+                <div className="space-y-0.5">
+                  <Label htmlFor="allowSignup" className="flex items-center gap-2 text-base">
+                    <UserPlus className="size-4 text-emerald-600" />
+                    Allow New Registrations
+                  </Label>
+                  <p className="text-sm text-muted-foreground">
+                    When disabled, new users cannot create accounts
+                  </p>
+                </div>
+                <FormField
+                  control={form.control}
+                  name="allowSignup"
+                  render={({ field }) => (
+                    <Switch
+                      id="allowSignup"
+                      checked={field.value}
+                      onCheckedChange={field.onChange}
+                      disabled={!canEdit('settings')}
+                    />
                   )}
                 />
               </div>

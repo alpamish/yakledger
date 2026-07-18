@@ -19,12 +19,65 @@ import type {
   AttendanceRecord,
   AttendanceSummary,
   AttendanceFilters,
-  BulkAttendanceEntry,
 } from "@/types/employee";
 
 const API_BASE = "/api";
 
-// Token management
+// ─── In-Memory Cache ─────────────────────────────────────────────────────────
+
+interface CacheEntry {
+  data: unknown;
+  expiresAt: number;
+}
+
+const cache = new Map<string, CacheEntry>();
+
+function getCacheKey(endpoint: string, method: string): string {
+  return `${method}:${endpoint}`;
+}
+
+function getCached<T>(endpoint: string, method: string): T | null {
+  if (method !== "GET") return null;
+  const key = getCacheKey(endpoint, method);
+  const entry = cache.get(key);
+  if (!entry) return null;
+  if (Date.now() > entry.expiresAt) {
+    cache.delete(key);
+    return null;
+  }
+  return entry.data as T;
+}
+
+function setCache(endpoint: string, method: string, data: unknown, ttlMs: number): void {
+  if (method !== "GET") return;
+  const key = getCacheKey(endpoint, method);
+  cache.set(key, { data, expiresAt: Date.now() + ttlMs });
+  if (cache.size > 500) {
+    const oldest = cache.entries().next().value;
+    if (oldest) cache.delete(oldest[0]);
+  }
+}
+
+function invalidateCache(modulePrefix: string): void {
+  for (const key of cache.keys()) {
+    if (key.includes(modulePrefix)) {
+      cache.delete(key);
+    }
+  }
+}
+
+function computeTTL(endpoint: string): number {
+  if (endpoint.includes("/dashboard") || endpoint.includes("/summary") || endpoint.includes("/stats")) {
+    return 15_000;
+  }
+  if (endpoint.includes("/list") || endpoint.includes("/types") || endpoint.includes("/stock")) {
+    return 30_000;
+  }
+  return 10_000;
+}
+
+// ─── Token management ────────────────────────────────────────────────────────
+
 function getToken(): string | null {
   if (typeof window === "undefined") return null;
   return localStorage.getItem("auth_token");
@@ -56,6 +109,11 @@ async function request<T>(
   endpoint: string,
   options: RequestInit = {}
 ): Promise<T> {
+  const method = options.method || "GET";
+
+  const cached = getCached<T>(endpoint, method);
+  if (cached !== null) return cached;
+
   const token = getToken();
 
   const headers: Record<string, string> = {
@@ -72,7 +130,6 @@ async function request<T>(
     headers,
   });
 
-  // Handle 401 — clear token and redirect to login
   if (response.status === 401) {
     clearToken();
     if (typeof window !== "undefined") {
@@ -81,7 +138,6 @@ async function request<T>(
     throw new ApiError("Unauthorized", 401);
   }
 
-  // Handle non-OK responses
   if (!response.ok) {
     let message = `Request failed with status ${response.status}`;
     try {
@@ -95,40 +151,45 @@ async function request<T>(
     throw new ApiError(message, response.status);
   }
 
-  // Handle 204 No Content
   if (response.status === 204) {
     return undefined as T;
   }
 
-  const data = await response.json();
-  return data as T;
+  const data = await response.json() as T;
+
+  if (method === "GET") {
+    const ttl = computeTTL(endpoint);
+    setCache(endpoint, method, data, ttl);
+  }
+
+  return data;
+}
+
+async function mutate<T>(
+  endpoint: string,
+  options: RequestInit,
+  modulePrefix: string
+): Promise<T> {
+  const result = await request<T>(endpoint, { ...options });
+  invalidateCache(modulePrefix);
+  return result;
 }
 
 // ─── Auth API ────────────────────────────────────────────────────────────────
 
 export const authApi = {
-  register: async (data: {
-    email: string;
-    name: string;
-    password: string;
-  }): Promise<ApiResponse<AuthResponse>> => {
-    const result = await request<ApiResponse<AuthResponse>>(
-      "/auth/register",
-      {
-        method: "POST",
-        body: JSON.stringify(data),
-      }
-    );
+  register: async (data: { email: string; name: string; password: string }): Promise<ApiResponse<AuthResponse>> => {
+    const result = await request<ApiResponse<AuthResponse>>("/auth/register", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
     if (result.data?.token) {
       setToken(result.data.token);
     }
     return result;
   },
 
-  login: async (data: {
-    email: string;
-    password: string;
-  }): Promise<ApiResponse<AuthResponse>> => {
+  login: async (data: { email: string; password: string }): Promise<ApiResponse<AuthResponse>> => {
     const result = await request<ApiResponse<AuthResponse>>("/auth/login", {
       method: "POST",
       body: JSON.stringify(data),
@@ -164,7 +225,6 @@ export const expensesApi = {
     }
   ): Promise<ApiResponse<PaginatedResponse<Expense>>> => {
     const searchParams = new URLSearchParams();
-
     if (params) {
       if (params.search) searchParams.set("search", params.search);
       if (params.searchField) searchParams.set("searchField", params.searchField);
@@ -172,67 +232,54 @@ export const expensesApi = {
         params.categories.forEach((c) => searchParams.append("category", c));
       }
       if (params.paymentMethods?.length) {
-        params.paymentMethods.forEach((pm) =>
-          searchParams.append("paymentMethod", pm)
-        );
+        params.paymentMethods.forEach((pm) => searchParams.append("paymentMethod", pm));
       }
       if (params.dateFrom) searchParams.set("dateFrom", params.dateFrom);
       if (params.dateTo) searchParams.set("dateTo", params.dateTo);
-      if (params.amountMin !== undefined)
-        searchParams.set("amountMin", String(params.amountMin));
-      if (params.amountMax !== undefined)
-        searchParams.set("amountMax", String(params.amountMax));
+      if (params.amountMin !== undefined) searchParams.set("amountMin", String(params.amountMin));
+      if (params.amountMax !== undefined) searchParams.set("amountMax", String(params.amountMax));
       if (params.paidBy) searchParams.set("paidBy", params.paidBy);
       if (params.paidTo) searchParams.set("paidTo", params.paidTo);
       if (params.paidById) searchParams.set("paidById", params.paidById);
       if (params.paidToId) searchParams.set("paidToId", params.paidToId);
       if (params.page) searchParams.set("page", String(params.page));
-      if (params.pageSize)
-        searchParams.set("pageSize", String(params.pageSize));
+      if (params.pageSize) searchParams.set("pageSize", String(params.pageSize));
       if (params.sortBy) searchParams.set("sortBy", params.sortBy);
       if (params.sortOrder) searchParams.set("sortOrder", params.sortOrder);
     }
-
     const qs = searchParams.toString();
-    const endpoint = `/expenses${qs ? `?${qs}` : ""}`;
-
-    return request<ApiResponse<PaginatedResponse<Expense>>>(endpoint);
+    return request<ApiResponse<PaginatedResponse<Expense>>>(`/expenses${qs ? `?${qs}` : ""}`);
   },
 
   getById: async (id: string): Promise<ApiResponse<Expense>> => {
     return request<ApiResponse<Expense>>(`/expenses/${id}`);
   },
 
-  create: async (
-    data: ExpenseFormData
-  ): Promise<ApiResponse<Expense>> => {
-    return request<ApiResponse<Expense>>("/expenses", {
+  create: async (data: ExpenseFormData): Promise<ApiResponse<Expense>> => {
+    return mutate<ApiResponse<Expense>>("/expenses", {
       method: "POST",
       body: JSON.stringify(data),
-    });
+    }, "/expenses");
   },
 
-  update: async (
-    id: string,
-    data: Partial<ExpenseFormData>
-  ): Promise<ApiResponse<Expense>> => {
-    return request<ApiResponse<Expense>>(`/expenses/${id}`, {
+  update: async (id: string, data: Partial<ExpenseFormData>): Promise<ApiResponse<Expense>> => {
+    return mutate<ApiResponse<Expense>>(`/expenses/${id}`, {
       method: "PUT",
       body: JSON.stringify(data),
-    });
+    }, "/expenses");
   },
 
   delete: async (id: string): Promise<ApiResponse<void>> => {
-    return request<ApiResponse<void>>(`/expenses/${id}`, {
+    return mutate<ApiResponse<void>>(`/expenses/${id}`, {
       method: "DELETE",
-    });
+    }, "/expenses");
   },
 
   bulkDelete: async (ids: string[]): Promise<ApiResponse<void>> => {
-    return request<ApiResponse<void>>("/expenses/bulk-delete", {
+    return mutate<ApiResponse<void>>("/expenses/bulk-delete", {
       method: "POST",
       body: JSON.stringify({ ids }),
-    });
+    }, "/expenses");
   },
 
   getDashboard: async (): Promise<ApiResponse<DashboardStats>> => {
@@ -276,6 +323,7 @@ export const expensesApi = {
       throw new ApiError(message, response.status);
     }
 
+    invalidateCache("/expenses");
     return response.json();
   },
 };
@@ -292,10 +340,10 @@ export const employeesApi = {
 
 export const cashAdvanceApi = {
   createTransaction: async (data: CashTransactionFormData): Promise<ApiResponse<CashTransaction>> => {
-    return request<ApiResponse<CashTransaction>>("/cash-transactions", {
+    return mutate<ApiResponse<CashTransaction>>("/cash-transactions", {
       method: "POST",
       body: JSON.stringify(data),
-    });
+    }, "/cash-transactions");
   },
 
   getTransactions: async (params?: { employeeId?: string; type?: string }): Promise<ApiResponse<CashTransaction[]>> => {
@@ -307,14 +355,14 @@ export const cashAdvanceApi = {
   },
 
   deleteTransaction: async (id: string): Promise<ApiResponse<void>> => {
-    return request<ApiResponse<void>>(`/cash-transactions/${id}`, { method: "DELETE" });
+    return mutate<ApiResponse<void>>(`/cash-transactions/${id}`, { method: "DELETE" }, "/cash-transactions");
   },
 
   createTransfer: async (data: TransferFormData): Promise<ApiResponse<Transfer>> => {
-    return request<ApiResponse<Transfer>>("/employee-wallet/transfer", {
+    return mutate<ApiResponse<Transfer>>("/employee-wallet/transfer", {
       method: "POST",
       body: JSON.stringify(data),
-    });
+    }, "/employee-wallet");
   },
 
   getEmployeeWallets: async (): Promise<ApiResponse<EmployeeCashAccount[]>> => {
@@ -330,9 +378,7 @@ export const cashAdvanceApi = {
     if (params?.dateTo) searchParams.set("dateTo", params.dateTo);
     if (params?.page) searchParams.set("page", String(params.page));
     if (params?.pageSize) searchParams.set("pageSize", String(params.pageSize));
-    return request<ApiResponse<{ account: EmployeeCashAccount | null; ledger: LedgerEntry[]; total?: number; page?: number; pageSize?: number }>>(
-      `/employee-wallet?${searchParams.toString()}`
-    );
+    return request<ApiResponse<{ account: EmployeeCashAccount | null; ledger: LedgerEntry[]; total?: number; page?: number; pageSize?: number }>>(`/employee-wallet?${searchParams.toString()}`);
   },
 
   getEmployeeLedger: async (employeeId: string): Promise<ApiResponse<LedgerEntry[]>> => {
@@ -347,12 +393,11 @@ export const cashAdvanceApi = {
 // ─── Attendance API ─────────────────────────────────────────────────────────
 
 export const attendanceApi = {
-  getAll: async (
-    params?: AttendanceFilters
-  ): Promise<ApiResponse<{ data: AttendanceRecord[]; total: number }>> => {
+  getAll: async (params?: AttendanceFilters): Promise<ApiResponse<{ data: AttendanceRecord[]; total: number }>> => {
     const searchParams = new URLSearchParams();
     if (params) {
       if (params.employeeId) searchParams.set("employeeId", params.employeeId);
+      if (params.search) searchParams.set("search", params.search);
       if (params.dateFrom) searchParams.set("dateFrom", params.dateFrom);
       if (params.dateTo) searchParams.set("dateTo", params.dateTo);
       if (params.status) searchParams.set("status", params.status);
@@ -363,57 +408,39 @@ export const attendanceApi = {
     return request<ApiResponse<{ data: AttendanceRecord[]; total: number }>>(`/attendance${qs ? `?${qs}` : ""}`);
   },
 
-  create: async (data: {
-    employeeId: string;
-    date: string;
-    status: string;
-    notes?: string;
-  }): Promise<ApiResponse<AttendanceRecord>> => {
-    return request<ApiResponse<AttendanceRecord>>("/attendance", {
+  create: async (data: { employeeId: string; date: string; status: string; notes?: string }): Promise<ApiResponse<AttendanceRecord>> => {
+    return mutate<ApiResponse<AttendanceRecord>>("/attendance", {
       method: "POST",
       body: JSON.stringify(data),
-    });
+    }, "/attendance");
   },
 
-  update: async (
-    id: string,
-    data: { status?: string; notes?: string }
-  ): Promise<ApiResponse<AttendanceRecord>> => {
-    return request<ApiResponse<AttendanceRecord>>(`/attendance/${id}`, {
+  update: async (id: string, data: { status?: string; notes?: string }): Promise<ApiResponse<AttendanceRecord>> => {
+    return mutate<ApiResponse<AttendanceRecord>>(`/attendance/${id}`, {
       method: "PUT",
       body: JSON.stringify(data),
-    });
+    }, "/attendance");
   },
 
   delete: async (id: string): Promise<ApiResponse<void>> => {
-    return request<ApiResponse<void>>(`/attendance/${id}`, {
+    return mutate<ApiResponse<void>>(`/attendance/${id}`, {
       method: "DELETE",
-    });
+    }, "/attendance");
   },
 
-  getSummary: async (params: {
-    employeeId: string;
-    dateFrom?: string;
-    dateTo?: string;
-  }): Promise<ApiResponse<AttendanceSummary>> => {
+  getSummary: async (params: { employeeId: string; dateFrom?: string; dateTo?: string }): Promise<ApiResponse<AttendanceSummary>> => {
     const searchParams = new URLSearchParams({ employeeId: params.employeeId });
     if (params.dateFrom) searchParams.set("dateFrom", params.dateFrom);
     if (params.dateTo) searchParams.set("dateTo", params.dateTo);
     return request<ApiResponse<AttendanceSummary>>(`/attendance/summary?${searchParams.toString()}`);
   },
 
-  bulkCreate: async (data: {
-    employeeId: string;
-    date: string;
-    status: string;
-    notes?: string;
-  }[]): Promise<ApiResponse<{ count: number }>> => {
-    return request<ApiResponse<{ count: number }>>("/attendance/bulk", {
+  bulkCreate: async (data: { employeeId: string; date: string; status: string; notes?: string }[]): Promise<ApiResponse<{ count: number }>> => {
+    return mutate<ApiResponse<{ count: number }>>("/attendance/bulk", {
       method: "POST",
       body: JSON.stringify({ records: data }),
-    });
+    }, "/attendance");
   },
 };
 
-// Export token helpers for the store to use
 export { getToken, setToken, clearToken };

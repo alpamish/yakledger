@@ -31,6 +31,7 @@ import {
 } from '@/types/expense';
 import ExpenseDetailPDFDocument from '@/components/pdf/expense-detail-pdf-document';
 import { settingsApi } from '@/services/settings';
+import { usePermissions } from '@/hooks/use-permissions';
 
 interface ExpenseDetailModalProps {
   open: boolean;
@@ -80,6 +81,7 @@ export default function ExpenseDetailModal({
     [items]
   );
 
+  const { canEdit, canDelete, hasPermission } = usePermissions();
   const [isGenerating, setIsGenerating] = useState(false);
   const [companyName, setCompanyName] = useState('YakhshiLedger');
 
@@ -276,41 +278,47 @@ export default function ExpenseDetailModal({
               Close
             </Button>
             <div className="flex items-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleDownloadPdf}
-                disabled={isGenerating}
-              >
-                {isGenerating ? (
-                  <Loader2 className="size-4 animate-spin mr-1.5" />
-                ) : (
-                  <Download className="size-4 mr-1.5" />
-                )}
-                {isGenerating ? 'Generating...' : 'Download PDF'}
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  onOpenChange(false);
-                  onEdit(expense);
-                }}
-              >
-                <Pencil className="size-4 mr-1.5" />
-                Edit
-              </Button>
-              <Button
-                variant="destructive"
-                size="sm"
-                onClick={() => {
-                  onOpenChange(false);
-                  onDelete(expense);
-                }}
-              >
-                <Trash2 className="size-4 mr-1.5" />
-                Delete
-              </Button>
+              {hasPermission('reports:generatePdf') && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleDownloadPdf}
+                  disabled={isGenerating}
+                >
+                  {isGenerating ? (
+                    <Loader2 className="size-4 animate-spin mr-1.5" />
+                  ) : (
+                    <Download className="size-4 mr-1.5" />
+                  )}
+                  {isGenerating ? 'Generating...' : 'Download PDF'}
+                </Button>
+              )}
+              {canEdit('expenses') && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    onOpenChange(false);
+                    onEdit(expense);
+                  }}
+                >
+                  <Pencil className="size-4 mr-1.5" />
+                  Edit
+                </Button>
+              )}
+              {canDelete('expenses') && (
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onClick={() => {
+                    onOpenChange(false);
+                    onDelete(expense);
+                  }}
+                >
+                  <Trash2 className="size-4 mr-1.5" />
+                  Delete
+                </Button>
+              )}
             </div>
           </div>
         </DialogFooter>

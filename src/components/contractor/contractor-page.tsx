@@ -16,7 +16,9 @@ import { toast } from 'sonner';
 import { usePermissions } from '@/hooks/use-permissions';
 
 export function ContractorPage() {
-  const { canCreate, canEdit, canDelete } = usePermissions();
+  const { canView, canCreate, canEdit, canDelete } = usePermissions();
+
+  if (!canView('contractors')) return null;
   const openForm = useContractorStore((s) => s.openForm);
   const deleteContractor = useContractorStore((s) => s.deleteContractor);
   const bulkAction = useContractorStore((s) => s.bulkAction);

@@ -277,6 +277,7 @@ export interface AttendanceSummary {
 
 export interface AttendanceFilters {
   employeeId?: string;
+  search?: string;
   dateFrom?: string;
   dateTo?: string;
   status?: AttendanceStatus;

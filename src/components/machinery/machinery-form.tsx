@@ -47,10 +47,10 @@ import {
   MACHINERY_STATUS_LABELS,
   FUEL_TYPE_LABELS,
 } from '@/types/contractor';
-import type { MachineryFormData, MachineryStatus, FuelType } from '@/types/contractor';
+import type { MachineryFormData, MachineryStatus, FuelType, MachineryRate, MachineryRateFormData } from '@/types/contractor';
 import { useMachineryStore } from '@/hooks/use-machinery-store';
-import { contractorsApi } from '@/services/contractor-api';
-import { Check, ChevronDown, Loader2 } from 'lucide-react';
+import { contractorsApi, machineryApi } from '@/services/contractor-api';
+import { Check, ChevronDown, Loader2, Plus, Pencil, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 const formSchema = z.object({
@@ -90,6 +90,12 @@ export function MachineryForm() {
   const [contractors, setContractors] = useState<ContractorOption[]>([]);
   const [loadingContractors, setLoadingContractors] = useState(false);
   const [contractorPopoverOpen, setContractorPopoverOpen] = useState(false);
+
+  const [machineryRates, setMachineryRates] = useState<MachineryRate[]>([]);
+  const [loadingRates, setLoadingRates] = useState(false);
+  const [rateDialogOpen, setRateDialogOpen] = useState(false);
+  const [editingRate, setEditingRate] = useState<MachineryRate | null>(null);
+  const [deletingRateId, setDeletingRateId] = useState<string | null>(null);
 
   const isEditing = !!editingMachinery;
 
@@ -164,6 +170,18 @@ export function MachineryForm() {
     }
   }, [isFormOpen, editingMachinery, form]);
 
+  // Load rates when editing
+  useEffect(() => {
+    if (isFormOpen && editingMachinery) {
+      setLoadingRates(true);
+      machineryApi.getRates(editingMachinery.id).then((res) => {
+        setMachineryRates(res.data ?? []);
+      }).finally(() => setLoadingRates(false));
+    } else if (isFormOpen) {
+      setMachineryRates([]);
+    }
+  }, [isFormOpen, editingMachinery]);
+
   const monthlyRate = form.watch('monthlyRate');
   const contractDays = form.watch('contractDaysPerMonth');
   const workHours = form.watch('workHoursPerDay');
@@ -198,6 +216,102 @@ export function MachineryForm() {
       }
     } catch {
       toast.error(isEditing ? 'Failed to update machinery' : 'Failed to create machinery');
+    }
+  }
+
+  const [rateFormData, setRateFormData] = useState<MachineryRateFormData>({
+    rateName: '',
+    monthlyRate: 0,
+    dailyRate: 0,
+    hourlyRate: 0,
+    contractDaysPerMonth: 28,
+    workHoursPerDay: 9,
+    isDefault: false,
+  });
+
+  function openAddRate() {
+    setEditingRate(null);
+    setRateFormData({
+      rateName: '',
+      monthlyRate: 0,
+      dailyRate: 0,
+      hourlyRate: 0,
+      contractDaysPerMonth: 28,
+      workHoursPerDay: 9,
+      isDefault: machineryRates.length === 0,
+    });
+    setRateDialogOpen(true);
+  }
+
+  function openEditRate(rate: MachineryRate) {
+    setEditingRate(rate);
+    setRateFormData({
+      rateName: rate.rateName,
+      monthlyRate: rate.monthlyRate,
+      dailyRate: rate.dailyRate,
+      hourlyRate: rate.hourlyRate,
+      contractDaysPerMonth: rate.contractDaysPerMonth,
+      workHoursPerDay: rate.workHoursPerDay,
+      isDefault: rate.isDefault,
+    });
+    setRateDialogOpen(true);
+  }
+
+  const rateFormMonthlyRate = rateFormData.monthlyRate;
+  const rateFormContractDays = rateFormData.contractDaysPerMonth;
+  const rateFormWorkHours = rateFormData.workHoursPerDay;
+
+  useEffect(() => {
+    if (rateFormMonthlyRate > 0 && rateFormContractDays > 0) {
+      const daily = rateFormMonthlyRate / rateFormContractDays;
+      const hrs = rateFormWorkHours > 0 ? rateFormWorkHours : 9;
+      const hourly = daily / hrs;
+      setRateFormData((prev) => ({
+        ...prev,
+        dailyRate: Math.round(daily * 100) / 100,
+        hourlyRate: Math.round(hourly * 100) / 100,
+      }));
+    }
+  }, [rateFormMonthlyRate, rateFormContractDays, rateFormWorkHours]);
+
+  async function handleSaveRate() {
+    if (!rateFormData.rateName.trim()) {
+      toast.error('Rate name is required');
+      return;
+    }
+    if (!editingMachinery) {
+      toast.error('Save the machinery first, then add rate tiers');
+      return;
+    }
+    try {
+      if (editingRate) {
+        await machineryApi.updateRate(editingMachinery.id, editingRate.id, rateFormData);
+        toast.success('Rate updated');
+      } else {
+        await machineryApi.createRate(editingMachinery.id, rateFormData);
+        toast.success('Rate created');
+      }
+      setRateDialogOpen(false);
+      // Reload rates
+      const res = await machineryApi.getRates(editingMachinery.id);
+      setMachineryRates(res.data ?? []);
+    } catch {
+      toast.error('Failed to save rate');
+    }
+  }
+
+  async function handleDeleteRate(rateId: string) {
+    if (!editingMachinery) return;
+    setDeletingRateId(rateId);
+    try {
+      await machineryApi.deleteRate(editingMachinery.id, rateId);
+      toast.success('Rate deleted');
+      const res = await machineryApi.getRates(editingMachinery.id);
+      setMachineryRates(res.data ?? []);
+    } catch {
+      toast.error('Failed to delete rate');
+    } finally {
+      setDeletingRateId(null);
     }
   }
 
@@ -418,6 +532,149 @@ export function MachineryForm() {
                 </FormItem>
               )} />
             </div>
+
+            {/* Rate Tiers */}
+            <div className="border-t pt-4 mt-4">
+              <h3 className="text-sm font-semibold text-muted-foreground mb-3">Rate Tiers</h3>
+            </div>
+
+            {isEditing && editingMachinery ? (
+              <>
+                {loadingRates ? (
+                  <div className="flex items-center justify-center py-4">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  </div>
+                ) : machineryRates.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No rate tiers defined yet.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {machineryRates.map((rate) => (
+                      <div key={rate.id} className="flex items-center justify-between p-3 border rounded-lg">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium text-sm">{rate.rateName}</span>
+                            {rate.isDefault && (
+                              <span className="text-xs bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded font-medium">Default</span>
+                            )}
+                          </div>
+                          <div className="text-xs text-muted-foreground mt-0.5">
+                            Monthly: Afs {rate.monthlyRate.toLocaleString()} | Daily: Afs {rate.dailyRate.toLocaleString()} | Hourly: Afs {rate.hourlyRate.toLocaleString()}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-1 ml-2 shrink-0">
+                          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEditRate(rate)}>
+                            <Pencil className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button variant="ghost" size="icon" className="h-8 w-8 text-red-500 hover:text-red-600" onClick={() => handleDeleteRate(rate.id)} disabled={deletingRateId === rate.id}>
+                            {deletingRateId === rate.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <Button type="button" variant="outline" size="sm" onClick={openAddRate} className="mt-2">
+                  <Plus className="h-4 w-4 mr-1" /> Add Rate Tier
+                </Button>
+              </>
+            ) : (
+              <p className="text-sm text-muted-foreground">Save this machinery first, then you can add rate tiers.</p>
+            )}
+
+            {/* Rate Tier Form Dialog */}
+            <Dialog open={rateDialogOpen} onOpenChange={setRateDialogOpen}>
+              <DialogContent className="sm:max-w-[500px]">
+                <DialogHeader>
+                  <DialogTitle>{editingRate ? 'Edit Rate Tier' : 'Add Rate Tier'}</DialogTitle>
+                  <DialogDescription>Configure a rate tier for this machinery.</DialogDescription>
+                </DialogHeader>
+                <div className="space-y-4 py-2">
+                  <div>
+                    <label className="text-sm font-medium">Rate Name *</label>
+                    <Input
+                      placeholder="e.g., Hard Cutting, Soft Cutting"
+                      className="mt-1"
+                      value={rateFormData.rateName}
+                      onChange={(e) => setRateFormData((prev) => ({ ...prev, rateName: e.target.value }))}
+                    />
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="text-sm font-medium">Monthly Rate</label>
+                      <div className="relative mt-1">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">Afs</span>
+                        <Input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          placeholder="0.00"
+                          className="pl-7"
+                          value={rateFormData.monthlyRate}
+                          onChange={(e) => setRateFormData((prev) => ({ ...prev, monthlyRate: parseFloat(e.target.value) || 0 }))}
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="text-sm font-medium">Contract Days/Month</label>
+                      <Input
+                        type="number"
+                        min="1"
+                        max="31"
+                        value={rateFormData.contractDaysPerMonth}
+                        onChange={(e) => setRateFormData((prev) => ({ ...prev, contractDaysPerMonth: parseInt(e.target.value) || 28 }))}
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="text-sm font-medium">Work Hours/Day</label>
+                      <Input
+                        type="number"
+                        min="1"
+                        max="24"
+                        value={rateFormData.workHoursPerDay}
+                        onChange={(e) => setRateFormData((prev) => ({ ...prev, workHoursPerDay: parseInt(e.target.value) || 9 }))}
+                      />
+                    </div>
+                    <div />
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div>
+                      <label className="text-sm font-medium text-muted-foreground">Daily Rate (calc)</label>
+                      <div className="relative mt-1">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">Afs</span>
+                        <Input type="number" className="pl-7" value={rateFormData.dailyRate.toFixed(2)} readOnly disabled />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="text-sm font-medium text-muted-foreground">Hourly Rate (calc)</label>
+                      <div className="relative mt-1">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">Afs</span>
+                        <Input type="number" className="pl-7" value={rateFormData.hourlyRate.toFixed(2)} readOnly disabled />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="text-sm font-medium">&nbsp;</label>
+                      <label className="flex items-center gap-2 mt-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={rateFormData.isDefault}
+                          onChange={(e) => setRateFormData((prev) => ({ ...prev, isDefault: e.target.checked }))}
+                          className="rounded border-gray-300"
+                        />
+                        <span className="text-sm">Set as default</span>
+                      </label>
+                    </div>
+                  </div>
+                </div>
+                <DialogFooter>
+                  <Button type="button" variant="outline" onClick={() => setRateDialogOpen(false)}>Cancel</Button>
+                  <Button type="button" onClick={handleSaveRate} className="bg-emerald-600 hover:bg-emerald-700 text-white">
+                    {editingRate ? 'Update Rate' : 'Add Rate'}
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <FormField control={form.control} name="contractDaysPerMonth" render={({ field }) => (

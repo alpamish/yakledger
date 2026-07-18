@@ -5,7 +5,7 @@ import { requirePermission } from "@/lib/permissions";
 
 const DEPARTMENT_VALUES = [
   "ADMINISTRATION", "FINANCE", "OPERATIONS", "ENGINEERING",
-  "LOGISTICS", "SECURITY", "MACHINERY_TEAM", "LABOR",
+  "LOGISTICS", "SECURITY", "MACHINERY_TEAM", "LABOR", "KITCHEN",
 ] as const;
 
 const EMPLOYMENT_TYPE_VALUES = [

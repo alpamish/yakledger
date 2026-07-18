@@ -24,7 +24,9 @@ import { usePermissions } from '@/hooks/use-permissions';
 type MachineryTab = 'list' | 'summary' | 'templates';
 
 export function MachineryPage() {
-  const { canCreate, canEdit, canDelete } = usePermissions();
+  const { canView, canCreate, canEdit, canDelete } = usePermissions();
+
+  if (!canView('machinery')) return null;
   const openForm = useMachineryStore((s) => s.openForm);
   const deleteMachinery = useMachineryStore((s) => s.deleteMachinery);
 

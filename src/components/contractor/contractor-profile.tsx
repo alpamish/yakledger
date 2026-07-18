@@ -1,10 +1,12 @@
 'use client';
 
 import * as React from 'react';
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { pdf } from "@react-pdf/renderer";
 import ContractorPDFDocument from "@/components/pdf/contractor-pdf-document";
+import ContractorFinancialSummaryPDFDocument from "@/components/pdf/contractor-financial-summary-pdf-document";
 import { useContractorStore } from '@/hooks/use-contractor-store';
+import { usePermissions } from '@/hooks/use-permissions';
 import {
   CONTRACTOR_TYPE_LABELS,
   CONTRACTOR_STATUS_LABELS,
@@ -60,6 +62,9 @@ import {
   Gauge,
   Download,
   Loader2,
+  Calculator,
+  TrendingUp,
+  TrendingDown,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
@@ -103,6 +108,7 @@ export function ContractorProfile({ contractorId }: { contractorId: string }) {
   const fetchContractorProfile = useContractorStore((s) => s.fetchContractorProfile);
   const clearSelectedContractor = useContractorStore((s) => s.clearSelectedContractor);
   const openForm = useContractorStore((s) => s.openForm);
+  const { canEdit, hasPermission } = usePermissions();
 
   // Search states for tab filtering
   const [expenseSearch, setExpenseSearch] = useState('');
@@ -113,6 +119,11 @@ export function ContractorProfile({ contractorId }: { contractorId: string }) {
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [isPdfGenerating, setIsPdfGenerating] = useState(false);
+  const [isFinPdfGenerating, setIsFinPdfGenerating] = useState(false);
+
+  // Financial summary filter state
+  const [finDateFrom, setFinDateFrom] = useState('');
+  const [finDateTo, setFinDateTo] = useState('');
 
   const handleDownloadPDF = useCallback(async () => {
     if (!selectedContractor?.id) return;
@@ -213,6 +224,272 @@ export function ContractorProfile({ contractorId }: { contractorId: string }) {
   const totalFuelCost = fuelUsages.reduce((sum, fu) => sum + fu.totalCost, 0);
   const totalFuelQuantity = fuelUsages.reduce((sum, fu) => sum + fu.quantity, 0);
 
+  // Financial summary computed data
+  const machineryList = c.machinery ?? [];
+  const allMachineryRates = c.machineryRates ?? [];
+  const finFilteredTimesheets = timesheets.filter((ts) => {
+    if (finDateFrom && ts.date < finDateFrom) return false;
+    if (finDateTo && ts.date > finDateTo) return false;
+    return true;
+  });
+  const finFilteredFuel = fuelUsages.filter((fu) => {
+    if (finDateFrom && fu.date < finDateFrom) return false;
+    if (finDateTo && fu.date > finDateTo) return false;
+    return true;
+  });
+
+  const finTotalHours = finFilteredTimesheets.reduce((sum, ts) => sum + ts.totalHours, 0);
+  const finTotalOvertime = finFilteredTimesheets.reduce((sum, ts) => sum + ts.overtimeHours, 0);
+  const finTotalFuelCost = finFilteredFuel.reduce((sum, fu) => sum + fu.totalCost, 0);
+  const finTotalFuelQty = finFilteredFuel.reduce((sum, fu) => sum + fu.quantity, 0);
+  const finTotalExpenses = c.totalExpensesPaid ?? 0;
+
+  // Filter expenses by financial tab's date range
+  const finExpensesList = (c.expensesPaidTo ?? []).filter((exp) => {
+    if (finDateFrom && exp.expenseDate < finDateFrom) return false;
+    if (finDateTo && exp.expenseDate > finDateTo) return false;
+    return true;
+  });
+  const finFilteredExpensesTotal = finExpensesList.reduce((sum, exp) => sum + exp.amount, 0);
+
+  // Override finTotalExpenses for financial tab calculations
+  const finTabTotalExpenses = finDateFrom || finDateTo ? finFilteredExpensesTotal : finTotalExpenses;
+  const finTabExpenseList = finDateFrom || finDateTo ? finExpensesList : (c.expensesPaidTo ?? []);
+
+  const timesheetRevenue = finFilteredTimesheets.reduce((sum, ts) => {
+    if (ts.machineryId) {
+      if (ts.machineryRateId) {
+        const rate = allMachineryRates.find((r) => r.id === ts.machineryRateId);
+        if (rate) {
+          return sum + ts.totalHours * rate.hourlyRate;
+        }
+      }
+      // Fallback: try default MachineryRate, then machinery fields
+      const defaultRate = allMachineryRates.find((r) => r.machineryId === ts.machineryId && r.isDefault);
+      if (defaultRate) {
+        return sum + ts.totalHours * defaultRate.hourlyRate;
+      }
+      const machine = machineryList.find((m) => m.id === ts.machineryId);
+      if (machine) {
+        const effectiveHourly = machine.workHoursPerDay > 0 ? machine.dailyRate / machine.workHoursPerDay : 0;
+        return sum + ts.totalHours * effectiveHourly;
+      }
+    }
+    return sum;
+  }, 0);
+
+  const totalCosts = finTotalFuelCost + finTabTotalExpenses;
+  const netFinancial = timesheetRevenue - totalCosts;
+  const isProfitable = netFinancial >= 0;
+  const netWithoutFuel = timesheetRevenue - finTabTotalExpenses;
+  const isNetWithoutFuelPositive = netWithoutFuel >= 0;
+  const workDays = finFilteredTimesheets.length;
+
+  const getMachineryName = useCallback((machineryId?: string | null) => {
+    if (!machineryId) return 'Unknown';
+    return machineryList.find((m) => m.id === machineryId)?.machineryName ?? 'Unknown';
+  }, [machineryList]);
+
+  // Build rate tier rows for PDF overview
+  const rateTierRows = useMemo(() => {
+    const rows: Array<{
+      machineryName: string;
+      machineryType: string;
+      driverName: string;
+      plateNumber: string;
+      rateName: string;
+      hourlyRate: number;
+      dailyRate: number;
+      monthlyRate: number;
+      isDefault: boolean;
+    }> = [];
+    for (const machine of machineryList) {
+      const machineRates = allMachineryRates.filter((r) => r.machineryId === machine.id);
+      if (machineRates.length > 0) {
+        for (const r of machineRates) {
+          rows.push({
+            machineryName: machine.machineryName,
+            machineryType: machine.machineryType,
+            driverName: machine.driverName ?? '',
+            plateNumber: machine.plateNumber ?? '',
+            rateName: r.rateName,
+            hourlyRate: r.hourlyRate,
+            dailyRate: r.dailyRate,
+            monthlyRate: r.monthlyRate,
+            isDefault: r.isDefault,
+          });
+        }
+      } else {
+        rows.push({
+          machineryName: machine.machineryName,
+          machineryType: machine.machineryType,
+          driverName: machine.driverName ?? '',
+          plateNumber: machine.plateNumber ?? '',
+          rateName: 'Base Rate',
+          hourlyRate: machine.hourlyRate,
+          dailyRate: machine.dailyRate,
+          monthlyRate: machine.monthlyRate,
+          isDefault: true,
+        });
+      }
+    }
+    return rows;
+  }, [machineryList, allMachineryRates]);
+
+  // Group timesheets by month + rate tier
+  const monthlyRateData = useMemo<Map<string, Map<string, { hours: number; revenue: number; rateLabel: string; hourlyRate: number; defaultRate: number }>>>(() => {
+    const monthMap = new Map<string, Map<string, { hours: number; revenue: number; rateLabel: string; hourlyRate: number; defaultRate: number }>>();
+    for (const ts of finFilteredTimesheets) {
+      const month = ts.date.substring(0, 7);
+      if (!monthMap.has(month)) monthMap.set(month, new Map());
+      const rateMap = monthMap.get(month)!;
+
+      let rateLabel: string;
+      let hourlyRate: number;
+      const machDefaultRate = allMachineryRates.find((r) => r.machineryId === ts.machineryId && r.isDefault);
+      const defaultRateVal = machDefaultRate?.hourlyRate ?? 0;
+      if (ts.machineryRateId) {
+        const rate = allMachineryRates.find((r) => r.id === ts.machineryRateId);
+        if (rate) {
+          rateLabel = rate.rateName;
+          hourlyRate = rate.hourlyRate;
+        } else {
+          if (machDefaultRate) {
+            rateLabel = machDefaultRate.rateName;
+            hourlyRate = machDefaultRate.hourlyRate;
+          } else {
+            const machine = machineryList.find((m) => m.id === ts.machineryId);
+            rateLabel = machine ? `Default (${machine.machineryName})` : 'Unknown';
+            hourlyRate = machine && machine.workHoursPerDay > 0 ? machine.dailyRate / machine.workHoursPerDay : 0;
+          }
+        }
+      } else {
+        if (machDefaultRate) {
+          rateLabel = machDefaultRate.rateName;
+          hourlyRate = machDefaultRate.hourlyRate;
+        } else {
+          const machine = machineryList.find((m) => m.id === ts.machineryId);
+          rateLabel = machine ? `Default (${machine.machineryName})` : 'Unknown';
+          hourlyRate = machine && machine.workHoursPerDay > 0 ? machine.dailyRate / machine.workHoursPerDay : 0;
+        }
+      }
+
+      if (!rateMap.has(rateLabel)) {
+        rateMap.set(rateLabel, { hours: 0, revenue: 0, rateLabel, hourlyRate, defaultRate: defaultRateVal });
+      }
+      const entry = rateMap.get(rateLabel)!;
+      entry.hours += ts.totalHours;
+      entry.revenue += ts.totalHours * hourlyRate;
+    }
+    return monthMap;
+  }, [finFilteredTimesheets, allMachineryRates, machineryList]);
+
+  // Aggregated monthly totals (for UI summary)
+  const monthlyData = useMemo(() => finFilteredTimesheets.reduce<Record<string, { hours: number; revenue: number; count: number }>>((acc, ts) => {
+    const month = ts.date.substring(0, 7);
+    if (!acc[month]) acc[month] = { hours: 0, revenue: 0, count: 0 };
+    acc[month].hours += ts.totalHours;
+    acc[month].count += 1;
+    if (ts.machineryId) {
+      if (ts.machineryRateId) {
+        const rate = allMachineryRates.find((r) => r.id === ts.machineryRateId);
+        if (rate) {
+          acc[month].revenue += ts.totalHours * rate.hourlyRate;
+          return acc;
+        }
+      }
+      const defaultRate = allMachineryRates.find((r) => r.machineryId === ts.machineryId && r.isDefault);
+      if (defaultRate) {
+        acc[month].revenue += ts.totalHours * defaultRate.hourlyRate;
+        return acc;
+      }
+      const machine = machineryList.find((m) => m.id === ts.machineryId);
+      if (machine) {
+        const effectiveHourly = machine.workHoursPerDay > 0 ? machine.dailyRate / machine.workHoursPerDay : 0;
+        acc[month].revenue += ts.totalHours * effectiveHourly;
+      }
+    }
+    return acc;
+  }, {}), [finFilteredTimesheets, machineryList, allMachineryRates]);
+
+  const monthlyEntries = useMemo(() =>
+    Object.entries(monthlyData).sort(([a], [b]) => a.localeCompare(b)),
+  [monthlyData]);
+
+  const monthlyRateEntries = useMemo<Array<{ month: string; rateLabel: string; hours: number; revenue: number; hourlyRate: number; defaultRate: number; isTotal?: boolean }>>(() => {
+    const entries: Array<{ month: string; rateLabel: string; hours: number; revenue: number; hourlyRate: number; defaultRate: number; isTotal?: boolean }> = [];
+    const sortedMonths = Array.from(monthlyRateData.keys()).sort();
+    for (const month of sortedMonths) {
+      const rateMap = monthlyRateData.get(month) as Map<string, { hours: number; revenue: number; rateLabel: string; hourlyRate: number; defaultRate: number }> | undefined;
+      if (!rateMap) continue;
+      const sortedLabels = Array.from(rateMap.keys()).sort();
+      for (const label of sortedLabels) {
+        const d = rateMap.get(label)!;
+        entries.push({ month, rateLabel: d.rateLabel, hours: d.hours, revenue: d.revenue, hourlyRate: d.hourlyRate, defaultRate: d.defaultRate });
+      }
+      const total = sortedLabels.reduce((acc, label) => {
+        const d = rateMap.get(label)!;
+        return { hours: acc.hours + d.hours, revenue: acc.revenue + d.revenue };
+      }, { hours: 0, revenue: 0 });
+      entries.push({ month, rateLabel: 'TOTAL', hours: total.hours, revenue: total.revenue, hourlyRate: 0, defaultRate: 0, isTotal: true });
+    }
+    return entries;
+  }, [monthlyRateData]);
+
+  // Daily hours for last 30 days
+  const thirtyDaysAgo = new Date();
+  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+  const recentDailyHours = finFilteredTimesheets
+    .filter((ts) => new Date(ts.date) >= thirtyDaysAgo)
+    .reduce<Record<string, number>>((acc, ts) => {
+      acc[ts.date] = (acc[ts.date] || 0) + ts.totalHours;
+      return acc;
+    }, {});
+
+  const dailyEntries = Object.entries(recentDailyHours)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .slice(-30);
+
+  const handleDownloadFinancialPDF = useCallback(async () => {
+    if (!selectedContractor?.id) return;
+    setIsFinPdfGenerating(true);
+    try {
+      const blob = await pdf(
+        <ContractorFinancialSummaryPDFDocument
+          contractorName={selectedContractor.contractorName}
+          dateFrom={finDateFrom || undefined}
+          dateTo={finDateTo || undefined}
+          totalHours={finTotalHours}
+          totalOvertime={finTotalOvertime}
+          timesheetRevenue={timesheetRevenue}
+          totalExpenses={finTabTotalExpenses}
+          totalFuelCost={finTotalFuelCost}
+          totalFuelQty={finTotalFuelQty}
+          netFinancial={netFinancial}
+          netWithoutFuel={netWithoutFuel}
+          rateTierRows={rateTierRows}
+          monthlyEntries={monthlyRateEntries}
+          expenses={finTabExpenseList}
+        />
+      ).toBlob();
+
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `financial-summary-${selectedContractor.contractorName.replace(/\s+/g, '-').toLowerCase()}-${format(new Date(), 'yyyy-MM-dd')}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      toast.success('Financial summary PDF downloaded successfully');
+    } catch (err) {
+      console.error('Failed to generate financial summary PDF:', err);
+      toast.error('Failed to generate financial summary PDF');
+    } finally {
+      setIsFinPdfGenerating(false);
+    }
+  }, [selectedContractor, finDateFrom, finDateTo, finTotalHours, finTotalOvertime, timesheetRevenue, finTabTotalExpenses, finTabExpenseList, finTotalFuelCost, finTotalFuelQty, netFinancial, netWithoutFuel, rateTierRows, monthlyRateEntries, dailyEntries]);
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -225,9 +502,11 @@ export function ContractorProfile({ contractorId }: { contractorId: string }) {
             <h2 className="text-2xl font-bold tracking-tight">Contractor Profile</h2>
             <p className="text-muted-foreground">Detailed contractor information</p>
           </div>
-          <Button onClick={() => openForm(c)} className="bg-emerald-600 hover:bg-emerald-700 text-white">
-            Edit Contractor
-          </Button>
+          {canEdit('contractors') && (
+            <Button onClick={() => openForm(c)} className="bg-emerald-600 hover:bg-emerald-700 text-white">
+              Edit Contractor
+            </Button>
+          )}
         </div>
         <div className="flex items-center gap-2 pl-14">
           <Input
@@ -251,20 +530,22 @@ export function ContractorProfile({ contractorId }: { contractorId: string }) {
             </Button>
           )}
           <div className="ml-auto flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-8"
-              onClick={handleDownloadPDF}
-              disabled={isPdfGenerating}
-            >
-              {isPdfGenerating ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />
-              ) : (
-                <Download className="h-3.5 w-3.5 mr-1" />
-              )}
-              {isPdfGenerating ? 'Generating...' : 'Download PDF Report'}
-            </Button>
+            {hasPermission('reports:generatePdf') && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8"
+                onClick={handleDownloadPDF}
+                disabled={isPdfGenerating}
+              >
+                {isPdfGenerating ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />
+                ) : (
+                  <Download className="h-3.5 w-3.5 mr-1" />
+                )}
+                {isPdfGenerating ? 'Generating...' : 'Download PDF Report'}
+              </Button>
+            )}
           </div>
         </div>
       </div>
@@ -311,6 +592,9 @@ export function ContractorProfile({ contractorId }: { contractorId: string }) {
           </TabsTrigger>
           <TabsTrigger value="machinery" className="gap-1.5">
             <Truck className="h-4 w-4" /> Machinery
+          </TabsTrigger>
+          <TabsTrigger value="financial" className="gap-1.5">
+            <Calculator className="h-4 w-4" /> Financial Summary
           </TabsTrigger>
         </TabsList>
 
@@ -825,6 +1109,317 @@ export function ContractorProfile({ contractorId }: { contractorId: string }) {
               <CardContent className="py-12 text-center">
                 <Truck className="h-10 w-10 text-muted-foreground/40 mx-auto mb-3" />
                 <p className="text-sm text-muted-foreground">No machinery assigned to this contractor</p>
+              </CardContent>
+            </Card>
+          )}
+        </TabsContent>
+
+        {/* ─── Financial Summary Tab ──────────────────────────── */}
+        <TabsContent value="financial">
+          {/* Date range filter */}
+          <div className="flex items-center gap-2 mb-6">
+            <Input
+              type="date"
+              value={finDateFrom}
+              onChange={(e) => setFinDateFrom(e.target.value)}
+              className="h-8 w-[140px] text-xs"
+              placeholder="From date"
+            />
+            <span className="text-xs text-muted-foreground">to</span>
+            <Input
+              type="date"
+              value={finDateTo}
+              onChange={(e) => setFinDateTo(e.target.value)}
+              className="h-8 w-[140px] text-xs"
+              placeholder="To date"
+            />
+            {(finDateFrom || finDateTo) && (
+              <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => { setFinDateFrom(''); setFinDateTo(''); }}>
+                Clear
+              </Button>
+            )}
+            <span className="text-xs text-muted-foreground ml-2">
+              {finFilteredTimesheets.length} timesheet(s), {finFilteredFuel.length} fuel record(s)
+            </span>
+            {hasPermission('reports:generatePdf') && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 ml-auto"
+                onClick={handleDownloadFinancialPDF}
+                disabled={isFinPdfGenerating}
+              >
+                {isFinPdfGenerating ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />
+                ) : (
+                  <Download className="h-3.5 w-3.5 mr-1" />
+                )}
+                {isFinPdfGenerating ? 'Generating...' : 'Download PDF'}
+              </Button>
+            )}
+          </div>
+
+          {/* KPI Summary Cards */}
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 mb-6">
+            <Card>
+              <CardContent className="p-4">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-blue-600/10">
+                    <Timer className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Total Work Hours</p>
+                    <p className="text-lg font-bold">{finTotalHours.toFixed(2)} hrs</p>
+                    {finTotalOvertime > 0 && (
+                      <p className="text-[10px] text-amber-600">({finTotalOvertime.toFixed(2)} OT hrs)</p>
+                    )}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-4">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-emerald-600/10">
+                    <DollarSign className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Estimated Revenue</p>
+                    <p className="text-lg font-bold">{formatCurrency(timesheetRevenue)}</p>
+                    <p className="text-[10px] text-muted-foreground">Based on {finTotalHours.toFixed(1)} hrs × effective hourly rates</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-4">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-rose-600/10">
+                    <Receipt className="h-5 w-5 text-rose-600 dark:text-rose-400" />
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Total Expenses Paid</p>
+                    <p className="text-lg font-bold">{formatCurrency(finTabTotalExpenses)}</p>
+                    <p className="text-[10px] text-muted-foreground">{finTabExpenseList.length} expense(s)</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-4">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-amber-600/10">
+                    <Fuel className="h-5 w-5 text-amber-600 dark:text-amber-400" />
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Total Fuel Cost</p>
+                    <p className="text-lg font-bold">{formatCurrency(finTotalFuelCost)}</p>
+                    <p className="text-[10px] text-muted-foreground">{finTotalFuelQty.toFixed(2)} L total</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-4">
+                <div className="flex items-center gap-3">
+                  <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${isProfitable ? 'bg-emerald-600/10' : 'bg-red-600/10'}`}>
+                    {isProfitable ? (
+                      <TrendingUp className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
+                    ) : (
+                      <TrendingDown className="h-5 w-5 text-red-600 dark:text-red-400" />
+                    )}
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Net (Revenue - All Costs)</p>
+                    <p className={`text-lg font-bold ${isProfitable ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
+                      {formatCurrency(Math.abs(netFinancial))}
+                    </p>
+                    <p className="text-[10px] text-muted-foreground">{isProfitable ? 'Surplus' : 'Deficit'} (incl. fuel)</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-4">
+                <div className="flex items-center gap-3">
+                  <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${isNetWithoutFuelPositive ? 'bg-emerald-600/10' : 'bg-red-600/10'}`}>
+                    {isNetWithoutFuelPositive ? (
+                      <TrendingUp className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
+                    ) : (
+                      <TrendingDown className="h-5 w-5 text-red-600 dark:text-red-400" />
+                    )}
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Net (Revenue - Expenses)</p>
+                    <p className={`text-lg font-bold ${isNetWithoutFuelPositive ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
+                      {formatCurrency(Math.abs(netWithoutFuel))}
+                    </p>
+                    <p className="text-[10px] text-muted-foreground">{isNetWithoutFuelPositive ? 'Surplus' : 'Deficit'} (excl. fuel)</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Machinery Rate Overview */}
+          {rateTierRows.length > 0 && (
+            <Card className="mb-6">
+              <CardHeader className="pb-3">
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <Truck className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
+                  Rate Tiers Overview
+                </CardTitle>
+                <CardDescription>Rate tiers per machine with hourly, daily, and monthly rates</CardDescription>
+              </CardHeader>
+              <CardContent className="p-0">
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Machine</TableHead>
+                        <TableHead>Rate Tier</TableHead>
+                        <TableHead className="text-right">Hourly</TableHead>
+                        <TableHead className="text-right">Daily</TableHead>
+                        <TableHead className="text-right">Monthly</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {rateTierRows.map((r, i) => (
+                        <TableRow key={i}>
+                          <TableCell className="font-medium">{r.machineryName}</TableCell>
+                          <TableCell>
+                            <span className="text-xs">{r.rateName}{r.isDefault ? <span className="ml-1 text-amber-500" title="Default">★</span> : ''}</span>
+                          </TableCell>
+                          <TableCell className="text-right font-mono tabular-nums">{formatCurrency(r.hourlyRate)}</TableCell>
+                          <TableCell className="text-right font-mono tabular-nums">{formatCurrency(r.dailyRate)}</TableCell>
+                          <TableCell className="text-right font-mono tabular-nums">{formatCurrency(r.monthlyRate)}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Monthly Breakdown */}
+          {monthlyRateEntries.length > 0 && (
+            <Card className="mb-6">
+              <CardHeader className="pb-3">
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <Calendar className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
+                  Monthly Breakdown
+                </CardTitle>
+                <CardDescription>Hours, revenue, and rates by month and rate tier</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Month</TableHead>
+                        <TableHead>Rate Tier</TableHead>
+                        <TableHead className="text-right">Hours</TableHead>
+                        <TableHead className="text-right">Revenue</TableHead>
+                        <TableHead className="text-right">Selected Rate</TableHead>
+                        <TableHead className="text-right">Default Rate</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {(() => {
+                        let lastMonth = '';
+                        return monthlyRateEntries.map((r, i) => {
+                          const showMonth = r.month !== lastMonth;
+                          lastMonth = r.month;
+                          const monthLabel = showMonth ? format(new Date(r.month + '-01'), 'MMM yyyy') : '';
+                          return (
+                            <TableRow
+                              key={i}
+                              className={r.isTotal ? 'bg-emerald-50 dark:bg-emerald-950/20' : ''}
+                            >
+                              <TableCell className={r.isTotal ? 'font-bold' : 'font-medium'}>{monthLabel}</TableCell>
+                              <TableCell className={r.isTotal ? 'font-bold' : ''}>{r.rateLabel}</TableCell>
+                              <TableCell className={`text-right font-mono tabular-nums ${r.isTotal ? 'font-bold' : ''}`}>
+                                {r.hours.toFixed(1)}
+                              </TableCell>
+                              <TableCell className={`text-right font-mono tabular-nums ${r.isTotal ? 'font-bold' : ''}`}>
+                                {formatCurrency(r.revenue)}
+                              </TableCell>
+                              <TableCell className="text-right font-mono tabular-nums text-xs">
+                                {r.isTotal ? '' : formatCurrency(r.hourlyRate)}
+                              </TableCell>
+                              <TableCell className="text-right font-mono tabular-nums text-xs text-muted-foreground">
+                                {r.isTotal ? '' : r.defaultRate > 0 ? formatCurrency(r.defaultRate) : '—'}
+                              </TableCell>
+                            </TableRow>
+                          );
+                        });
+                      })()}
+                    </TableBody>
+                  </Table>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Expenses Table */}
+          {finTabExpenseList.length > 0 && (
+            <Card className="mb-6">
+              <CardHeader className="pb-3">
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <Receipt className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
+                  Expenses
+                </CardTitle>
+                <CardDescription>Filtered expense records</CardDescription>
+              </CardHeader>
+              <CardContent className="p-0">
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Title</TableHead>
+                        <TableHead>Notes</TableHead>
+                        <TableHead>Category</TableHead>
+                        <TableHead className="text-right">Amount</TableHead>
+                        <TableHead>Date</TableHead>
+                        <TableHead>Payment Method</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {finTabExpenseList.map((exp) => {
+                        const catColor = EXP_CATEGORY_COLORS[exp.category as Category] ?? '#78716c';
+                        return (
+                          <TableRow key={exp.id}>
+                            <TableCell className="font-medium max-w-[150px] truncate">{exp.title}</TableCell>
+                            <TableCell className="max-w-[150px] truncate text-muted-foreground text-xs whitespace-pre-wrap">{exp.notes ?? '—'}</TableCell>
+                            <TableCell>
+                              <Badge variant="outline" className="border-0 text-[10px] px-1.5 py-0" style={{ backgroundColor: `${catColor}18`, color: catColor }}>
+                                {EXP_CATEGORY_LABELS[exp.category as Category] ?? exp.category}
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="text-right font-mono tabular-nums">{formatCurrency(exp.amount)}</TableCell>
+                            <TableCell className="text-muted-foreground">{format(new Date(exp.expenseDate), 'MMM dd, yyyy')}</TableCell>
+                            <TableCell className="text-muted-foreground">{exp.paymentMethod ?? '—'}</TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Empty state */}
+          {finFilteredTimesheets.length === 0 && finFilteredFuel.length === 0 && (
+            <Card>
+              <CardContent className="py-12 text-center">
+                <Calculator className="h-10 w-10 text-muted-foreground/40 mx-auto mb-3" />
+                <p className="text-sm text-muted-foreground">
+                  {finDateFrom || finDateTo
+                    ? 'No financial data matches the selected date range'
+                    : 'No financial data recorded for this contractor'}
+                </p>
               </CardContent>
             </Card>
           )}

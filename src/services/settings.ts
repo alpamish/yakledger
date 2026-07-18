@@ -7,6 +7,7 @@ export interface AppSettings {
   email: string | null;
   website: string | null;
   taxId: string | null;
+  allowSignup: boolean;
   updatedAt: string;
 }
 

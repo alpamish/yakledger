@@ -146,45 +146,48 @@ export async function POST(request: NextRequest) {
 
     const data = parsed.data;
 
-    const machinery = await db.machinery.create({
-      data: {
-        machineryName: data.machineryName,
-        machineryType: data.machineryType,
-        plateNumber: data.plateNumber ?? null,
-        model: data.model ?? null,
-        driverName: data.driverName ?? null,
-        status: data.status,
-        assignedContractorId: data.assignedContractorId,
-        fuelType: data.fuelType,
-        hourlyConsumptionRate: data.hourlyConsumptionRate,
-        hourlyRate: data.hourlyRate,
-        dailyRate: data.dailyRate,
-        monthlyRate: data.monthlyRate,
-        contractDaysPerMonth: data.contractDaysPerMonth,
-        workHoursPerDay: data.workHoursPerDay,
-        contractStartDate: data.contractStartDate ? new Date(data.contractStartDate) : null,
-        contractEndDate: data.contractEndDate ? new Date(data.contractEndDate) : null,
-        createdBy: user.id,
-      },
-      include: {
-        assignedContractor: {
-          select: { id: true, contractorName: true, contractorType: true },
+    const machinery = await db.$transaction(async (tx) => {
+      const created = await tx.machinery.create({
+        data: {
+          machineryName: data.machineryName,
+          machineryType: data.machineryType,
+          plateNumber: data.plateNumber ?? null,
+          model: data.model ?? null,
+          driverName: data.driverName ?? null,
+          status: data.status,
+          assignedContractorId: data.assignedContractorId,
+          fuelType: data.fuelType,
+          hourlyConsumptionRate: data.hourlyConsumptionRate,
+          hourlyRate: data.hourlyRate,
+          dailyRate: data.dailyRate,
+          monthlyRate: data.monthlyRate,
+          contractDaysPerMonth: data.contractDaysPerMonth,
+          workHoursPerDay: data.workHoursPerDay,
+          contractStartDate: data.contractStartDate ? new Date(data.contractStartDate) : null,
+          contractEndDate: data.contractEndDate ? new Date(data.contractEndDate) : null,
+          createdBy: user.id,
         },
-        _count: {
-          select: { timesheets: true, fuelUsages: true },
+        include: {
+          assignedContractor: {
+            select: { id: true, contractorName: true, contractorType: true },
+          },
+          _count: {
+            select: { timesheets: true, fuelUsages: true },
+          },
         },
-      },
-    });
+      });
 
-    // Create audit log entry
-    await db.auditLog.create({
-      data: {
-        action: "CREATE",
-        entity: "Machinery",
-        entityId: machinery.id,
-        details: `Created machinery: ${machinery.machineryName} (${machinery.machineryType})`,
-        userId: user.id,
-      },
+      await tx.auditLog.create({
+        data: {
+          action: "CREATE",
+          entity: "Machinery",
+          entityId: created.id,
+          details: `Created machinery: ${created.machineryName} (${created.machineryType})`,
+          userId: user.id,
+        },
+      });
+
+      return created;
     });
 
     return NextResponse.json(

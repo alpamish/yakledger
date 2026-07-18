@@ -5,13 +5,14 @@ import { useAssetStore } from '@/hooks/use-asset-store';
 import { AssetTable } from './asset-table';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { Plus } from 'lucide-react';
+import { Plus, Download, Loader2 } from 'lucide-react';
 import { ConfirmDialog } from '@/components/common/confirm-dialog';
 import type { Asset } from '@/types/asset';
 import { usePermissions } from '@/hooks/use-permissions';
+import { toast } from 'sonner';
 
 export function AssetsListPage() {
-  const { canCreate, canEdit, canDelete } = usePermissions();
+  const { canCreate, canEdit, canDelete, hasPermission } = usePermissions();
   const assets = useAssetStore((s) => s.assets);
   const fetchAssets = useAssetStore((s) => s.fetchAssets);
   const setActiveView = useAssetStore((s) => s.setActiveView);
@@ -26,6 +27,36 @@ export function AssetsListPage() {
     open: false,
     asset: null,
   });
+  const [isPdfGenerating, setIsPdfGenerating] = useState(false);
+
+  const handleDownloadPDF = useCallback(async () => {
+    if (!hasPermission('reports:generatePdf')) return;
+    setIsPdfGenerating(true);
+    try {
+      const { default: AssetsListPDFDocument } = await import('@/components/pdf/assets-list-pdf-document');
+      const { pdf } = await import('@react-pdf/renderer');
+      const blob = await pdf(
+        <AssetsListPDFDocument
+          assets={assets}
+          generatedAt={new Date()}
+        />
+      ).toBlob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `assets-list-${new Date().toISOString().split('T')[0]}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      toast.success('Assets list PDF downloaded successfully');
+    } catch (err) {
+      console.error('Error generating assets list PDF:', err);
+      toast.error('Failed to generate assets list PDF');
+    } finally {
+      setIsPdfGenerating(false);
+    }
+  }, [assets, hasPermission]);
 
   const handleEdit = useCallback(
     (asset: Asset) => {
@@ -66,13 +97,30 @@ export function AssetsListPage() {
           </p>
         </div>
         {canCreate('assets') && (
-          <Button
-            onClick={() => setActiveView('create')}
-            className="bg-emerald-600 hover:bg-emerald-700 text-white"
-          >
-            <Plus className="mr-2 h-4 w-4" />
-            Add Asset
-          </Button>
+          <div className="flex gap-2">
+            {hasPermission('reports:generatePdf') && (
+              <Button
+                onClick={handleDownloadPDF}
+                disabled={isPdfGenerating}
+                variant="outline"
+                className="border-emerald-600 text-emerald-600 hover:bg-emerald-50"
+              >
+                {isPdfGenerating ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Download className="mr-2 h-4 w-4" />
+                )}
+                {isPdfGenerating ? 'Generating...' : 'PDF'}
+              </Button>
+            )}
+            <Button
+              onClick={() => setActiveView('create')}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white"
+            >
+              <Plus className="mr-2 h-4 w-4" />
+              Add Asset
+            </Button>
+          </div>
         )}
       </div>
 

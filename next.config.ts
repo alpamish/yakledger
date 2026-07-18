@@ -1,12 +1,21 @@
 import type { NextConfig } from "next";
 
-const nextConfig: NextConfig = {
+let nextConfig: NextConfig = {
   output: "standalone",
-  /* config options here */
   typescript: {
     ignoreBuildErrors: true,
   },
   reactStrictMode: false,
+  poweredByHeader: false,
+  devIndicators: false,
 };
+
+if (process.env.ANALYZE === "true") {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const withBundleAnalyzer = require("@next/bundle-analyzer")({
+    enabled: true,
+  });
+  nextConfig = withBundleAnalyzer(nextConfig);
+}
 
 export default nextConfig;

@@ -36,6 +36,7 @@ import {
   ASSET_STATUS_COLORS,
   type Asset,
 } from '@/types/asset';
+import { formatCurrency } from '@/lib/utils';
 
 interface AssetTableProps {
   data: Asset[];
@@ -197,8 +198,8 @@ export function AssetTable({ data, onEdit, onDelete, onView }: AssetTableProps) 
                   <TableCell className="font-medium">{asset.name}</TableCell>
                   <TableCell>{ASSET_CATEGORY_LABELS[asset.category] || asset.category}</TableCell>
                   <TableCell>{getStatusBadge(asset.status)}</TableCell>
-                  <TableCell>${asset.purchasePrice.toLocaleString()}</TableCell>
-                  <TableCell>${asset.currentValue.toLocaleString()}</TableCell>
+                  <TableCell>{formatCurrency(asset.purchasePrice)}</TableCell>
+                  <TableCell>{formatCurrency(asset.currentValue)}</TableCell>
                   <TableCell>{asset.assignedTo?.fullName || '-'}</TableCell>
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-1" onClick={(e) => e.stopPropagation()}>

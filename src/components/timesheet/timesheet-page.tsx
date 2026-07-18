@@ -32,7 +32,9 @@ import { toast } from 'sonner';
 import { usePermissions } from '@/hooks/use-permissions';
 
 export function TimesheetPage() {
-  const { canCreate, canEdit, canDelete, canApprove } = usePermissions();
+  const { canView, canCreate, canEdit, canDelete, canApprove } = usePermissions();
+
+  if (!canView('timesheets')) return null;
   const [timesheets, setTimesheets] = useState<Timesheet[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [search, setSearch] = useState('');

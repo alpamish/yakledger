@@ -79,10 +79,46 @@ export interface UserPermissionInfo {
 export type PermissionsMap = Record<string, boolean>;
 
 export const UNIT_OPTIONS = [
-  "pcs", "kg", "liter", "meter", "hour", "day", "month", "set", "box", "other"
+  "pcs", "unit", "ea", "pair", "set", "box", "carton", "pack", "packet",
+  "bundle", "roll", "doz", "gross", "pallet", "bag", "sack", "bottle",
+  "can", "barrel", "tube", "sheet", "block", "gram",
+  "kg", "liter", "meter", "hour", "day", "month", "other"
 ] as const;
 
 export type Unit = (typeof UNIT_OPTIONS)[number];
+
+export const UNIT_LABELS: Record<Unit, string> = {
+  pcs: "Piece (pcs)",
+  unit: "Unit (unit)",
+  ea: "Each (ea)",
+  pair: "Pair",
+  set: "Set",
+  box: "Box",
+  carton: "Carton",
+  pack: "Pack",
+  packet: "Packet",
+  bundle: "Bundle",
+  roll: "Roll",
+  doz: "Dozen (doz)",
+  gross: "Gross",
+  pallet: "Pallet",
+  bag: "Bag",
+  sack: "Sack",
+  bottle: "Bottle",
+  can: "Can",
+  barrel: "Barrel",
+  tube: "Tube",
+  sheet: "Sheet",
+  block: "Block",
+  gram: "Gram",
+  kg: "kg",
+  liter: "liter",
+  meter: "meter",
+  hour: "hour",
+  day: "day",
+  month: "month",
+  other: "other",
+};
 
 export interface ExpenseItem {
   id: string;

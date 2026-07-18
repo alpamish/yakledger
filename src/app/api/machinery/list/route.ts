@@ -25,6 +25,23 @@ export async function GET(request: NextRequest) {
         plateNumber: true,
         driverName: true,
         status: true,
+        assignedContractorId: true,
+        model: true,
+        fuelType: true,
+        hourlyConsumptionRate: true,
+        hourlyRate: true,
+        dailyRate: true,
+        monthlyRate: true,
+        contractDaysPerMonth: true,
+        workHoursPerDay: true,
+        contractStartDate: true,
+        contractEndDate: true,
+        assignedContractor: {
+          select: {
+            contractorName: true,
+            contractorType: true,
+          },
+        },
       },
       orderBy: { machineryName: "asc" },
     });

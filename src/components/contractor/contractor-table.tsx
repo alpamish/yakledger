@@ -529,14 +529,18 @@ export function ContractorTable({
               Delete Selected
             </Button>
           )}
-          <Button size="sm" variant="outline" onClick={() => onBulkAction('activate')}>
-            <UserCheck className="mr-2 h-4 w-4" />
-            Activate Selected
-          </Button>
-          <Button size="sm" variant="outline" onClick={() => onBulkAction('suspend')}>
-            <Ban className="mr-2 h-4 w-4" />
-            Suspend Selected
-          </Button>
+          {canEdit('contractors') && (
+            <Button size="sm" variant="outline" onClick={() => onBulkAction('activate')}>
+              <UserCheck className="mr-2 h-4 w-4" />
+              Activate Selected
+            </Button>
+          )}
+          {canEdit('contractors') && (
+            <Button size="sm" variant="outline" onClick={() => onBulkAction('suspend')}>
+              <Ban className="mr-2 h-4 w-4" />
+              Suspend Selected
+            </Button>
+          )}
           <Button size="sm" variant="ghost" onClick={clearSelection} className="text-muted-foreground">
             Clear Selection
           </Button>

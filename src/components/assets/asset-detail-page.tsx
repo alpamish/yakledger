@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useAssetStore } from '@/hooks/use-asset-store';
+import { usePermissions } from '@/hooks/use-permissions';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -17,6 +18,7 @@ import { assetsApi, maintenanceApi, assetLogApi, fuelApi } from '@/services/asse
 import type { MaintenanceRecord, AssetLog, FuelTransaction } from '@/types/asset';
 import { toast } from 'sonner';
 import { ConfirmDialog } from '@/components/common/confirm-dialog';
+import { formatCurrency } from '@/lib/utils';
 
 export function AssetDetailPage() {
   const viewingAssetId = useAssetStore((s) => s.viewingAssetId);
@@ -29,6 +31,7 @@ export function AssetDetailPage() {
   const [logs, setLogs] = useState<AssetLog[]>([]);
   const [fuelIssues, setFuelIssues] = useState<FuelTransaction[]>([]);
   const [loading, setLoading] = useState(true);
+  const { canEdit, canDelete } = usePermissions();
   const [deleteConfirm, setDeleteConfirm] = useState(false);
 
   useEffect(() => {
@@ -96,12 +99,16 @@ export function AssetDetailPage() {
           </div>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={handleEdit}>
-            <Pencil className="h-4 w-4 mr-1" /> Edit
-          </Button>
-          <Button variant="destructive" size="sm" onClick={() => setDeleteConfirm(true)}>
-            <Trash2 className="h-4 w-4 mr-1" /> Delete
-          </Button>
+          {canEdit('assets') && (
+            <Button variant="outline" size="sm" onClick={handleEdit}>
+              <Pencil className="h-4 w-4 mr-1" /> Edit
+            </Button>
+          )}
+          {canDelete('assets') && (
+            <Button variant="destructive" size="sm" onClick={() => setDeleteConfirm(true)}>
+              <Trash2 className="h-4 w-4 mr-1" /> Delete
+            </Button>
+          )}
         </div>
       </div>
 
@@ -125,7 +132,7 @@ export function AssetDetailPage() {
             <CardTitle className="text-sm font-medium text-muted-foreground">Purchase Price</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-2xl font-bold">${asset.purchasePrice.toLocaleString()}</p>
+            <p className="text-2xl font-bold">{formatCurrency(asset.purchasePrice)}</p>
           </CardContent>
         </Card>
         <Card>
@@ -133,7 +140,7 @@ export function AssetDetailPage() {
             <CardTitle className="text-sm font-medium text-muted-foreground">Current Value</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-2xl font-bold">${asset.currentValue.toLocaleString()}</p>
+            <p className="text-2xl font-bold">{formatCurrency(asset.currentValue)}</p>
           </CardContent>
         </Card>
       </div>
@@ -218,7 +225,7 @@ export function AssetDetailPage() {
                         </p>
                       )}
                     </div>
-                    <p className="font-semibold">${r.cost.toLocaleString()}</p>
+                    <p className="font-semibold">{formatCurrency(r.cost)}</p>
                   </CardContent>
                 </Card>
               ))}

@@ -2,6 +2,8 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { useAssetStore } from '@/hooks/use-asset-store';
+import { usePermissions } from '@/hooks/use-permissions';
+
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -79,6 +81,7 @@ export function AssetLogsPage() {
   const setEditingLog = useAssetStore((s) => s.setEditingLog);
 
   const [formOpen, setFormOpen] = useState(false);
+  const { canCreate, canEdit, canDelete, hasPermission } = usePermissions();
   const [editFormOpen, setEditFormOpen] = useState(false);
   const [assets, setAssets] = useState<Asset[]>([]);
   const [assetFilter, setAssetFilter] = useState<string>('');
@@ -202,25 +205,29 @@ export function AssetLogsPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            onClick={handleDownloadPdf}
-            disabled={isGeneratingPdf || assetLogs.length === 0}
-          >
-            {isGeneratingPdf ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            ) : (
-              <Download className="mr-2 h-4 w-4" />
-            )}
-            {isGeneratingPdf ? 'Generating...' : 'Download PDF'}
-          </Button>
-          <Button onClick={() => setFormOpen(true)} className="bg-emerald-600 hover:bg-emerald-700 text-white">
-            <Plus className="mr-2 h-4 w-4" />
-            Add Log Entry
-          </Button>
+          {hasPermission('reports:generatePdf') && (
+            <Button
+              variant="outline"
+              onClick={handleDownloadPdf}
+              disabled={isGeneratingPdf || assetLogs.length === 0}
+            >
+              {isGeneratingPdf ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Download className="mr-2 h-4 w-4" />
+              )}
+              {isGeneratingPdf ? 'Generating...' : 'Download PDF'}
+            </Button>
+          )}
+          {canCreate('assets') && (
+            <Button onClick={() => setFormOpen(true)} className="bg-emerald-600 hover:bg-emerald-700 text-white">
+              <Plus className="mr-2 h-4 w-4" />
+              Add Log Entry
+            </Button>
+          )}
         </div>
         <Dialog open={formOpen} onOpenChange={setFormOpen}>
-          <DialogContent className="sm:max-w-[550px]" onInteractOutside={(e) => e.preventDefault()}>
+          <DialogContent className="sm:max-w-[550px] max-h-[90vh] overflow-y-auto" onInteractOutside={(e) => e.preventDefault()}>
             <DialogHeader>
               <DialogTitle>New Usage Log Entry</DialogTitle>
             </DialogHeader>
@@ -408,7 +415,7 @@ export function AssetLogsPage() {
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex items-center justify-end gap-1">
-                        {isPending && (
+                        {isPending && canEdit('assets') && (
                           <>
                             <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleApprove(l.id)} title="Approve">
                               <CheckCircle2 className="h-4 w-4 text-emerald-600" />
@@ -418,18 +425,22 @@ export function AssetLogsPage() {
                             </Button>
                           </>
                         )}
-                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleEdit(l)} title="Edit">
-                          <Pencil className="h-4 w-4 text-blue-600" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8"
-                          onClick={() => setDeleteConfirm({ open: true, id: l.id })}
-                          title="Delete"
-                        >
-                          <Trash2 className="h-4 w-4 text-red-500" />
-                        </Button>
+                        {canEdit('assets') && (
+                          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleEdit(l)} title="Edit">
+                            <Pencil className="h-4 w-4 text-blue-600" />
+                          </Button>
+                        )}
+                        {canDelete('assets') && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8"
+                            onClick={() => setDeleteConfirm({ open: true, id: l.id })}
+                            title="Delete"
+                          >
+                            <Trash2 className="h-4 w-4 text-red-500" />
+                          </Button>
+                        )}
                       </div>
                     </TableCell>
                   </TableRow>
@@ -492,7 +503,7 @@ export function AssetLogsPage() {
 
       {/* Edit Dialog */}
       <Dialog open={editFormOpen} onOpenChange={(open) => { setEditFormOpen(open); if (!open) setEditingLog(null); }}>
-        <DialogContent className="sm:max-w-[550px]" onInteractOutside={(e) => e.preventDefault()}>
+        <DialogContent className="sm:max-w-[550px] max-h-[90vh] overflow-y-auto" onInteractOutside={(e) => e.preventDefault()}>
           <DialogHeader>
             <DialogTitle>Edit Usage Log Entry</DialogTitle>
           </DialogHeader>

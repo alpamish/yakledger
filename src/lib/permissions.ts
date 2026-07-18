@@ -18,8 +18,10 @@ const ROLE_PERMISSION_DEFAULTS: Record<string, string[]> = {
     "machinery:view", "machinery:create", "machinery:edit",
     "assets:view", "assets:create", "assets:edit",
     "cashAdvance:view", "cashAdvance:create",
-    "reports:view",
+    "reports:view", "reports:generatePdf",
     "settings:view",
+    "users:view", "users:create", "users:edit",
+    "users:managePermissions",
   ],
   USER: [
     "dashboard:view",
