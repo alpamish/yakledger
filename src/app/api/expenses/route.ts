@@ -99,8 +99,8 @@ export async function GET(request: NextRequest) {
     const where: Prisma.ExpenseWhereInput = {};
 
     if (search) {
-      if (searchField && searchField !== "all") {
-        where[searchField as keyof Prisma.ExpenseWhereInput] = { contains: search };
+      if (searchField && searchField !== "all" && ["title", "description", "paidTo", "paidBy", "notes"].includes(searchField)) {
+        (where as Record<string, unknown>)[searchField] = { contains: search };
       } else {
         where.OR = [
           { title: { contains: search } },
@@ -178,23 +178,6 @@ export async function GET(request: NextRequest) {
       db.expense.findMany({
         where,
         include: {
-          creator: {
-            select: {
-              id: true,
-              email: true,
-              name: true,
-              role: true,
-              avatar: true,
-            },
-          },
-          paidByEmployee: {
-            select: {
-              id: true,
-              fullName: true,
-              jobTitle: true,
-              department: true,
-            },
-          },
           paidToEmployee: {
             select: {
               id: true,
@@ -208,13 +191,6 @@ export async function GET(request: NextRequest) {
               id: true,
               contractorName: true,
               fatherName: true,
-              contractorType: true,
-            },
-          },
-          paidByContractor: {
-            select: {
-              id: true,
-              contractorName: true,
               contractorType: true,
             },
           },

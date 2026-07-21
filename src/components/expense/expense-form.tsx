@@ -29,6 +29,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Command, CommandEmpty, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
 import { ChevronDown, Check } from 'lucide-react';
 import { useExpenseStore } from '@/hooks/use-expense-store';
+import { useCreateExpense, useUpdateExpense } from '@/hooks/use-expense-query';
 import { useEmployeeStore } from '@/hooks/use-employee-store';
 import { useContractorStore } from '@/hooks/use-contractor-store';
 import { cashAdvanceApi } from '@/services/api';
@@ -81,10 +82,10 @@ export function ExpenseForm() {
 
   const isFormOpen = useExpenseStore((s) => s.isFormOpen);
   const editingExpense = useExpenseStore((s) => s.editingExpense);
-  const isLoading = useExpenseStore((s) => s.isLoading);
   const closeForm = useExpenseStore((s) => s.closeForm);
-  const createExpense = useExpenseStore((s) => s.createExpense);
-  const updateExpense = useExpenseStore((s) => s.updateExpense);
+  const createExpense = useCreateExpense();
+  const updateExpense = useUpdateExpense();
+  const isLoading = createExpense.isPending || updateExpense.isPending;
 
   const employeeList = useEmployeeStore((s) => s.employeeList);
   const fetchEmployeeList = useEmployeeStore((s) => s.fetchEmployeeList);
@@ -255,12 +256,13 @@ export function ExpenseForm() {
       };
 
       if (isEditing && editingExpense) {
-        await updateExpense(editingExpense.id, data);
+        await updateExpense.mutateAsync({ id: editingExpense.id, data });
         toast.success('Expense updated successfully');
       } else {
-        await createExpense(data);
+        await createExpense.mutateAsync(data);
         toast.success('Expense created successfully');
       }
+      closeForm();
     } catch (error) {
       toast.error(
         isEditing ? 'Failed to update expense' : 'Failed to create expense'

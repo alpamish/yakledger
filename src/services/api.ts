@@ -222,7 +222,8 @@ export const expensesApi = {
       pageSize?: number;
       sortBy?: string;
       sortOrder?: string;
-    }
+    },
+    signal?: AbortSignal
   ): Promise<ApiResponse<PaginatedResponse<Expense>>> => {
     const searchParams = new URLSearchParams();
     if (params) {
@@ -248,7 +249,8 @@ export const expensesApi = {
       if (params.sortOrder) searchParams.set("sortOrder", params.sortOrder);
     }
     const qs = searchParams.toString();
-    return request<ApiResponse<PaginatedResponse<Expense>>>(`/expenses${qs ? `?${qs}` : ""}`);
+    const url = `/expenses${qs ? `?${qs}` : ""}`;
+    return request<ApiResponse<PaginatedResponse<Expense>>>(url, { signal });
   },
 
   getById: async (id: string): Promise<ApiResponse<Expense>> => {

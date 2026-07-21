@@ -489,9 +489,9 @@ export const machineryApi = {
 
   getList: async (
     status?: string
-  ): Promise<ApiResponse<(Pick<Machinery, "id" | "machineryName" | "machineryType" | "plateNumber" | "driverName" | "status" | "assignedContractorId" | "model" | "fuelType" | "hourlyConsumptionRate" | "hourlyRate" | "dailyRate" | "monthlyRate" | "contractDaysPerMonth" | "workHoursPerDay" | "contractStartDate" | "contractEndDate"> & { assignedContractor?: { contractorName: string; contractorType: string } | null })[]>> => {
+  ): Promise<ApiResponse<(Pick<Machinery, "id" | "machineryName" | "machineryType" | "plateNumber" | "driverName" | "status" | "assignedContractorId" | "model" | "fuelType" | "hourlyConsumptionRate" | "hourlyRate" | "dailyRate" | "monthlyRate" | "contractDaysPerMonth" | "workHoursPerDay" | "contractStartDate" | "contractEndDate"> & { assignedContractor?: { contractorName: string; contractorType: string; fatherName: string; nationalId: string | null; phoneNumber: string; address: string | null } | null })[]>> => {
     const qs = status ? `?status=${status}` : "";
-    return request<ApiResponse<(Pick<Machinery, "id" | "machineryName" | "machineryType" | "plateNumber" | "driverName" | "status" | "assignedContractorId" | "model" | "fuelType" | "hourlyConsumptionRate" | "hourlyRate" | "dailyRate" | "monthlyRate" | "contractDaysPerMonth" | "workHoursPerDay" | "contractStartDate" | "contractEndDate"> & { assignedContractor?: { contractorName: string; contractorType: string } | null })[]>>(
+    return request<ApiResponse<(Pick<Machinery, "id" | "machineryName" | "machineryType" | "plateNumber" | "driverName" | "status" | "assignedContractorId" | "model" | "fuelType" | "hourlyConsumptionRate" | "hourlyRate" | "dailyRate" | "monthlyRate" | "contractDaysPerMonth" | "workHoursPerDay" | "contractStartDate" | "contractEndDate"> & { assignedContractor?: { contractorName: string; contractorType: string; fatherName: string; nationalId: string | null; phoneNumber: string; address: string | null } | null })[]>>(
       `/machinery/list${qs}`
     );
   },

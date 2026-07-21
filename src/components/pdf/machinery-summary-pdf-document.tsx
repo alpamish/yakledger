@@ -23,15 +23,13 @@ function farsiNum(n: number | string): string {
 }
 
 function formatCurrency(n: number): string {
-  return `${farsiNum(
+  return `${
     Math.round(n).toLocaleString("en-US")
-  )} AFN`;
+  } AFN`;
 }
 
 function fmtNum(n: number): string {
-  return farsiNum(
-    Math.round(n).toLocaleString("en-US")
-  );
+  return Math.round(n).toLocaleString("en-US");
 }
 
 interface SummaryItem {
@@ -177,7 +175,7 @@ function colStyle(width: number) {
 
 export default function MachinerySummaryPDFDocument({
   data,
-  companyName = "YakhshiLedger",
+  companyName = "YakLedger",
   dateFrom,
   dateTo,
 }: Props) {
@@ -241,7 +239,7 @@ export default function MachinerySummaryPDFDocument({
                 <Text style={[styles.cell, colStyle(COL.withdrawals)]}>{formatCurrency(item.summary.totalWithdrawals)}</Text>
                 <Text style={[styles.cell, colStyle(COL.money)]}>{formatCurrency(item.summary.totalMoney)}</Text>
                 <Text style={[styles.cell, colStyle(COL.rate)]}>{formatCurrency(item.hourlyRate)}</Text>
-                <Text style={[styles.cell, colStyle(COL.hours)]}>{farsiNum(item.summary.totalHours.toFixed(1))}</Text>
+                <Text style={[styles.cell, colStyle(COL.hours)]}>{item.summary.totalHours.toFixed(1)}</Text>
                 <Text style={[styles.cell, colStyle(COL.plate)]}>{item.plateNumber || "—"}</Text>
                 <Text style={[styles.cell, colStyle(COL.driver)]}>{item.driverName || "—"}</Text>
                 <Text style={[styles.cell, colStyle(COL.name)]}>{item.machineryName}</Text>
@@ -254,7 +252,7 @@ export default function MachinerySummaryPDFDocument({
               <Text style={[styles.totalCell, colStyle(COL.withdrawals)]}>{formatCurrency(grandTotalWithdrawals)}</Text>
               <Text style={[styles.totalCell, colStyle(COL.money)]}>{formatCurrency(grandTotalMoney)}</Text>
               <Text style={[styles.totalCell, colStyle(COL.rate)]}>—</Text>
-              <Text style={[styles.totalCell, colStyle(COL.hours)]}>{farsiNum(grandTotalHours.toFixed(1))}</Text>
+              <Text style={[styles.totalCell, colStyle(COL.hours)]}>{grandTotalHours.toFixed(1)}</Text>
               <Text style={[styles.totalCell, colStyle(COL.plate)]}>—</Text>
               <Text style={[styles.totalCell, colStyle(COL.driver)]}>—</Text>
               <Text style={[styles.totalCell, colStyle(COL.name)]}>Grand Total</Text>
@@ -265,7 +263,7 @@ export default function MachinerySummaryPDFDocument({
         <Text
           style={styles.pageNumber}
           render={({ pageNumber, totalPages }) =>
-            `Page ${farsiNum(pageNumber)} of ${farsiNum(totalPages)}`
+            `Page ${pageNumber} of ${totalPages}`
           }
           fixed
         />

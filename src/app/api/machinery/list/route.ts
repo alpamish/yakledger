@@ -40,6 +40,10 @@ export async function GET(request: NextRequest) {
           select: {
             contractorName: true,
             contractorType: true,
+            fatherName: true,
+            nationalId: true,
+            phoneNumber: true,
+            address: true,
           },
         },
       },

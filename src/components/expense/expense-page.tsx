@@ -4,6 +4,7 @@ import { useCallback, useState, useMemo, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { useExpenseStore } from '@/hooks/use-expense-store';
+import { useDeleteExpense, useBulkDeleteExpenses } from '@/hooks/use-expense-query';
 import { ExpenseTable } from '@/components/expense/expense-table';
 import { ExpenseForm } from '@/components/expense/expense-form';
 import { ConfirmDialog } from '@/components/common/confirm-dialog';
@@ -18,8 +19,8 @@ export function ExpensePage() {
 
   if (!canView('expenses')) return null;
   const openForm = useExpenseStore((s) => s.openForm);
-  const deleteExpense = useExpenseStore((s) => s.deleteExpense);
-  const bulkDeleteExpenses = useExpenseStore((s) => s.bulkDeleteExpenses);
+  const deleteExpense = useDeleteExpense();
+  const bulkDeleteExpenses = useBulkDeleteExpenses();
   const selectedExpenseIds = useExpenseStore((s) => s.selectedExpenseIds);
   const expenses = useExpenseStore((s) => s.expenses);
 
@@ -74,7 +75,7 @@ export function ExpensePage() {
 
   const handleDeleteConfirm = useCallback(async () => {
     if (deleteConfirm.expense) {
-      await deleteExpense(deleteConfirm.expense.id);
+      await deleteExpense.mutateAsync(deleteConfirm.expense.id);
     }
     setDeleteConfirm({ open: false, expense: null });
   }, [deleteConfirm.expense, deleteExpense]);
@@ -84,9 +85,9 @@ export function ExpensePage() {
   }, []);
 
   const handleBulkDeleteConfirm = useCallback(async () => {
-    await bulkDeleteExpenses();
+    await bulkDeleteExpenses.mutateAsync(Array.from(selectedExpenseIds));
     setBulkDeleteConfirm(false);
-  }, [bulkDeleteExpenses]);
+  }, [bulkDeleteExpenses, selectedExpenseIds]);
 
   const handleExportPdf = useCallback(() => {
     setPdfPreviewOpen(true);

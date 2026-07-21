@@ -322,6 +322,12 @@ model Expense {
   @@index([paidToId])
   @@index([paidToContractorId])
   @@index([paidByContractorId])
+  @@index([paymentMethod])
+  @@index([amount])
+  @@index([title])
+  @@index([paidBy])
+  @@index([paidTo])
+  @@index([category, expenseDate])
 }
 
 model Contractor {

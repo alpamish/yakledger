@@ -36,6 +36,7 @@ import {
   PopoverTrigger,
 } from '@/components/ui/popover';
 import { useExpenseStore } from '@/hooks/use-expense-store';
+import { useExpenses } from '@/hooks/use-expense-query';
 import { useDebounce } from '@/hooks/use-debounce';
 import { usePermissions } from '@/hooks/use-permissions';
 import {
@@ -83,13 +84,12 @@ export function ExpenseTable({
   onViewDetail,
 }: ExpenseTableProps) {
   const { canEdit, canDelete } = usePermissions();
-  const expenses = useExpenseStore((s) => s.expenses);
+  const { data: queryData, isLoading, isFetching } = useExpenses();
+  const expenses = queryData?.data ?? [];
   const selectedExpenseIds = useExpenseStore((s) => s.selectedExpenseIds);
   const filters = useExpenseStore((s) => s.filters);
   const pagination = useExpenseStore((s) => s.pagination);
   const sorting = useExpenseStore((s) => s.sorting);
-  const isLoading = useExpenseStore((s) => s.isLoading);
-  const fetchExpenses = useExpenseStore((s) => s.fetchExpenses);
   const toggleSelectExpense = useExpenseStore((s) => s.toggleSelectExpense);
   const selectAllExpenses = useExpenseStore((s) => s.selectAllExpenses);
   const clearSelection = useExpenseStore((s) => s.clearSelection);
@@ -98,6 +98,9 @@ export function ExpenseTable({
   const setPage = useExpenseStore((s) => s.setPage);
   const setPageSize = useExpenseStore((s) => s.setPageSize);
   const setSorting = useExpenseStore((s) => s.setSorting);
+
+  const total = queryData?.total ?? pagination.total;
+  const totalPages = queryData?.totalPages ?? pagination.totalPages;
 
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [searchInput, setSearchInput] = useState(filters.search ?? '');
@@ -162,10 +165,7 @@ export function ExpenseTable({
     });
   }, [debouncedSearch, searchField, setFilters]);
 
-  // Fetch expenses when filters/pagination/sorting change
-  useEffect(() => {
-    fetchExpenses();
-  }, [filters, pagination.page, pagination.pageSize, sorting, fetchExpenses]);
+  // React Query handles fetching via queryKey changes automatically
 
   // Count active filters (excluding search)
   const activeFilterCount = useMemo(() => {
@@ -502,7 +502,7 @@ export function ExpenseTable({
     },
     manualSorting: true,
     manualPagination: true,
-    pageCount: pagination.totalPages,
+    pageCount: totalPages,
   });
 
   // Apply filters from the collapsible panel
@@ -554,18 +554,17 @@ export function ExpenseTable({
 
   // Pagination helpers
   const startIndex =
-    pagination.total > 0
+    total > 0
       ? (pagination.page - 1) * pagination.pageSize + 1
       : 0;
   const endIndex = Math.min(
     pagination.page * pagination.pageSize,
-    pagination.total
+    total
   );
 
   // Generate page numbers
   const pageNumbers = useMemo(() => {
     const pages: number[] = [];
-    const totalPages = pagination.totalPages;
     const current = pagination.page;
 
     if (totalPages <= 7) {
@@ -584,10 +583,10 @@ export function ExpenseTable({
       pages.push(totalPages);
     }
     return pages;
-  }, [pagination.totalPages, pagination.page]);
+  }, [totalPages, pagination.page]);
 
-  // Loading skeleton
-  if (isLoading && expenses.length === 0) {
+  // Loading skeleton (initial load only)
+  if (isLoading) {
     return (
       <div className="space-y-4">
         <div className="flex items-center gap-3">
@@ -956,7 +955,7 @@ export function ExpenseTable({
       </div>
 
       {/* Pagination */}
-      {pagination.total > 0 && (
+      {total > 0 && (
         <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className="text-sm text-muted-foreground">
             Showing{' '}
@@ -964,7 +963,7 @@ export function ExpenseTable({
             {' '}to{' '}
             <span className="font-medium text-foreground">{endIndex}</span>
             {' '}of{' '}
-            <span className="font-medium text-foreground">{pagination.total}</span>{' '}
+            <span className="font-medium text-foreground">{total}</span>{' '}
             results
           </div>
 
@@ -1039,7 +1038,7 @@ export function ExpenseTable({
       )}
 
       {/* Loading overlay when data exists but is refreshing */}
-      {isLoading && expenses.length > 0 && (
+      {isFetching && expenses.length > 0 && (
         <div className="rounded-lg border p-4">
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <div className="h-4 w-4 animate-spin rounded-full border-2 border-emerald-600/20 border-t-emerald-600" />

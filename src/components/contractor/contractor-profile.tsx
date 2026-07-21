@@ -336,13 +336,15 @@ export function ContractorProfile({ contractorId }: { contractorId: string }) {
     return rows;
   }, [machineryList, allMachineryRates]);
 
-  // Group timesheets by month + rate tier
-  const monthlyRateData = useMemo<Map<string, Map<string, { hours: number; revenue: number; rateLabel: string; hourlyRate: number; defaultRate: number }>>>(() => {
-    const monthMap = new Map<string, Map<string, { hours: number; revenue: number; rateLabel: string; hourlyRate: number; defaultRate: number }>>();
+  // Group timesheets by month + machinery + rate tier
+  const monthlyRateData = useMemo<Map<string, Map<string, { hours: number; revenue: number; machineryName: string; rateLabel: string; hourlyRate: number; defaultRate: number }>>>(() => {
+    const monthMap = new Map<string, Map<string, { hours: number; revenue: number; machineryName: string; rateLabel: string; hourlyRate: number; defaultRate: number }>>();
     for (const ts of finFilteredTimesheets) {
       const month = ts.date.substring(0, 7);
       if (!monthMap.has(month)) monthMap.set(month, new Map());
       const rateMap = monthMap.get(month)!;
+
+      const machineryName = ts.machinery?.machineryName ?? machineryList.find((m) => m.id === ts.machineryId)?.machineryName ?? 'Unknown';
 
       let rateLabel: string;
       let hourlyRate: number;
@@ -358,9 +360,8 @@ export function ContractorProfile({ contractorId }: { contractorId: string }) {
             rateLabel = machDefaultRate.rateName;
             hourlyRate = machDefaultRate.hourlyRate;
           } else {
-            const machine = machineryList.find((m) => m.id === ts.machineryId);
-            rateLabel = machine ? `Default (${machine.machineryName})` : 'Unknown';
-            hourlyRate = machine && machine.workHoursPerDay > 0 ? machine.dailyRate / machine.workHoursPerDay : 0;
+            rateLabel = machineryName === 'Unknown' ? 'Unknown' : `Default (${machineryName})`;
+            hourlyRate = 0;
           }
         }
       } else {
@@ -368,16 +369,16 @@ export function ContractorProfile({ contractorId }: { contractorId: string }) {
           rateLabel = machDefaultRate.rateName;
           hourlyRate = machDefaultRate.hourlyRate;
         } else {
-          const machine = machineryList.find((m) => m.id === ts.machineryId);
-          rateLabel = machine ? `Default (${machine.machineryName})` : 'Unknown';
-          hourlyRate = machine && machine.workHoursPerDay > 0 ? machine.dailyRate / machine.workHoursPerDay : 0;
+          rateLabel = machineryName === 'Unknown' ? 'Unknown' : `Default (${machineryName})`;
+          hourlyRate = 0;
         }
       }
 
-      if (!rateMap.has(rateLabel)) {
-        rateMap.set(rateLabel, { hours: 0, revenue: 0, rateLabel, hourlyRate, defaultRate: defaultRateVal });
+      const key = `${machineryName}||${rateLabel}`;
+      if (!rateMap.has(key)) {
+        rateMap.set(key, { hours: 0, revenue: 0, machineryName, rateLabel, hourlyRate, defaultRate: defaultRateVal });
       }
-      const entry = rateMap.get(rateLabel)!;
+      const entry = rateMap.get(key)!;
       entry.hours += ts.totalHours;
       entry.revenue += ts.totalHours * hourlyRate;
     }
@@ -412,26 +413,22 @@ export function ContractorProfile({ contractorId }: { contractorId: string }) {
     return acc;
   }, {}), [finFilteredTimesheets, machineryList, allMachineryRates]);
 
-  const monthlyEntries = useMemo(() =>
-    Object.entries(monthlyData).sort(([a], [b]) => a.localeCompare(b)),
-  [monthlyData]);
-
-  const monthlyRateEntries = useMemo<Array<{ month: string; rateLabel: string; hours: number; revenue: number; hourlyRate: number; defaultRate: number; isTotal?: boolean }>>(() => {
-    const entries: Array<{ month: string; rateLabel: string; hours: number; revenue: number; hourlyRate: number; defaultRate: number; isTotal?: boolean }> = [];
+  const monthlyRateEntries = useMemo<Array<{ month: string; machineryName: string; rateLabel: string; hours: number; revenue: number; hourlyRate: number; defaultRate: number; isTotal?: boolean }>>(() => {
+    const entries: Array<{ month: string; machineryName: string; rateLabel: string; hours: number; revenue: number; hourlyRate: number; defaultRate: number; isTotal?: boolean }> = [];
     const sortedMonths = Array.from(monthlyRateData.keys()).sort();
     for (const month of sortedMonths) {
-      const rateMap = monthlyRateData.get(month) as Map<string, { hours: number; revenue: number; rateLabel: string; hourlyRate: number; defaultRate: number }> | undefined;
+      const rateMap = monthlyRateData.get(month) as Map<string, { hours: number; revenue: number; machineryName: string; rateLabel: string; hourlyRate: number; defaultRate: number }> | undefined;
       if (!rateMap) continue;
-      const sortedLabels = Array.from(rateMap.keys()).sort();
-      for (const label of sortedLabels) {
-        const d = rateMap.get(label)!;
-        entries.push({ month, rateLabel: d.rateLabel, hours: d.hours, revenue: d.revenue, hourlyRate: d.hourlyRate, defaultRate: d.defaultRate });
+      const sortedKeys = Array.from(rateMap.keys()).sort();
+      for (const key of sortedKeys) {
+        const d = rateMap.get(key)!;
+        entries.push({ month, machineryName: d.machineryName, rateLabel: d.rateLabel, hours: d.hours, revenue: d.revenue, hourlyRate: d.hourlyRate, defaultRate: d.defaultRate });
       }
-      const total = sortedLabels.reduce((acc, label) => {
-        const d = rateMap.get(label)!;
+      const total = sortedKeys.reduce((acc, key) => {
+        const d = rateMap.get(key)!;
         return { hours: acc.hours + d.hours, revenue: acc.revenue + d.revenue };
       }, { hours: 0, revenue: 0 });
-      entries.push({ month, rateLabel: 'TOTAL', hours: total.hours, revenue: total.revenue, hourlyRate: 0, defaultRate: 0, isTotal: true });
+      entries.push({ month, machineryName: '', rateLabel: 'TOTAL', hours: total.hours, revenue: total.revenue, hourlyRate: 0, defaultRate: 0, isTotal: true });
     }
     return entries;
   }, [monthlyRateData]);
@@ -1310,7 +1307,7 @@ export function ContractorProfile({ contractorId }: { contractorId: string }) {
                   <Calendar className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
                   Monthly Breakdown
                 </CardTitle>
-                <CardDescription>Hours, revenue, and rates by month and rate tier</CardDescription>
+                <CardDescription>Hours, revenue, and rates by month, machinery, and rate tier</CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="overflow-x-auto">
@@ -1318,6 +1315,7 @@ export function ContractorProfile({ contractorId }: { contractorId: string }) {
                     <TableHeader>
                       <TableRow>
                         <TableHead>Month</TableHead>
+                        <TableHead>Machinery</TableHead>
                         <TableHead>Rate Tier</TableHead>
                         <TableHead className="text-right">Hours</TableHead>
                         <TableHead className="text-right">Revenue</TableHead>
@@ -1338,6 +1336,7 @@ export function ContractorProfile({ contractorId }: { contractorId: string }) {
                               className={r.isTotal ? 'bg-emerald-50 dark:bg-emerald-950/20' : ''}
                             >
                               <TableCell className={r.isTotal ? 'font-bold' : 'font-medium'}>{monthLabel}</TableCell>
+                              <TableCell className={r.isTotal ? 'font-bold' : ''}>{r.isTotal ? '' : r.machineryName}</TableCell>
                               <TableCell className={r.isTotal ? 'font-bold' : ''}>{r.rateLabel}</TableCell>
                               <TableCell className={`text-right font-mono tabular-nums ${r.isTotal ? 'font-bold' : ''}`}>
                                 {r.hours.toFixed(1)}

@@ -67,7 +67,6 @@ import {
   ChevronsUpDown,
   Truck,
   ChevronDown,
-  List,
   Users,
   X,
 } from 'lucide-react';
@@ -105,7 +104,6 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu';
-import MachineryFullReportPDFDocument from '@/components/pdf/machinery-full-report-pdf-document';
 import MachinerySummaryPDFDocument from '@/components/pdf/machinery-summary-pdf-document';
 
 function formatCurrency(amount: number): string {
@@ -170,9 +168,10 @@ export function ReportsPage() {
   const [timesheetDialogOpen, setTimesheetDialogOpen] = useState(false);
 
   // ─── Machinery Report Tab State ────────────────────────────
-  const [machineryReportList, setMachineryReportList] = useState<(Pick<Machinery, 'id' | 'machineryName' | 'machineryType' | 'plateNumber' | 'driverName' | 'status' | 'assignedContractorId' | 'model' | 'fuelType' | 'hourlyConsumptionRate' | 'hourlyRate' | 'dailyRate' | 'monthlyRate' | 'contractDaysPerMonth' | 'workHoursPerDay' | 'contractStartDate' | 'contractEndDate'> & { assignedContractor?: { contractorName: string; contractorType: string } | null })[]>([]);
+  const [machineryReportList, setMachineryReportList] = useState<(Pick<Machinery, 'id' | 'machineryName' | 'machineryType' | 'plateNumber' | 'driverName' | 'status' | 'assignedContractorId' | 'model' | 'fuelType' | 'hourlyConsumptionRate' | 'hourlyRate' | 'dailyRate' | 'monthlyRate' | 'contractDaysPerMonth' | 'workHoursPerDay' | 'contractStartDate' | 'contractEndDate'> & { assignedContractor?: { contractorName: string; contractorType: string; fatherName: string; nationalId: string | null; phoneNumber: string; address: string | null } | null })[]>([]);
   const [includeOutOfService, setIncludeOutOfService] = useState(true);
   const [machineryListExcelLoading, setMachineryListExcelLoading] = useState(false);
+  const [machineryContractorExcelLoading, setMachineryContractorExcelLoading] = useState(false);
   const [machineryDropdownPdfLoading, setMachineryDropdownPdfLoading] = useState(false);
   const [machineryReportTimesheets, setMachineryReportTimesheets] = useState<Timesheet[]>([]);
   const [machineryReportFuelUsages, setMachineryReportFuelUsages] = useState<FuelUsage[]>([]);
@@ -676,69 +675,64 @@ export function ReportsPage() {
     }
   }, [filteredMachineryList, machineryReportSummary, companyName]);
 
-  const handleMachineryReportGeneratePdf = useCallback(async (type: 'info' | 'timesheet' | 'fuel' | 'full') => {
+  const handleMachineryContractorExportExcel = useCallback(() => {
     if (filteredMachineryList.length === 0) return;
-    setMachineryDropdownPdfLoading(true);
+    setMachineryContractorExcelLoading(true);
     try {
-      let timesheets: Timesheet[] = [];
-      let fuelUsages: FuelUsage[] = [];
+      const sorted = [...filteredMachineryList].sort((a, b) => {
+        const nameA = a.assignedContractor?.contractorName || '';
+        const nameB = b.assignedContractor?.contractorName || '';
+        return nameA.localeCompare(nameB);
+      });
 
-      if (type === 'timesheet' || type === 'full') {
-        const results = await Promise.allSettled(
-          filteredMachineryList.map((m) =>
-            timesheetsApi.getAll({ machineryId: m.id, pageSize: 100 }).then((res) => res.data?.data ?? [])
-          )
-        );
-        timesheets = results.flatMap((r) => (r.status === 'fulfilled' ? r.value : []));
-        const failed = results.filter((r) => r.status === 'rejected').length;
-        if (failed > 0) {
-          toast.error(`Failed to load timesheets for ${failed} machinery item(s). Partial data will be used.`);
-        }
-      }
+      const rows = sorted.map((m, i) => {
+        const statusLabel = MACHINERY_STATUS_LABELS[m.status as MachineryStatus] ?? m.status;
+        const fuelTypeLabel = FUEL_TYPE_LABELS[m.fuelType as FuelType] ?? m.fuelType;
+        const contractorTypeLabel = m.assignedContractor?.contractorType
+          ? (CONTRACTOR_TYPE_LABELS[m.assignedContractor.contractorType as ContractorType] ?? m.assignedContractor.contractorType)
+          : '—';
+        return {
+          'Contractor Name': m.assignedContractor?.contractorName || '—',
+          'Father Name': m.assignedContractor?.fatherName || '—',
+          'National Id': m.assignedContractor?.nationalId || '—',
+          'Phone Number': m.assignedContractor?.phoneNumber || '—',
+          'Address': m.assignedContractor?.address || '—',
+          'Contractor Type': contractorTypeLabel,
+          '#': i + 1,
+          'Machinery Name': m.machineryName,
+          'Type': m.machineryType,
+          'Model': m.model || '—',
+          'Plate Number': m.plateNumber || '—',
+          'Driver Name': m.driverName || '—',
+          'Fuel Type': fuelTypeLabel,
+          'Hourly Rate': m.hourlyRate,
+          'Daily Rate': m.dailyRate,
+          'Monthly Rate': m.monthlyRate,
+          'Hourly Consumption Rate': m.hourlyConsumptionRate,
+          'Contract Days/Month': m.contractDaysPerMonth,
+          'Work Hours/Day': m.workHoursPerDay,
+          'Contract Start Date': m.contractStartDate || '—',
+          'Contract End Date': m.contractEndDate || '—',
+          'Status': statusLabel,
+        };
+      });
 
-      if (type === 'fuel' || type === 'full') {
-        const results = await Promise.allSettled(
-          filteredMachineryList.map((m) =>
-            fuelUsageApi.getAll({ machineryId: m.id, pageSize: 100 }).then((res) => res.data?.data ?? [])
-          )
-        );
-        fuelUsages = results.flatMap((r) => (r.status === 'fulfilled' ? r.value : []));
-        const failed = results.filter((r) => r.status === 'rejected').length;
-        if (failed > 0) {
-          toast.error(`Failed to load fuel data for ${failed} machinery item(s). Partial data will be used.`);
-        }
-      }
+      const ws = XLSX.utils.json_to_sheet(rows);
+      const colWidths = Object.keys(rows[0] || {}).map((key) => ({
+        wch: Math.max(key.length, ...rows.map((row) => String(row[key as keyof typeof row]).length).slice(0, 20)) + 2,
+      }));
+      ws['!cols'] = colWidths;
 
-      const blob = await pdf(
-        <MachineryFullReportPDFDocument
-          machineryList={filteredMachineryList}
-          timesheets={timesheets}
-          fuelUsages={fuelUsages}
-          reportType={type}
-          companyName={companyName}
-        />
-      ).toBlob();
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Contractors & Machinery');
 
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      const typeLabels: Record<string, string> = {
-        info: 'machinery-info-list',
-        timesheet: 'machinery-timesheet',
-        fuel: 'machinery-fuel-metric',
-        full: 'machinery-financial-summary',
-      };
-      link.download = `${typeLabels[type]}-${format(new Date(), 'yyyy-MM-dd')}.pdf`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
-      toast.success('Machinery report downloaded');
+      XLSX.writeFile(wb, `contractors-with-machinery-${format(new Date(), 'yyyy-MM-dd')}.xlsx`);
+      toast.success('Contractors & Machinery exported to Excel');
     } catch (err) {
-      console.error('PDF generation failed:', err);
-      toast.error('Failed to generate machinery report');
+      console.error('Excel export failed:', err);
+      toast.error('Failed to export contractors & machinery');
     } finally {
-      setMachineryDropdownPdfLoading(false);
+      setMachineryContractorExcelLoading(false);
     }
   }, [filteredMachineryList, companyName]);
 
@@ -1876,6 +1870,22 @@ export function ReportsPage() {
                 </Button>
               )}
               {hasPermission('reports:generatePdf') && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8"
+                  onClick={handleMachineryContractorExportExcel}
+                  disabled={filteredMachineryList.length === 0 || machineryContractorExcelLoading}
+                >
+                  {machineryContractorExcelLoading ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />
+                  ) : (
+                    <FileSpreadsheet className="h-3.5 w-3.5 mr-1" />
+                  )}
+                  {machineryContractorExcelLoading ? 'Exporting...' : 'Export Contractors'}
+                </Button>
+              )}
+              {hasPermission('reports:generatePdf') && (
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button
@@ -1894,24 +1904,6 @@ export function ReportsPage() {
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end" className="w-56">
-                    <DropdownMenuItem onClick={() => handleMachineryReportGeneratePdf('info')}>
-                      <List className="mr-2 h-4 w-4" />
-                      <span>Machinery Info List</span>
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => handleMachineryReportGeneratePdf('timesheet')}>
-                      <Clock className="mr-2 h-4 w-4" />
-                      <span>Machinery Timesheet</span>
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => handleMachineryReportGeneratePdf('fuel')}>
-                      <Fuel className="mr-2 h-4 w-4" />
-                      <span>Machinery Fuel Metric</span>
-                    </DropdownMenuItem>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem onClick={() => handleMachineryReportGeneratePdf('full')}>
-                      <BarChart3 className="mr-2 h-4 w-4" />
-                      <span>Full Financial Summary</span>
-                    </DropdownMenuItem>
-                    <DropdownMenuSeparator />
                     <DropdownMenuItem onClick={handleMachineryContractorSummaryPdf}>
                       <Users className="mr-2 h-4 w-4" />
                       <span>Machinery by Contractor</span>
