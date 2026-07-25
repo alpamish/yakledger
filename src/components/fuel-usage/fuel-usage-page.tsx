@@ -21,17 +21,27 @@ import {
 } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { FuelUsageForm } from './fuel-usage-form';
 import { BatchFuelUsageForm } from './batch-fuel-usage-form';
 import { FuelUsageAnalysis } from './fuel-usage-analysis';
+import { FuelIssueForm } from '@/components/fuel/fuel-issue-form';
 import { ConfirmDialog } from '@/components/common/confirm-dialog';
 import { fuelUsageApi, machineryApi } from '@/services/contractor-api';
+import { fuelApi } from '@/services/asset-api';
 import { useDebounce } from '@/hooks/use-debounce';
 import type { FuelUsage, FuelType, FuelUsageSummary } from '@/types/contractor';
+import type { FuelTransaction } from '@/types/asset';
 import {
   FUEL_TYPE_LABELS,
   FUEL_TYPE_COLORS,
 } from '@/types/contractor';
+import { ASSET_CATEGORY_LABELS } from '@/types/asset';
 import {
   Plus,
   Fuel,
@@ -48,6 +58,7 @@ import {
   CalendarDays,
   List,
   LineChart,
+  Truck,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { formatShamsi } from '@/lib/shamsi';
@@ -88,6 +99,21 @@ export function FuelUsagePage() {
 
   const [summary, setSummary] = useState<FuelUsageSummary | null>(null);
   const [summaryLoading, setSummaryLoading] = useState(false);
+
+  const [viewMode, setViewMode] = useState<'contractor' | 'asset'>('contractor');
+
+  // Asset issues state
+  const [assetIssues, setAssetIssues] = useState<FuelTransaction[]>([]);
+  const [assetIssuesLoading, setAssetIssuesLoading] = useState(false);
+  const [assetIssuesPage, setAssetIssuesPage] = useState(1);
+  const [assetIssuesTotalPages, setAssetIssuesTotalPages] = useState(1);
+  const [assetIssuesTotal, setAssetIssuesTotal] = useState(0);
+  const [issueFormOpen, setIssueFormOpen] = useState(false);
+  const [editingTransaction, setEditingTransaction] = useState<FuelTransaction | null>(null);
+  const [deleteAssetIssueConfirm, setDeleteAssetIssueConfirm] = useState<{ open: boolean; transaction: FuelTransaction | null }>({
+    open: false,
+    transaction: null,
+  });
 
   const pageSize = 20;
   const debouncedSearch = useDebounce(search, 300);
@@ -139,17 +165,45 @@ export function FuelUsagePage() {
     }
   }, [debouncedSearch, dateFrom, dateTo, machineryType, page, pageSize]);
 
+  const fetchAssetIssues = useCallback(async () => {
+    setAssetIssuesLoading(true);
+    try {
+      const res = await fuelApi.getAll({
+        type: 'ISSUE',
+        search: debouncedSearch || undefined,
+        dateFrom: dateFrom || undefined,
+        dateTo: dateTo || undefined,
+        page: assetIssuesPage,
+        pageSize,
+      });
+      const d = res.data!;
+      const filtered = d.data.filter((t) => t.assetId && !t.contractorId);
+      setAssetIssues(filtered);
+      setAssetIssuesTotalPages(d.totalPages);
+      setAssetIssuesTotal(d.total);
+    } catch {
+      toast.error('Failed to load asset issues');
+    } finally {
+      setAssetIssuesLoading(false);
+    }
+  }, [debouncedSearch, dateFrom, dateTo, assetIssuesPage, pageSize]);
+
   useEffect(() => {
     if (isFirstRender.current) {
       isFirstRender.current = false;
       return;
     }
     setPage(1);
+    setAssetIssuesPage(1);
   }, [debouncedSearch, dateFrom, dateTo, machineryType]);
 
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  useEffect(() => {
+    fetchAssetIssues();
+  }, [fetchAssetIssues]);
 
   const handleAdd = useCallback(() => {
     setEditingFuelUsage(null);
@@ -182,6 +236,30 @@ export function FuelUsagePage() {
     fetchData();
   }, [fetchData]);
 
+  const handleDeleteAssetIssue = useCallback((t: FuelTransaction) => {
+    setDeleteAssetIssueConfirm({ open: true, transaction: t });
+  }, []);
+
+  const handleDeleteAssetIssueConfirm = useCallback(async () => {
+    if (deleteAssetIssueConfirm.transaction) {
+      try {
+        await fuelApi.delete(deleteAssetIssueConfirm.transaction.id);
+        toast.success('Asset issue deleted successfully');
+        fetchAssetIssues();
+      } catch {
+        toast.error('Failed to delete asset issue');
+      }
+    }
+    setDeleteAssetIssueConfirm({ open: false, transaction: null });
+  }, [deleteAssetIssueConfirm.transaction, fetchAssetIssues]);
+
+  const handleIssueFormSuccess = useCallback(() => {
+    setIssueFormOpen(false);
+    setEditingTransaction(null);
+    if (viewMode === 'asset') fetchAssetIssues();
+    else fetchData();
+  }, [viewMode, fetchAssetIssues, fetchData]);
+
   const clearFilters = useCallback(() => {
     setSearch('');
     setDateFrom('');
@@ -212,6 +290,10 @@ export function FuelUsagePage() {
             <Button onClick={() => setBatchFormOpen(true)} variant="outline">
               <Plus className="mr-2 h-4 w-4" />
               Batch Entry
+            </Button>
+            <Button onClick={() => setIssueFormOpen(true)} variant="outline" className="border-amber-600 text-amber-600">
+              <Truck className="mr-2 h-4 w-4" />
+              Issue to Asset
             </Button>
           </div>
         )}
@@ -285,6 +367,31 @@ export function FuelUsagePage() {
             )}
           </div>
 
+          {/* View Mode Toggle */}
+          <div className="flex items-center gap-2 border-b pb-2">
+            <Button
+              variant={viewMode === 'contractor' ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setViewMode('contractor')}
+              className={viewMode === 'contractor' ? 'bg-emerald-600 hover:bg-emerald-700 text-white' : ''}
+            >
+              <Fuel className="mr-1.5 h-4 w-4" />
+              Contractor Usage
+            </Button>
+            <Button
+              variant={viewMode === 'asset' ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setViewMode('asset')}
+              className={viewMode === 'asset' ? 'bg-amber-600 hover:bg-amber-700 text-white' : ''}
+            >
+              <Truck className="mr-1.5 h-4 w-4" />
+              Asset Issues
+            </Button>
+          </div>
+
+          {/* Contractor Usage View */}
+          {viewMode === 'contractor' && (
+          <>
           {/* Summary Section */}
           {summaryLoading ? (
             <div className="flex items-center justify-center py-6">
@@ -493,6 +600,114 @@ export function FuelUsagePage() {
               </div>
             </div>
           )}
+          </>
+          )}
+
+          {/* Asset Issues View */}
+          {viewMode === 'asset' && (
+          <>
+            <Card>
+              <CardContent className="p-0">
+                {assetIssuesLoading ? (
+                  <div className="flex items-center justify-center py-12">
+                    <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                  </div>
+                ) : assetIssues.length > 0 ? (
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Date</TableHead>
+                          <TableHead>Asset</TableHead>
+                          <TableHead>Category</TableHead>
+                          <TableHead>Fuel Type</TableHead>
+                          <TableHead className="text-right">Quantity</TableHead>
+                          <TableHead>Source Container</TableHead>
+                          <TableHead>Issued To</TableHead>
+                          <TableHead className="text-right">Actions</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {assetIssues.map((t) => {
+                          const fColor = FUEL_TYPE_COLORS[t.fuelType as FuelType] ?? '#78716c';
+                          return (
+                            <TableRow key={t.id}>
+                              <TableCell className="text-muted-foreground">
+                                {format(new Date(t.date), 'MMM dd, yyyy')}
+                              </TableCell>
+                              <TableCell className="font-medium max-w-[150px] truncate">
+                                {t.asset?.name ?? t.issuedToName ?? '—'}
+                              </TableCell>
+                              <TableCell>
+                                {t.asset?.category ? (
+                                  <Badge variant="outline" className="text-[10px] px-1.5 py-0">
+                                    {ASSET_CATEGORY_LABELS[t.asset.category as keyof typeof ASSET_CATEGORY_LABELS] ?? t.asset.category}
+                                  </Badge>
+                                ) : '—'}
+                              </TableCell>
+                              <TableCell>
+                                <Badge variant="outline" className="border-0 text-[10px] px-1.5 py-0" style={{ backgroundColor: `${fColor}18`, color: fColor }}>
+                                  {FUEL_TYPE_LABELS[t.fuelType as FuelType] ?? t.fuelType}
+                                </Badge>
+                              </TableCell>
+                              <TableCell className="text-right font-mono tabular-nums">{t.quantity.toFixed(2)}</TableCell>
+                              <TableCell className="max-w-[120px] truncate">{t.container?.name ?? '—'}</TableCell>
+                              <TableCell className="max-w-[120px] truncate">{t.issuedToName ?? '—'}</TableCell>
+                              <TableCell className="text-right">
+                                <div className="flex items-center justify-end gap-1">
+                                  {canEdit('fuelUsage') && (
+                                    <Button variant="ghost" size="icon" onClick={() => {
+                                      setEditingTransaction(t);
+                                      setIssueFormOpen(true);
+                                    }}>
+                                      <Pencil className="h-4 w-4" />
+                                    </Button>
+                                  )}
+                                  {canDelete('fuelUsage') && (
+                                    <Button variant="ghost" size="icon" onClick={() => handleDeleteAssetIssue(t)}>
+                                      <Trash2 className="h-4 w-4 text-red-500" />
+                                    </Button>
+                                  )}
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
+                      </TableBody>
+                    </Table>
+                  </div>
+                ) : (
+                  <div className="py-12 text-center">
+                    <Truck className="h-10 w-10 text-muted-foreground/40 mx-auto mb-3" />
+                    <p className="text-sm text-muted-foreground">
+                      {activeFilterCount > 0 ? 'No asset issues match your filters' : 'No fuel issued to assets yet'}
+                    </p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Asset Issues Pagination */}
+            {assetIssuesTotalPages > 1 && (
+              <div className="flex items-center justify-between">
+                <p className="text-sm text-muted-foreground">
+                  Showing {assetIssues.length} of {assetIssuesTotal} records
+                </p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button variant="outline" size="icon" disabled={assetIssuesPage <= 1} onClick={() => setAssetIssuesPage((p) => Math.max(1, p - 1))}>
+                    <ChevronLeft className="h-4 w-4" />
+                  </Button>
+                  <span className="text-sm text-muted-foreground">
+                    Page {assetIssuesPage} of {assetIssuesTotalPages}
+                  </span>
+                  <Button variant="outline" size="icon" disabled={assetIssuesPage >= assetIssuesTotalPages} onClick={() => setAssetIssuesPage((p) => p + 1)}>
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            )}
+          </>
+          )}
         </TabsContent>
 
         <TabsContent value="analysis" className="mt-0">
@@ -515,6 +730,19 @@ export function FuelUsagePage() {
         onSuccess={handleFormSuccess}
       />
 
+      {/* Issue to Asset Dialog */}
+      <Dialog open={issueFormOpen} onOpenChange={(open) => { if (!open) { setIssueFormOpen(false); setEditingTransaction(null); } }}>
+        <DialogContent className="sm:max-w-[550px] max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{editingTransaction ? 'Edit Asset Issue' : 'Issue Fuel to Asset'}</DialogTitle>
+          </DialogHeader>
+          <FuelIssueForm
+            initialData={editingTransaction ?? undefined}
+            onSuccess={handleIssueFormSuccess}
+          />
+        </DialogContent>
+      </Dialog>
+
       {/* Delete Confirmation */}
       <ConfirmDialog
         open={deleteConfirm.open}
@@ -522,6 +750,17 @@ export function FuelUsagePage() {
         title="Delete Fuel Usage Record"
         description="Are you sure you want to delete this fuel usage record? This action cannot be undone."
         onConfirm={handleDeleteConfirm}
+        confirmText="Delete"
+        variant="destructive"
+      />
+
+      {/* Asset Issue Delete Confirmation */}
+      <ConfirmDialog
+        open={deleteAssetIssueConfirm.open}
+        onOpenChange={(open) => setDeleteAssetIssueConfirm({ open, transaction: open ? deleteAssetIssueConfirm.transaction : null })}
+        title="Delete Asset Issue"
+        description="Are you sure you want to delete this asset fuel issue? This will also restore the fuel stock. This action cannot be undone."
+        onConfirm={handleDeleteAssetIssueConfirm}
         confirmText="Delete"
         variant="destructive"
       />

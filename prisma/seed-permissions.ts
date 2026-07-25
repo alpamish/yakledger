@@ -2,6 +2,7 @@ import { db } from "../src/lib/db";
 
 const PERMISSIONS = [
   { name: "dashboard:view", label: "View Dashboard", module: "dashboard" },
+  { name: "projectCost:view", label: "View Project Cost", module: "projectCost" },
 
   { name: "expenses:view", label: "View Expenses", module: "expenses" },
   { name: "expenses:create", label: "Create Expenses", module: "expenses" },
@@ -58,7 +59,7 @@ const PERMISSIONS = [
 const ROLE_PERMISSIONS: Record<string, string[]> = {
   ADMIN: PERMISSIONS.map((p) => p.name),
   MANAGER: [
-    "dashboard:view",
+    "dashboard:view", "projectCost:view",
     "expenses:view", "expenses:create", "expenses:edit",
     "employees:view", "employees:create", "employees:edit",
     "contractors:view", "contractors:create", "contractors:edit",
@@ -73,7 +74,7 @@ const ROLE_PERMISSIONS: Record<string, string[]> = {
     "users:managePermissions",
   ],
   USER: [
-    "dashboard:view",
+    "dashboard:view", "projectCost:view",
     "expenses:view", "expenses:create", "expenses:edit",
     "employees:view", "employees:create", "employees:edit",
     "contractors:view", "contractors:create", "contractors:edit",
@@ -86,7 +87,7 @@ const ROLE_PERMISSIONS: Record<string, string[]> = {
     "settings:view",
   ],
   WATCHER: [
-    "dashboard:view",
+    "dashboard:view", "projectCost:view",
     "expenses:view",
     "employees:view",
     "contractors:view",
@@ -99,7 +100,7 @@ const ROLE_PERMISSIONS: Record<string, string[]> = {
     "settings:view",
   ],
   TIMESHEET_USER: [
-    "dashboard:view",
+    "dashboard:view", "projectCost:view",
     "expenses:view",
     "employees:view",
     "contractors:view",

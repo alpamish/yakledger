@@ -41,7 +41,7 @@ export const ROLE_LABELS: Record<Role, string> = {
 // ─── Permission System Types ──────────────────────────────────────────────────
 
 export const MODULES = [
-  "dashboard", "expenses", "employees", "contractors",
+  "dashboard", "projectCost", "expenses", "employees", "contractors",
   "timesheets", "fuelUsage", "machinery", "assets",
   "cashAdvance", "reports", "settings", "users",
 ] as const;

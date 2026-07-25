@@ -9,7 +9,7 @@ const ADMIN_ROLES = ["ADMIN"];
 const ROLE_PERMISSION_DEFAULTS: Record<string, string[]> = {
   ADMIN: ["*"],
   MANAGER: [
-    "dashboard:view",
+    "dashboard:view", "projectCost:view",
     "expenses:view", "expenses:create", "expenses:edit",
     "employees:view", "employees:create", "employees:edit",
     "contractors:view", "contractors:create", "contractors:edit",
@@ -24,7 +24,7 @@ const ROLE_PERMISSION_DEFAULTS: Record<string, string[]> = {
     "users:managePermissions",
   ],
   USER: [
-    "dashboard:view",
+    "dashboard:view", "projectCost:view",
     "expenses:view", "expenses:create", "expenses:edit",
     "employees:view", "employees:create", "employees:edit",
     "contractors:view", "contractors:create", "contractors:edit",
@@ -37,7 +37,7 @@ const ROLE_PERMISSION_DEFAULTS: Record<string, string[]> = {
     "settings:view",
   ],
   WATCHER: [
-    "dashboard:view",
+    "dashboard:view", "projectCost:view",
     "expenses:view",
     "employees:view",
     "contractors:view",
@@ -50,7 +50,7 @@ const ROLE_PERMISSION_DEFAULTS: Record<string, string[]> = {
     "settings:view",
   ],
   TIMESHEET_USER: [
-    "dashboard:view",
+    "dashboard:view", "projectCost:view",
     "expenses:view",
     "employees:view",
     "contractors:view",

@@ -3,6 +3,7 @@
 import * as React from 'react';
 import {
   LayoutDashboard,
+  Calculator,
   Receipt,
   BarChart3,
   Users,
@@ -34,7 +35,7 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { usePermissions } from '@/hooks/use-permissions';
 import Image from 'next/image';
 
-export type NavSection = 'dashboard' | 'expenses' | 'employees' | 'contractors' | 'timesheets' | 'fuelUsage' | 'machinery' | 'reports' | 'cashAdvance' | 'settings' | 'assets' | 'users';
+export type NavSection = 'dashboard' | 'projectCost' | 'expenses' | 'employees' | 'contractors' | 'timesheets' | 'fuelUsage' | 'machinery' | 'reports' | 'cashAdvance' | 'settings' | 'assets' | 'users';
 
 interface NavItem {
   id: NavSection;
@@ -45,6 +46,7 @@ interface NavItem {
 
 const allNavItems: NavItem[] = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, permission: 'dashboard:view' },
+  { id: 'projectCost', label: 'Project Cost', icon: Calculator, permission: 'projectCost:view' },
   { id: 'expenses', label: 'Expenses', icon: Receipt, permission: 'expenses:view' },
   { id: 'employees', label: 'Employees', icon: Users, permission: 'employees:view' },
   { id: 'contractors', label: 'Contractors', icon: HardHat, permission: 'contractors:view' },

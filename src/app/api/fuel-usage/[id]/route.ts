@@ -45,7 +45,20 @@ export async function PUT(
 
     const data = parsed.data;
 
-    // Build update object
+    // Get existing record including fuelTransactionId
+    const existing = await db.fuelUsage.findUnique({
+      where: { id },
+      select: { quantity: true, unitPrice: true, fuelTransactionId: true },
+    });
+
+    if (!existing) {
+      return NextResponse.json(
+        { success: false, error: "Fuel usage record not found" },
+        { status: 404 }
+      );
+    }
+
+    // Build update object for FuelUsage
     const updateData: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(data)) {
       if (value !== undefined) {
@@ -59,31 +72,58 @@ export async function PUT(
 
     // Recalculate totalCost if quantity or unitPrice changed and totalCost not explicitly set
     if ((data.quantity !== undefined || data.unitPrice !== undefined) && data.totalCost === undefined) {
-      const existing = await db.fuelUsage.findUnique({
-        where: { id },
-        select: { quantity: true, unitPrice: true },
-      });
-      if (existing) {
-        const quantity = data.quantity ?? existing.quantity;
-        const unitPrice = data.unitPrice ?? existing.unitPrice;
-        updateData.totalCost = quantity * unitPrice;
-      }
+      const quantity = data.quantity ?? existing.quantity;
+      const unitPrice = data.unitPrice ?? existing.unitPrice;
+      updateData.totalCost = quantity * unitPrice;
     }
 
-    const fuelUsage = await db.fuelUsage.update({
-      where: { id },
-      data: updateData,
-      include: {
-        contractor: {
-          select: { id: true, contractorName: true, contractorType: true },
+    // Use transaction to update both FuelUsage and linked FuelTransaction
+    const fuelUsage = await db.$transaction(async (tx) => {
+      const fuelUsage = await tx.fuelUsage.update({
+        where: { id },
+        data: updateData,
+        include: {
+          contractor: {
+            select: { id: true, contractorName: true, contractorType: true },
+          },
+          machinery: {
+            select: { id: true, machineryName: true, machineryType: true, plateNumber: true },
+          },
+          linkedExpense: {
+            select: { id: true, title: true, amount: true, category: true },
+          },
         },
-        machinery: {
-          select: { id: true, machineryName: true, machineryType: true, plateNumber: true },
-        },
-        linkedExpense: {
-          select: { id: true, title: true, amount: true, category: true },
-        },
-      },
+      });
+
+      // If linked to a FuelTransaction, update it too
+      if (existing.fuelTransactionId) {
+        const txnUpdateData: Record<string, unknown> = {};
+        if (data.quantity !== undefined) txnUpdateData.quantity = data.quantity;
+        if (data.fuelType !== undefined) txnUpdateData.fuelType = data.fuelType;
+        if (data.date !== undefined) txnUpdateData.date = new Date(data.date);
+        if (data.contractorId !== undefined) txnUpdateData.contractorId = data.contractorId;
+        if (data.machineryId !== undefined) txnUpdateData.machineryId = data.machineryId ?? null;
+
+        // Recalculate transaction totalCost if quantity changed
+        if (data.quantity !== undefined) {
+          const txn = await tx.fuelTransaction.findUnique({
+            where: { id: existing.fuelTransactionId },
+            select: { unitPrice: true },
+          });
+          if (txn) {
+            txnUpdateData.totalCost = txn.unitPrice ? txn.unitPrice * data.quantity : 0;
+          }
+        }
+
+        if (Object.keys(txnUpdateData).length > 0) {
+          await tx.fuelTransaction.update({
+            where: { id: existing.fuelTransactionId },
+            data: txnUpdateData,
+          });
+        }
+      }
+
+      return fuelUsage;
     });
 
     // Create audit log entry
@@ -92,7 +132,7 @@ export async function PUT(
         action: "UPDATE",
         entity: "FuelUsage",
         entityId: fuelUsage.id,
-        details: `Updated fuel usage record`,
+        details: `Updated fuel usage record${existing.fuelTransactionId ? ' (and linked stock transaction)' : ''}`,
         userId: user.id,
       },
     });
@@ -123,10 +163,10 @@ export async function DELETE(
 
     const { id } = await params;
 
-    // Get fuel usage info before deletion for audit log
+    // Get fuel usage info before deletion for audit log and linked transaction
     const fuelUsage = await db.fuelUsage.findUnique({
       where: { id },
-      select: { fuelType: true, quantity: true, totalCost: true },
+      select: { fuelType: true, quantity: true, totalCost: true, fuelTransactionId: true },
     });
 
     if (!fuelUsage) {
@@ -142,12 +182,20 @@ export async function DELETE(
         action: "DELETE",
         entity: "FuelUsage",
         entityId: id,
-        details: `Deleted fuel usage record: ${fuelUsage.quantity} ${fuelUsage.fuelType} ($${fuelUsage.totalCost})`,
+        details: `Deleted fuel usage record: ${fuelUsage.quantity} ${fuelUsage.fuelType} ($${fuelUsage.totalCost})${fuelUsage.fuelTransactionId ? ' and linked stock transaction' : ''}`,
         userId: user.id,
       },
     });
 
-    await db.fuelUsage.delete({ where: { id } });
+    // Delete both FuelUsage and linked FuelTransaction in a transaction
+    await db.$transaction(async (tx) => {
+      if (fuelUsage.fuelTransactionId) {
+        await tx.fuelTransaction.delete({
+          where: { id: fuelUsage.fuelTransactionId },
+        });
+      }
+      await tx.fuelUsage.delete({ where: { id } });
+    });
 
     return NextResponse.json({
       success: true,

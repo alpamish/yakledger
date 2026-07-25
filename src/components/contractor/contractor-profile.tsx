@@ -5,6 +5,7 @@ import { useEffect, useState, useCallback, useMemo } from 'react';
 import { pdf } from "@react-pdf/renderer";
 import ContractorPDFDocument from "@/components/pdf/contractor-pdf-document";
 import ContractorFinancialSummaryPDFDocument from "@/components/pdf/contractor-financial-summary-pdf-document";
+import ContractorFinancialSummaryFarsiPDFDocument from "@/components/pdf/contractor-financial-summary-farsi-pdf-document";
 import { useContractorStore } from '@/hooks/use-contractor-store';
 import { usePermissions } from '@/hooks/use-permissions';
 import {
@@ -120,6 +121,7 @@ export function ContractorProfile({ contractorId }: { contractorId: string }) {
   const [dateTo, setDateTo] = useState('');
   const [isPdfGenerating, setIsPdfGenerating] = useState(false);
   const [isFinPdfGenerating, setIsFinPdfGenerating] = useState(false);
+  const [isFarsiPdfGenerating, setIsFarsiPdfGenerating] = useState(false);
 
   // Financial summary filter state
   const [finDateFrom, setFinDateFrom] = useState('');
@@ -486,6 +488,46 @@ export function ContractorProfile({ contractorId }: { contractorId: string }) {
       setIsFinPdfGenerating(false);
     }
   }, [selectedContractor, finDateFrom, finDateTo, finTotalHours, finTotalOvertime, timesheetRevenue, finTabTotalExpenses, finTabExpenseList, finTotalFuelCost, finTotalFuelQty, netFinancial, netWithoutFuel, rateTierRows, monthlyRateEntries, dailyEntries]);
+
+  const handleDownloadFinancialFarsiPDF = useCallback(async () => {
+    if (!selectedContractor?.id) return;
+    setIsFarsiPdfGenerating(true);
+    try {
+      const blob = await pdf(
+        <ContractorFinancialSummaryFarsiPDFDocument
+          contractorName={selectedContractor.contractorName}
+          dateFrom={finDateFrom || undefined}
+          dateTo={finDateTo || undefined}
+          totalHours={finTotalHours}
+          totalOvertime={finTotalOvertime}
+          timesheetRevenue={timesheetRevenue}
+          totalExpenses={finTabTotalExpenses}
+          totalFuelCost={finTotalFuelCost}
+          totalFuelQty={finTotalFuelQty}
+          netFinancial={netFinancial}
+          netWithoutFuel={netWithoutFuel}
+          rateTierRows={rateTierRows}
+          monthlyEntries={monthlyRateEntries}
+          expenses={finTabExpenseList}
+        />
+      ).toBlob();
+
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `financial-summary-fa-${selectedContractor.contractorName.replace(/\s+/g, '-').toLowerCase()}-${format(new Date(), 'yyyy-MM-dd')}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      toast.success('Financial summary Farsi PDF downloaded successfully');
+    } catch (err) {
+      console.error('Failed to generate financial summary Farsi PDF:', err);
+      toast.error('Failed to generate financial summary Farsi PDF');
+    } finally {
+      setIsFarsiPdfGenerating(false);
+    }
+  }, [selectedContractor, finDateFrom, finDateTo, finTotalHours, finTotalOvertime, timesheetRevenue, finTabTotalExpenses, finTabExpenseList, finTotalFuelCost, finTotalFuelQty, netFinancial, netWithoutFuel, rateTierRows, monthlyRateEntries]);
 
   return (
     <div className="space-y-6">
@@ -1139,20 +1181,36 @@ export function ContractorProfile({ contractorId }: { contractorId: string }) {
               {finFilteredTimesheets.length} timesheet(s), {finFilteredFuel.length} fuel record(s)
             </span>
             {hasPermission('reports:generatePdf') && (
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-8 ml-auto"
-                onClick={handleDownloadFinancialPDF}
-                disabled={isFinPdfGenerating}
-              >
-                {isFinPdfGenerating ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />
-                ) : (
-                  <Download className="h-3.5 w-3.5 mr-1" />
-                )}
-                {isFinPdfGenerating ? 'Generating...' : 'Download PDF'}
-              </Button>
+              <div className="flex items-center gap-2 ml-auto">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8"
+                  onClick={handleDownloadFinancialPDF}
+                  disabled={isFinPdfGenerating}
+                >
+                  {isFinPdfGenerating ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />
+                  ) : (
+                    <Download className="h-3.5 w-3.5 mr-1" />
+                  )}
+                  {isFinPdfGenerating ? 'Generating...' : 'Download PDF'}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8"
+                  onClick={handleDownloadFinancialFarsiPDF}
+                  disabled={isFarsiPdfGenerating}
+                >
+                  {isFarsiPdfGenerating ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />
+                  ) : (
+                    <Download className="h-3.5 w-3.5 mr-1" />
+                  )}
+                  {isFarsiPdfGenerating ? 'در حال تولید...' : 'دانلود PDF (فارسی)'}
+                </Button>
+              </div>
             )}
           </div>
 
