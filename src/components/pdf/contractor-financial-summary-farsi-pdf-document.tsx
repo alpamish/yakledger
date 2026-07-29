@@ -33,6 +33,8 @@ interface RateTierRow {
 interface MonthlyEntry {
   month: string;
   machineryName: string;
+  plateNumber?: string;
+  machineryType?: string;
   rateLabel: string;
   hours: number;
   revenue: number;
@@ -66,12 +68,13 @@ const COL = {
 } as const;
 
 const MCOL = {
-  month: "16%",
-  machinery: "20%",
-  rateLabel: "20%",
+  month: "14%",
+  machinery: "16%",
+  type: "10%",
+  rateLabel: "14%",
   rateHr: "12%",
   hours: "16%",
-  revenue: "16%",
+  revenue: "18%",
 } as const;
 
 const ECOL = {
@@ -242,6 +245,7 @@ function MonthlyBreakdownTable({ rows }: { rows: MonthlyEntry[] }) {
       <View style={styles.tableHeaderRow} fixed>
         <Text style={[styles.tableHeaderCell, { width: MCOL.month }]}>ماه</Text>
         <Text style={[styles.tableHeaderCell, { width: MCOL.machinery }]}>ماشین‌آلات</Text>
+        <Text style={[styles.tableHeaderCell, { width: MCOL.type }]}>نوع</Text>
         <Text style={[styles.tableHeaderCell, { width: MCOL.rateLabel }]}>نرخ</Text>
         <Text style={[styles.tableHeaderCell, { width: MCOL.rateHr, textAlign: "right" }]}>نرخ</Text>
         <Text style={[styles.tableHeaderCell, { width: MCOL.hours, textAlign: "right" }]}>ساعت‌ها</Text>
@@ -260,7 +264,10 @@ function MonthlyBreakdownTable({ rows }: { rows: MonthlyEntry[] }) {
               {showMonth ? r.month : ''}
             </Text>
             <Text style={[styles.tableDataCell, { width: MCOL.machinery, fontWeight: isTotal ? 'bold' : 'normal' }]}>
-              {isTotal ? '' : r.machineryName}
+              {isTotal ? '' : `${r.machineryName}${r.plateNumber ? ` (${r.plateNumber})` : ''}`}
+            </Text>
+            <Text style={[styles.tableDataCell, { width: MCOL.type }]}>
+              {isTotal ? '' : r.machineryType}
             </Text>
             <Text style={[styles.tableDataCell, { width: MCOL.rateLabel, fontWeight: isTotal ? 'bold' : 'normal' }]}>
               {r.rateLabel}
@@ -286,6 +293,7 @@ function MonthlyBreakdownTable({ rows }: { rows: MonthlyEntry[] }) {
           <View style={[styles.tableDataRow, { backgroundColor: "#065f46", minHeight: 20 }]}>
             <Text style={[styles.tableDataCell, { width: MCOL.month, fontWeight: "bold", color: "#fff" }]}>مجموع کل</Text>
             <Text style={[styles.tableDataCell, { width: MCOL.machinery, color: "#fff" }]} />
+            <Text style={[styles.tableDataCell, { width: MCOL.type, color: "#fff" }]} />
             <Text style={[styles.tableDataCell, { width: MCOL.rateLabel, color: "#fff" }]} />
             <Text style={[styles.tableDataCell, { width: MCOL.rateHr, color: "#fff" }]} />
             <Text style={[styles.tableDataCell, { width: MCOL.hours, textAlign: "right", fontWeight: "bold", color: "#fff" }]}>

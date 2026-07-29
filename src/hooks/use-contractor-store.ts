@@ -315,9 +315,9 @@ export const useContractorStore = create<ContractorStore>((set, get) => ({
       if (response.data) {
         set({ selectedContractor: response.data, isLoading: false });
       }
-      // Also fetch timesheets and fuel usages for this contractor
-      await get().fetchTimesheets(id);
-      await get().fetchFuelUsages(id);
+      // Also fetch timesheets and fuel usages for this contractor (fetch all for profile views)
+      await get().fetchTimesheets(id, { pageSize: 100 });
+      await get().fetchFuelUsages(id, { pageSize: 100 });
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to fetch contractor profile";
       set({ isLoading: false, error: message });

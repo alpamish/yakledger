@@ -51,8 +51,9 @@ interface ExpenseStore {
 
   // Selection actions
   toggleSelectExpense: (id: string) => void;
-  selectAllExpenses: () => void;
+  selectAllExpenses: (ids?: string[]) => void;
   clearSelection: () => void;
+  clearStaleSelections: (validIds: Set<string>) => void;
 
   // Filter actions
   setFilters: (filters: Partial<ExpenseFilters>) => void;
@@ -77,7 +78,7 @@ interface ExpenseStore {
 }
 
 const DEFAULT_FILTERS: ExpenseFilters = {};
-const DEFAULT_PAGINATION = { page: 1, pageSize: 10, total: 0, totalPages: 0 };
+const DEFAULT_PAGINATION = { page: 1, pageSize: 50, total: 0, totalPages: 0 };
 const DEFAULT_SORTING = { sortBy: "createdAt", sortOrder: "desc" as const };
 
 export const useExpenseStore = create<ExpenseStore>((set, get) => ({
@@ -315,13 +316,21 @@ export const useExpenseStore = create<ExpenseStore>((set, get) => ({
     set({ selectedExpenseIds: newSelected });
   },
 
-  selectAllExpenses: () => {
-    const allIds = get().expenses.map((e) => e.id);
+  selectAllExpenses: (ids?: string[]) => {
+    const allIds = ids ?? get().expenses.map((e) => e.id);
     set({ selectedExpenseIds: new Set(allIds) });
   },
 
   clearSelection: () => {
     set({ selectedExpenseIds: new Set<string>() });
+  },
+
+  clearStaleSelections: (validIds: Set<string>) => {
+    const current = get().selectedExpenseIds;
+    const pruned = new Set([...current].filter((id) => validIds.has(id)));
+    if (pruned.size !== current.size) {
+      set({ selectedExpenseIds: pruned });
+    }
   },
 
   // ─── Filter actions ────────────────────────────────────────────

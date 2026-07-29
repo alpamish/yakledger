@@ -93,6 +93,7 @@ export function ExpenseTable({
   const toggleSelectExpense = useExpenseStore((s) => s.toggleSelectExpense);
   const selectAllExpenses = useExpenseStore((s) => s.selectAllExpenses);
   const clearSelection = useExpenseStore((s) => s.clearSelection);
+  const clearStaleSelections = useExpenseStore((s) => s.clearStaleSelections);
   const setFilters = useExpenseStore((s) => s.setFilters);
   const resetFilters = useExpenseStore((s) => s.resetFilters);
   const setPage = useExpenseStore((s) => s.setPage);
@@ -167,6 +168,12 @@ export function ExpenseTable({
 
   // React Query handles fetching via queryKey changes automatically
 
+  // Prune selected IDs that no longer exist in current data
+  useEffect(() => {
+    const validIds = new Set(expenses.map((e) => e.id));
+    clearStaleSelections(validIds);
+  }, [expenses]);
+
   // Count active filters (excluding search)
   const activeFilterCount = useMemo(() => {
     let count = 0;
@@ -195,12 +202,17 @@ export function ExpenseTable({
         header: ({ table }) => (
           <Checkbox
             checked={
-              expenses.length > 0 &&
-              expenses.every((e) => selectedExpenseIds.has(e.id))
+              expenses.length === 0
+                ? false
+                : expenses.every((e) => selectedExpenseIds.has(e.id))
+                  ? true
+                  : expenses.some((e) => selectedExpenseIds.has(e.id))
+                    ? 'indeterminate'
+                    : false
             }
             onCheckedChange={(checked) => {
               if (checked) {
-                selectAllExpenses();
+                selectAllExpenses(expenses.map((e) => e.id));
               } else {
                 clearSelection();
               }

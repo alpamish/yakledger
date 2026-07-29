@@ -338,15 +338,17 @@ export function ContractorProfile({ contractorId }: { contractorId: string }) {
     return rows;
   }, [machineryList, allMachineryRates]);
 
-  // Group timesheets by month + machinery + rate tier
-  const monthlyRateData = useMemo<Map<string, Map<string, { hours: number; revenue: number; machineryName: string; rateLabel: string; hourlyRate: number; defaultRate: number }>>>(() => {
-    const monthMap = new Map<string, Map<string, { hours: number; revenue: number; machineryName: string; rateLabel: string; hourlyRate: number; defaultRate: number }>>();
+  // Group timesheets by month + plateNumber + machineryType + rate tier
+  const monthlyRateData = useMemo<Map<string, Map<string, { hours: number; revenue: number; machineryName: string; plateNumber: string; machineryType: string; rateLabel: string; hourlyRate: number; defaultRate: number }>>>(() => {
+    const monthMap = new Map<string, Map<string, { hours: number; revenue: number; machineryName: string; plateNumber: string; machineryType: string; rateLabel: string; hourlyRate: number; defaultRate: number }>>();
     for (const ts of finFilteredTimesheets) {
       const month = ts.date.substring(0, 7);
       if (!monthMap.has(month)) monthMap.set(month, new Map());
       const rateMap = monthMap.get(month)!;
 
       const machineryName = ts.machinery?.machineryName ?? machineryList.find((m) => m.id === ts.machineryId)?.machineryName ?? 'Unknown';
+      const plateNumber = ts.machinery?.plateNumber ?? machineryList.find((m) => m.id === ts.machineryId)?.plateNumber ?? 'N/A';
+      const machineryType = ts.machinery?.machineryType ?? machineryList.find((m) => m.id === ts.machineryId)?.machineryType ?? 'Unknown';
 
       let rateLabel: string;
       let hourlyRate: number;
@@ -376,9 +378,9 @@ export function ContractorProfile({ contractorId }: { contractorId: string }) {
         }
       }
 
-      const key = `${machineryName}||${rateLabel}`;
+      const key = `${plateNumber}||${machineryType}||${rateLabel}`;
       if (!rateMap.has(key)) {
-        rateMap.set(key, { hours: 0, revenue: 0, machineryName, rateLabel, hourlyRate, defaultRate: defaultRateVal });
+        rateMap.set(key, { hours: 0, revenue: 0, machineryName, plateNumber, machineryType, rateLabel, hourlyRate, defaultRate: defaultRateVal });
       }
       const entry = rateMap.get(key)!;
       entry.hours += ts.totalHours;
@@ -415,22 +417,22 @@ export function ContractorProfile({ contractorId }: { contractorId: string }) {
     return acc;
   }, {}), [finFilteredTimesheets, machineryList, allMachineryRates]);
 
-  const monthlyRateEntries = useMemo<Array<{ month: string; machineryName: string; rateLabel: string; hours: number; revenue: number; hourlyRate: number; defaultRate: number; isTotal?: boolean }>>(() => {
-    const entries: Array<{ month: string; machineryName: string; rateLabel: string; hours: number; revenue: number; hourlyRate: number; defaultRate: number; isTotal?: boolean }> = [];
+  const monthlyRateEntries = useMemo<Array<{ month: string; machineryName: string; plateNumber: string; machineryType: string; rateLabel: string; hours: number; revenue: number; hourlyRate: number; defaultRate: number; isTotal?: boolean }>>(() => {
+    const entries: Array<{ month: string; machineryName: string; plateNumber: string; machineryType: string; rateLabel: string; hours: number; revenue: number; hourlyRate: number; defaultRate: number; isTotal?: boolean }> = [];
     const sortedMonths = Array.from(monthlyRateData.keys()).sort();
     for (const month of sortedMonths) {
-      const rateMap = monthlyRateData.get(month) as Map<string, { hours: number; revenue: number; machineryName: string; rateLabel: string; hourlyRate: number; defaultRate: number }> | undefined;
+      const rateMap = monthlyRateData.get(month) as Map<string, { hours: number; revenue: number; machineryName: string; plateNumber: string; machineryType: string; rateLabel: string; hourlyRate: number; defaultRate: number }> | undefined;
       if (!rateMap) continue;
       const sortedKeys = Array.from(rateMap.keys()).sort();
       for (const key of sortedKeys) {
         const d = rateMap.get(key)!;
-        entries.push({ month, machineryName: d.machineryName, rateLabel: d.rateLabel, hours: d.hours, revenue: d.revenue, hourlyRate: d.hourlyRate, defaultRate: d.defaultRate });
+        entries.push({ month, machineryName: d.machineryName, plateNumber: d.plateNumber, machineryType: d.machineryType, rateLabel: d.rateLabel, hours: d.hours, revenue: d.revenue, hourlyRate: d.hourlyRate, defaultRate: d.defaultRate });
       }
       const total = sortedKeys.reduce((acc, key) => {
         const d = rateMap.get(key)!;
         return { hours: acc.hours + d.hours, revenue: acc.revenue + d.revenue };
       }, { hours: 0, revenue: 0 });
-      entries.push({ month, machineryName: '', rateLabel: 'TOTAL', hours: total.hours, revenue: total.revenue, hourlyRate: 0, defaultRate: 0, isTotal: true });
+      entries.push({ month, machineryName: '', plateNumber: '', machineryType: '', rateLabel: 'TOTAL', hours: total.hours, revenue: total.revenue, hourlyRate: 0, defaultRate: 0, isTotal: true });
     }
     return entries;
   }, [monthlyRateData]);
@@ -1374,6 +1376,7 @@ export function ContractorProfile({ contractorId }: { contractorId: string }) {
                       <TableRow>
                         <TableHead>Month</TableHead>
                         <TableHead>Machinery</TableHead>
+                        <TableHead>Type</TableHead>
                         <TableHead>Rate Tier</TableHead>
                         <TableHead className="text-right">Hours</TableHead>
                         <TableHead className="text-right">Revenue</TableHead>
@@ -1394,7 +1397,8 @@ export function ContractorProfile({ contractorId }: { contractorId: string }) {
                               className={r.isTotal ? 'bg-emerald-50 dark:bg-emerald-950/20' : ''}
                             >
                               <TableCell className={r.isTotal ? 'font-bold' : 'font-medium'}>{monthLabel}</TableCell>
-                              <TableCell className={r.isTotal ? 'font-bold' : ''}>{r.isTotal ? '' : r.machineryName}</TableCell>
+                              <TableCell className={r.isTotal ? 'font-bold' : ''}>{r.isTotal ? '' : `${r.machineryName} (${r.plateNumber})`}</TableCell>
+                              <TableCell className={r.isTotal ? 'font-bold' : ''}>{r.isTotal ? '' : r.machineryType}</TableCell>
                               <TableCell className={r.isTotal ? 'font-bold' : ''}>{r.rateLabel}</TableCell>
                               <TableCell className={`text-right font-mono tabular-nums ${r.isTotal ? 'font-bold' : ''}`}>
                                 {r.hours.toFixed(1)}
