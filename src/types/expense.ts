@@ -11,6 +11,8 @@ export const CATEGORIES = [
   "MATERIALS",
   "EQUIPMENT_RENTAL",
   "OFFICE_EXPENSE",
+  "REWARD",
+  "BONUS",
   "MISCELLANEOUS",
 ] as const;
 
@@ -350,6 +352,8 @@ export const CATEGORY_LABELS: Record<Category, string> = {
   MATERIALS: "Materials",
   EQUIPMENT_RENTAL: "Equipment Rental",
   OFFICE_EXPENSE: "Office Expense",
+  REWARD: "Reward",
+  BONUS: "Bonus",
   MISCELLANEOUS: "Miscellaneous",
 };
 
@@ -374,5 +378,7 @@ export const CATEGORY_COLORS: Record<Category, string> = {
   MATERIALS: "#06b6d4",
   EQUIPMENT_RENTAL: "#84cc16",
   OFFICE_EXPENSE: "#6366f1",
+  REWARD: "#ec4899",
+  BONUS: "#f59e0b",
   MISCELLANEOUS: "#78716c",
 };

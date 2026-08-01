@@ -24,6 +24,8 @@ export async function POST(request: NextRequest) {
         jobTitle: true,
         department: true,
         salary: true,
+        workHoursPerDay: true,
+        overtimeRate: true,
         hireDate: true,
         status: true,
         quitingDate: true,
@@ -35,13 +37,21 @@ export async function POST(request: NextRequest) {
     });
 
     const expenseTotalsPromises = ids.map(async (id) => {
-      const [paidBy, paidTo, advances] = await Promise.all([
+      const [paidBy, paidTo, salaryPaid, rewards, advances] = await Promise.all([
         db.expense.aggregate({
           where: { paidById: id },
           _sum: { amount: true },
         }),
         db.expense.aggregate({
           where: { paidToId: id },
+          _sum: { amount: true },
+        }),
+        db.expense.aggregate({
+          where: { paidToId: id, category: "SALARY" },
+          _sum: { amount: true },
+        }),
+        db.expense.aggregate({
+          where: { paidToId: id, category: { in: ["REWARD", "BONUS"] } },
           _sum: { amount: true },
         }),
         db.cashTransaction.aggregate({
@@ -54,6 +64,8 @@ export async function POST(request: NextRequest) {
         id,
         totalExpensesPaidBy: paidBy._sum.amount ?? 0,
         totalExpensesPaidTo: paidTo._sum.amount ?? 0,
+        totalSalaryPaid: salaryPaid._sum.amount ?? 0,
+        totalRewards: rewards._sum.amount ?? 0,
         totalAdvanceReceived: advances._sum.amount ?? 0,
       };
     });
@@ -69,10 +81,11 @@ export async function POST(request: NextRequest) {
         const totals = expenseTotalsMap[emp.id] ?? {
           totalExpensesPaidBy: 0,
           totalExpensesPaidTo: 0,
+          totalSalaryPaid: 0,
+          totalRewards: 0,
           totalAdvanceReceived: 0,
         };
 
-        const dailySalary = emp.salary / 30;
         const hireDateObj = new Date(emp.hireDate);
         const currentDate = new Date();
         const isActive = emp.status === "ACTIVE";
@@ -82,7 +95,6 @@ export async function POST(request: NextRequest) {
             ? new Date(emp.quitingDate)
             : currentDate;
 
-        // Try to get attendance-based days worked
         const attendanceRecords = await db.attendance.findMany({
           where: {
             employeeId: emp.id,
@@ -92,10 +104,11 @@ export async function POST(request: NextRequest) {
             },
             status: { in: ["PRESENT", "HALF_DAY"] },
           },
-          select: { status: true, date: true },
+          select: { status: true, date: true, overtimeHours: true },
         });
 
         let daysWorked: number;
+        let totalOvertimeHours = 0;
 
         if (attendanceRecords.length > 0) {
           // Use attendance data
@@ -104,6 +117,7 @@ export async function POST(request: NextRequest) {
           for (const r of attendanceRecords) {
             if (r.status === "PRESENT") presentDays++;
             else if (r.status === "HALF_DAY") halfDays++;
+            totalOvertimeHours += r.overtimeHours ?? 0;
           }
           daysWorked = presentDays + halfDays * 0.5;
         } else {
@@ -116,7 +130,12 @@ export async function POST(request: NextRequest) {
           );
         }
 
-        const earnedSalary = dailySalary * daysWorked;
+        const dailySalary = emp.salary / 30;
+        const hourlySalary = emp.workHoursPerDay && emp.workHoursPerDay > 0
+          ? dailySalary / emp.workHoursPerDay
+          : dailySalary / 9;
+        const overtimePay = totalOvertimeHours * hourlySalary * (emp.overtimeRate ?? 1.25);
+        const earnedSalary = dailySalary * daysWorked + overtimePay;
         const walletBalance = emp.cashAccount?.currentBalance ?? 0;
         const netBalance =
           totals.totalExpensesPaidTo + totals.totalAdvanceReceived -
@@ -133,8 +152,12 @@ export async function POST(request: NextRequest) {
           earnedSalary,
           totalExpensesPaidBy: totals.totalExpensesPaidBy,
           totalExpensesPaidTo: totals.totalExpensesPaidTo,
+          totalSalaryPaid: totals.totalSalaryPaid,
+          totalRewards: totals.totalRewards,
           totalAdvanceReceived: totals.totalAdvanceReceived,
           walletBalance,
+          totalOvertimeHours,
+          overtimePay,
           netBalance,
         };
       })
@@ -146,8 +169,12 @@ export async function POST(request: NextRequest) {
         acc.totalEarnedSalary += emp.earnedSalary;
         acc.totalExpensesPaidBy += emp.totalExpensesPaidBy;
         acc.totalExpensesPaidTo += emp.totalExpensesPaidTo;
+        acc.totalSalaryPaid += emp.totalSalaryPaid;
+        acc.totalRewards += emp.totalRewards;
         acc.totalAdvanceReceived += emp.totalAdvanceReceived;
         acc.totalWalletBalance += emp.walletBalance;
+        acc.totalOvertimeHours += emp.totalOvertimeHours;
+        acc.totalOvertimePay += emp.overtimePay;
         acc.totalNetBalance += emp.netBalance;
         return acc;
       },
@@ -156,8 +183,12 @@ export async function POST(request: NextRequest) {
         totalEarnedSalary: 0,
         totalExpensesPaidBy: 0,
         totalExpensesPaidTo: 0,
+        totalSalaryPaid: 0,
+        totalRewards: 0,
         totalAdvanceReceived: 0,
         totalWalletBalance: 0,
+        totalOvertimeHours: 0,
+        totalOvertimePay: 0,
         totalNetBalance: 0,
         employeeCount: data.length,
       }

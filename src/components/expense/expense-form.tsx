@@ -156,6 +156,13 @@ export function ExpenseForm() {
   useEffect(() => {
     if (isFormOpen) {
       if (editingExpense) {
+        if (editingExpense.paidToId) setPaidToMode('employee');
+        else if (editingExpense.paidToContractorId) setPaidToMode('contractor');
+        else setPaidToMode('custom');
+
+        if (editingExpense.paidById) setPaidByMode('employee');
+        else setPaidByMode('custom');
+
         form.reset({
           title: editingExpense.title,
           description: editingExpense.description ?? '',
@@ -176,6 +183,9 @@ export function ExpenseForm() {
           paidByContractorId: editingExpense.paidByContractorId ?? null,
         });
       } else {
+        setPaidToMode('custom');
+        setPaidByMode('employee');
+
         form.reset({
           title: '',
           description: '',
@@ -243,23 +253,34 @@ export function ExpenseForm() {
     try {
       const itemsTotal = expenseItems.reduce((sum, item) => sum + item.total, 0);
 
-      const data = {
+      const baseData = {
         ...values,
         amount: itemsTotal,
         attachment: values.attachment || undefined,
         tags: values.tags || undefined,
         notes: values.notes || undefined,
-        paidById: values.paidById || undefined,
-        paidToId: values.paidToId || undefined,
-        paidToContractorId: values.paidToContractorId || undefined,
-        paidByContractorId: values.paidByContractorId || undefined,
       };
 
       if (isEditing && editingExpense) {
-        await updateExpense.mutateAsync({ id: editingExpense.id, data });
+        await updateExpense.mutateAsync({
+          id: editingExpense.id,
+          data: {
+            ...baseData,
+            paidById: values.paidById || null,
+            paidToId: values.paidToId || null,
+            paidToContractorId: values.paidToContractorId || null,
+            paidByContractorId: values.paidByContractorId || null,
+          },
+        });
         toast.success('Expense updated successfully');
       } else {
-        await createExpense.mutateAsync(data);
+        await createExpense.mutateAsync({
+          ...baseData,
+          paidById: values.paidById || undefined,
+          paidToId: values.paidToId || undefined,
+          paidToContractorId: values.paidToContractorId || undefined,
+          paidByContractorId: values.paidByContractorId || undefined,
+        });
         toast.success('Expense created successfully');
       }
       closeForm();
@@ -421,7 +442,7 @@ export function ExpenseForm() {
                     className={`h-6 text-xs px-2 ${paidToMode === 'employee' ? 'bg-emerald-600 hover:bg-emerald-700 text-white' : ''}`}
                     onClick={() => {
                       setPaidToMode('employee');
-                      form.setValue('paidToId', '');
+                      form.setValue('paidToId', null);
                       form.setValue('paidToContractorId', null);
                       form.setValue('paidTo', '');
                     }}
@@ -435,7 +456,7 @@ export function ExpenseForm() {
                     className={`h-6 text-xs px-2 ${paidToMode === 'contractor' ? 'bg-emerald-600 hover:bg-emerald-700 text-white' : ''}`}
                     onClick={() => {
                       setPaidToMode('contractor');
-                      form.setValue('paidToContractorId', '');
+                      form.setValue('paidToContractorId', null);
                       form.setValue('paidToId', null);
                       form.setValue('paidTo', '');
                     }}
@@ -584,7 +605,8 @@ export function ExpenseForm() {
                     className={`h-6 text-xs px-2 ${paidByMode === 'employee' ? 'bg-emerald-600 hover:bg-emerald-700 text-white' : ''}`}
                     onClick={() => {
                       setPaidByMode('employee');
-                      form.setValue('paidById', '');
+                      form.setValue('paidById', null);
+                      form.setValue('paidByContractorId', null);
                       form.setValue('paidBy', '');
                     }}
                   >

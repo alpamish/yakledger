@@ -51,7 +51,12 @@ import {
   SEARCH_FIELD_LABELS,
 } from '@/types/employee';
 import type { Employee, Department, EmploymentType, EmployeeStatus, SearchField } from '@/types/employee';
+import type { Expense } from '@/types/expense';
 import { EmptyState } from '@/components/common/empty-state';
+import { pdf } from '@react-pdf/renderer';
+import { toast } from 'sonner';
+import { employeesApi as empApi } from '@/services/employee-api';
+import { cashAdvanceApi, attendanceApi } from '@/services/api';
 import {
   ArrowUpDown,
   ArrowUp,
@@ -71,6 +76,7 @@ import {
   UserCheck,
   UserX,
   Calculator,
+  Download,
 } from 'lucide-react';
 
 function HighlightMatch({ text, query }: { text: string; query: string }) {
@@ -103,7 +109,7 @@ export function EmployeeTable({
   onBulkAction,
   onFinancialSummary,
 }: EmployeeTableProps) {
-  const { canEdit, canDelete } = usePermissions();
+  const { canEdit, canDelete, hasPermission } = usePermissions();
   const employees = useEmployeeStore((s) => s.employees);
   const selectedEmployeeIds = useEmployeeStore((s) => s.selectedEmployeeIds);
   const filters = useEmployeeStore((s) => s.filters);
@@ -161,6 +167,49 @@ export function EmployeeTable({
     };
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
+  }, []);
+
+  const [generatingPdfId, setGeneratingPdfId] = useState<string | null>(null);
+
+  const handleDownloadPdf = useCallback(async (emp: Employee) => {
+    setGeneratingPdfId(emp.id);
+    try {
+      const [empRes, walletRes] = await Promise.all([
+        empApi.getById(emp.id),
+        cashAdvanceApi.getEmployeeWallet(emp.id),
+      ]);
+
+      const fullEmployee = empRes.data ?? emp;
+      const walletBalance = walletRes.data?.account?.currentBalance ?? 0;
+      const paidBy = (fullEmployee.expensesPaidBy ?? []).filter(Boolean) as Expense[];
+      const paidTo = (fullEmployee.expensesPaidTo ?? []).filter(Boolean) as Expense[];
+
+      const { default: EmployeeFinancialPDF } = await import('@/components/pdf/employee-financial-pdf-document');
+
+      const blob = await pdf(
+        <EmployeeFinancialPDF
+          employee={fullEmployee}
+          expensesPaidBy={paidBy}
+          expensesPaidTo={paidTo}
+          walletBalance={walletBalance}
+        />
+      ).toBlob();
+
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `employee-financial-${emp.fullName.replace(/\s+/g, '-').toLowerCase()}-${format(new Date(), 'yyyy-MM-dd')}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      toast.success('Employee financial PDF downloaded successfully');
+    } catch (err) {
+      console.error('Failed to generate employee PDF:', err);
+      toast.error('Failed to generate employee financial PDF');
+    } finally {
+      setGeneratingPdfId(null);
+    }
   }, []);
 
   const activeFilterCount = useMemo(() => {
@@ -362,6 +411,15 @@ export function EmployeeTable({
                 <Eye className="mr-2 h-4 w-4" />
                 View Profile
               </DropdownMenuItem>
+              {hasPermission('reports:generatePdf') && (
+                <DropdownMenuItem
+                  onClick={() => handleDownloadPdf(row.original)}
+                  disabled={generatingPdfId === row.original.id}
+                >
+                  <Download className="mr-2 h-4 w-4" />
+                  {generatingPdfId === row.original.id ? 'Generating...' : 'Download PDF Report'}
+                </DropdownMenuItem>
+              )}
               {canEdit('employees') && (
                 <DropdownMenuItem onClick={() => onEdit(row.original)}>
                   <Pencil className="mr-2 h-4 w-4" />

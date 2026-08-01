@@ -16,13 +16,23 @@ export async function PUT(
 
     const { id } = await params;
     const body = await request.json();
-    const { status, notes } = body;
+    const { status, notes, overtimeHours } = body;
 
     if (status && !VALID_STATUSES.has(status)) {
       return NextResponse.json(
         { success: false, error: `Invalid status. Must be one of: ${ATTENDANCE_STATUSES.join(", ")}` },
         { status: 400 }
       );
+    }
+
+    if (overtimeHours !== undefined && overtimeHours !== null) {
+      const ot = Number(overtimeHours);
+      if (isNaN(ot) || ot < 0) {
+        return NextResponse.json(
+          { success: false, error: "overtimeHours must be a non-negative number" },
+          { status: 400 }
+        );
+      }
     }
 
     const existing = await db.attendance.findUnique({ where: { id } });
@@ -36,6 +46,7 @@ export async function PUT(
     const updateData: Record<string, unknown> = {};
     if (status) updateData.status = status;
     if (notes !== undefined) updateData.notes = notes;
+    if (overtimeHours !== undefined && overtimeHours !== null) updateData.overtimeHours = Number(overtimeHours);
 
     const record = await db.attendance.update({
       where: { id },

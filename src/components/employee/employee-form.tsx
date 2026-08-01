@@ -59,6 +59,8 @@ const employeeFormSchema = z.object({
   department: z.enum(DEPARTMENTS, { required_error: 'Department is required' }),
   employmentType: z.enum(EMPLOYMENT_TYPES, { required_error: 'Employment type is required' }),
   salary: z.coerce.number().min(0, 'Salary must be positive'),
+  workHoursPerDay: z.coerce.number().int().min(1).default(9),
+  overtimeRate: z.coerce.number().min(1).default(1.25),
   hireDate: z.string().min(1, 'Hire date is required'),
   status: z.enum(EMPLOYEE_STATUSES, { required_error: 'Status is required' }),
   idImage: z.string().optional().nullable(),
@@ -93,6 +95,8 @@ export function EmployeeForm() {
       department: undefined,
       employmentType: undefined,
       salary: 0,
+      workHoursPerDay: 9,
+      overtimeRate: 1.25,
       hireDate: format(new Date(), 'yyyy-MM-dd'),
       status: 'ACTIVE',
       idImage: null,
@@ -119,6 +123,8 @@ export function EmployeeForm() {
           department: editingEmployee.department as Department,
           employmentType: editingEmployee.employmentType as EmploymentType,
           salary: editingEmployee.salary,
+          workHoursPerDay: editingEmployee.workHoursPerDay ?? 9,
+          overtimeRate: editingEmployee.overtimeRate ?? 1.25,
           hireDate: editingEmployee.hireDate
             ? format(new Date(editingEmployee.hireDate), 'yyyy-MM-dd')
             : format(new Date(), 'yyyy-MM-dd'),
@@ -140,6 +146,8 @@ export function EmployeeForm() {
           department: undefined,
           employmentType: undefined,
           salary: 0,
+          workHoursPerDay: 9,
+          overtimeRate: 1.25,
           hireDate: format(new Date(), 'yyyy-MM-dd'),
           status: 'ACTIVE',
           emergencyContactName: '',
@@ -322,19 +330,39 @@ export function EmployeeForm() {
               )} />
             </div>
 
-            {/* Row 7: Salary */}
-            <FormField control={form.control} name="salary" render={({ field }) => (
-              <FormItem>
-                <FormLabel>Base Salary</FormLabel>
-                <FormControl>
-                  <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">Afs</span>
-                    <Input type="number" step="0.01" min="0" placeholder="0.00" className="pl-7" {...field} />
-                  </div>
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )} />
+            {/* Row 7: Salary + Work Hours + OT Rate */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <FormField control={form.control} name="salary" render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Base Salary</FormLabel>
+                  <FormControl>
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">Afs</span>
+                      <Input type="number" step="0.01" min="0" placeholder="0.00" className="pl-7" {...field} />
+                    </div>
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )} />
+              <FormField control={form.control} name="workHoursPerDay" render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Work Hours / Day</FormLabel>
+                  <FormControl>
+                    <Input type="number" min="1" step="1" {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )} />
+              <FormField control={form.control} name="overtimeRate" render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Overtime Rate (×)</FormLabel>
+                  <FormControl>
+                    <Input type="number" min="1" step="0.05" {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )} />
+            </div>
 
             <div className="border-t pt-4 mt-4">
               <h3 className="text-sm font-semibold text-muted-foreground mb-3">Emergency Contact</h3>

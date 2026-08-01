@@ -29,6 +29,8 @@ const updateEmployeeSchema = z.object({
   department: z.enum(DEPARTMENT_VALUES).optional(),
   employmentType: z.enum(EMPLOYMENT_TYPE_VALUES).optional(),
   salary: z.number().min(0).optional(),
+  workHoursPerDay: z.number().int().min(1).optional(),
+  overtimeRate: z.number().min(1).optional(),
   hireDate: z.string().min(1).optional(),
   status: z.enum(EMPLOYEE_STATUS_VALUES).optional(),
   quitingDate: z.string().optional().nullable(),
@@ -56,12 +58,12 @@ export async function GET(
           select: { id: true, email: true, name: true, role: true, avatar: true },
         },
         expensesPaidBy: {
-          select: { id: true, title: true, amount: true, category: true, expenseDate: true },
+          select: { id: true, title: true, amount: true, category: true, expenseDate: true, notes: true },
           orderBy: { expenseDate: "desc" },
           take: 20,
         },
         expensesPaidTo: {
-          select: { id: true, title: true, amount: true, category: true, expenseDate: true },
+          select: { id: true, title: true, amount: true, category: true, expenseDate: true, notes: true },
           orderBy: { expenseDate: "desc" },
           take: 20,
         },
@@ -89,10 +91,34 @@ export async function GET(
       _sum: { amount: true },
     });
 
+    const totalSalaryPaid = await db.expense.aggregate({
+      where: { paidToId: id, category: "SALARY" },
+      _sum: { amount: true },
+    });
+
+    const totalRewards = await db.expense.aggregate({
+      where: { paidToId: id, category: { in: ["REWARD", "BONUS"] } },
+      _sum: { amount: true },
+    });
+
+    const overtimeAgg = await db.attendance.aggregate({
+      where: { employeeId: id },
+      _sum: { overtimeHours: true },
+    });
+    const totalOvertimeHours = overtimeAgg._sum.overtimeHours ?? 0;
+    const workHoursPerDay = employee.workHoursPerDay ?? 9;
+    const overtimeRate = employee.overtimeRate ?? 1.25;
+    const hourlySalary = workHoursPerDay > 0 ? (employee.salary / 30) / workHoursPerDay : (employee.salary / 30) / 9;
+    const overtimePay = totalOvertimeHours * hourlySalary * overtimeRate;
+
     const responseData = {
       ...employee,
       totalExpensesPaidBy: totalExpensesPaidBy._sum.amount ?? 0,
       totalExpensesPaidTo: totalExpensesPaidTo._sum.amount ?? 0,
+      totalSalaryPaid: totalSalaryPaid._sum.amount ?? 0,
+      totalRewards: totalRewards._sum.amount ?? 0,
+      totalOvertimeHours,
+      overtimePay,
     };
 
     return NextResponse.json({

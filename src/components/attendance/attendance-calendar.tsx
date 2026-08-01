@@ -44,6 +44,11 @@ export function AttendanceCalendar({
     return record ? (record.status as AttendanceStatus) : null;
   };
 
+  const getOvertimeForDate = (date: Date): number => {
+    const record = records.find((r) => isSameDay(new Date(r.date), date));
+    return record?.overtimeHours ?? 0;
+  };
+
   return (
     <div className="space-y-3">
       {/* Month navigation */}
@@ -83,6 +88,7 @@ export function AttendanceCalendar({
 
         {days.map((day) => {
           const status = getStatusForDate(day);
+          const overtime = getOvertimeForDate(day);
           const isSelected = selectedDate && isSameDay(day, selectedDate);
           const today = isToday(day);
 
@@ -101,6 +107,11 @@ export function AttendanceCalendar({
                 <span
                   className={`absolute bottom-1 h-1.5 w-1.5 rounded-full ${STATUS_BG_COLORS[status]}`}
                 />
+              )}
+              {overtime > 0 && (
+                <span className="absolute top-0.5 right-0.5 text-[8px] font-bold text-orange-500">
+                  OT
+                </span>
               )}
             </button>
           );

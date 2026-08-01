@@ -155,7 +155,7 @@ export function EmployeeFinancialSummary({
           <div className="space-y-4">
             {/* Totals Bar */}
             {totals && (
-              <div className="grid grid-cols-4 gap-3">
+              <div className="grid grid-cols-6 gap-3">
                 <div className="rounded-lg bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 p-3">
                   <p className="text-xs text-emerald-700 dark:text-emerald-400 mb-1">Total Salary</p>
                   <p className="text-lg font-bold font-mono text-emerald-700 dark:text-emerald-400">
@@ -163,9 +163,21 @@ export function EmployeeFinancialSummary({
                   </p>
                 </div>
                 <div className="rounded-lg bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 p-3">
-                  <p className="text-xs text-blue-700 dark:text-blue-400 mb-1">Total Taken</p>
+                  <p className="text-xs text-blue-700 dark:text-blue-400 mb-1">Salary Paid</p>
                   <p className="text-lg font-bold font-mono text-blue-700 dark:text-blue-400">
-                    {formatCurrency(totals.totalExpensesPaidTo)}
+                    {formatCurrency(totals.totalSalaryPaid)}
+                  </p>
+                </div>
+                <div className="rounded-lg bg-pink-50 dark:bg-pink-950/30 border border-pink-200 dark:border-pink-800 p-3">
+                  <p className="text-xs text-pink-700 dark:text-pink-400 mb-1">Total Rewards</p>
+                  <p className="text-lg font-bold font-mono text-pink-700 dark:text-pink-400">
+                    {formatCurrency(totals.totalRewards)}
+                  </p>
+                </div>
+                <div className="rounded-lg bg-teal-50 dark:bg-teal-950/30 border border-teal-200 dark:border-teal-800 p-3">
+                  <p className="text-xs text-teal-700 dark:text-teal-400 mb-1">Overtime</p>
+                  <p className="text-lg font-bold font-mono text-teal-700 dark:text-teal-400">
+                    {formatCurrency(totals.totalOvertimePay)}
                   </p>
                 </div>
                 <div className="rounded-lg bg-orange-50 dark:bg-orange-950/30 border border-orange-200 dark:border-orange-800 p-3">
@@ -233,7 +245,7 @@ export function EmployeeFinancialSummary({
                           {DEPARTMENT_LABELS[emp.department as Department] ?? emp.department}
                         </Badge>
                       </div>
-                      <div className="grid grid-cols-5 gap-2 text-xs">
+                      <div className="grid grid-cols-10 gap-2 text-xs">
                         <div>
                           <span className="text-muted-foreground">Salary</span>
                           <p className="font-mono font-medium">{formatCurrency(emp.salary)}</p>
@@ -247,20 +259,24 @@ export function EmployeeFinancialSummary({
                           <p className="font-mono font-medium">{formatCurrency(emp.earnedSalary)}</p>
                         </div>
                         <div>
-                          <span className="text-muted-foreground">Taken</span>
-                          <p className="font-mono font-medium">{formatCurrency(emp.totalExpensesPaidTo)}</p>
+                          <span className="text-muted-foreground">OT Hrs</span>
+                          <p className="font-mono font-medium">{(emp.totalOvertimeHours ?? 0).toFixed(1)}</p>
+                        </div>
+                        <div>
+                          <span className="text-muted-foreground">OT Pay</span>
+                          <p className="font-mono font-medium">{formatCurrency(emp.overtimePay ?? 0)}</p>
+                        </div>
+                        <div>
+                          <span className="text-muted-foreground">Salary Paid</span>
+                          <p className="font-mono font-medium">{formatCurrency(emp.totalSalaryPaid)}</p>
+                        </div>
+                        <div>
+                          <span className="text-muted-foreground">Rewards</span>
+                          <p className="font-mono font-medium">{formatCurrency(emp.totalRewards)}</p>
                         </div>
                         <div>
                           <span className="text-muted-foreground">Spent</span>
                           <p className="font-mono font-medium">{formatCurrency(emp.totalExpensesPaidBy)}</p>
-                        </div>
-                        <div>
-                          <span className="text-muted-foreground">Advances</span>
-                          <p className="font-mono font-medium">{formatCurrency(emp.totalAdvanceReceived)}</p>
-                        </div>
-                        <div>
-                          <span className="text-muted-foreground">Wallet</span>
-                          <p className="font-mono font-medium">{formatCurrency(emp.walletBalance)}</p>
                         </div>
                         <div className="col-span-2">
                           <span className="text-muted-foreground">Net Balance</span>

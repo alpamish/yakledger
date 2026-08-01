@@ -28,15 +28,17 @@ const formatCurrency = (amount: number) =>
   `AFN ${amount.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
 
 const COL = {
-  name: "18%",
-  dept: "10%",
-  salary: "10%",
-  earned: "11%",
-  taken: "10%",
-  spent: "10%",
-  advances: "10%",
-  wallet: "10%",
-  net: "11%",
+  name: "14%",
+  dept: "8%",
+  salary: "8%",
+  earned: "9%",
+  ot: "9%",
+  salaryPaid: "9%",
+  rewards: "8%",
+  spent: "9%",
+  advances: "8%",
+  wallet: "8%",
+  net: "10%",
 } as const;
 
 const styles = StyleSheet.create({
@@ -191,9 +193,21 @@ export function FinancialSummaryPDFDocument({
             </Text>
           </View>
           <View style={styles.summaryCard}>
-            <Text style={styles.summaryLabel}>Total Taken</Text>
+            <Text style={styles.summaryLabel}>Salary Paid</Text>
             <Text style={styles.summaryValue}>
-              {formatCurrency(totals.totalExpensesPaidTo)}
+              {formatCurrency(totals.totalSalaryPaid)}
+            </Text>
+          </View>
+          <View style={styles.summaryCard}>
+            <Text style={styles.summaryLabel}>Total Rewards</Text>
+            <Text style={styles.summaryValue}>
+              {formatCurrency(totals.totalRewards)}
+            </Text>
+          </View>
+          <View style={styles.summaryCard}>
+            <Text style={styles.summaryLabel}>Overtime</Text>
+            <Text style={styles.summaryValue}>
+              {formatCurrency(totals.totalOvertimePay)}
             </Text>
           </View>
           <View style={styles.summaryCard}>
@@ -206,12 +220,6 @@ export function FinancialSummaryPDFDocument({
             <Text style={styles.summaryLabel}>Total Advances</Text>
             <Text style={styles.summaryValue}>
               {formatCurrency(totals.totalAdvanceReceived)}
-            </Text>
-          </View>
-          <View style={styles.summaryCard}>
-            <Text style={styles.summaryLabel}>Total Wallet</Text>
-            <Text style={styles.summaryValue}>
-              {formatCurrency(totals.totalWalletBalance)}
             </Text>
           </View>
           <View style={styles.summaryCard}>
@@ -250,9 +258,19 @@ export function FinancialSummaryPDFDocument({
               Earned
             </Text>
             <Text
-              style={[styles.tableHeaderCell, { width: COL.taken, textAlign: "right" }]}
+              style={[styles.tableHeaderCell, { width: COL.ot, textAlign: "right" }]}
             >
-              Taken
+              OT (hrs)
+            </Text>
+            <Text
+              style={[styles.tableHeaderCell, { width: COL.salaryPaid, textAlign: "right" }]}
+            >
+              Salary Paid
+            </Text>
+            <Text
+              style={[styles.tableHeaderCell, { width: COL.rewards, textAlign: "right" }]}
+            >
+              Rewards
             </Text>
             <Text
               style={[styles.tableHeaderCell, { width: COL.spent, textAlign: "right" }]}
@@ -313,10 +331,26 @@ export function FinancialSummaryPDFDocument({
                 <Text
                   style={[
                     styles.tableDataCell,
-                    { width: COL.taken, textAlign: "right" },
+                    { width: COL.ot, textAlign: "right" },
                   ]}
                 >
-                  {formatCurrency(emp.totalExpensesPaidTo)}
+                  {(emp.totalOvertimeHours ?? 0).toFixed(1)}
+                </Text>
+                <Text
+                  style={[
+                    styles.tableDataCell,
+                    { width: COL.salaryPaid, textAlign: "right" },
+                  ]}
+                >
+                  {formatCurrency(emp.totalSalaryPaid)}
+                </Text>
+                <Text
+                  style={[
+                    styles.tableDataCell,
+                    { width: COL.rewards, textAlign: "right" },
+                  ]}
+                >
+                  {formatCurrency(emp.totalRewards)}
                 </Text>
                 <Text
                   style={[
@@ -387,10 +421,26 @@ export function FinancialSummaryPDFDocument({
               <Text
                 style={[
                   styles.tableTotalCell,
-                  { width: COL.taken, textAlign: "right" },
+                  { width: COL.ot, textAlign: "right" },
                 ]}
               >
-                {formatCurrency(totals.totalExpensesPaidTo)}
+                {totals.totalOvertimeHours.toFixed(1)}
+              </Text>
+              <Text
+                style={[
+                  styles.tableTotalCell,
+                  { width: COL.salaryPaid, textAlign: "right" },
+                ]}
+              >
+                {formatCurrency(totals.totalSalaryPaid)}
+              </Text>
+              <Text
+                style={[
+                  styles.tableTotalCell,
+                  { width: COL.rewards, textAlign: "right" },
+                ]}
+              >
+                {formatCurrency(totals.totalRewards)}
               </Text>
               <Text
                 style={[

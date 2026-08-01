@@ -46,6 +46,7 @@ interface AttendanceTableProps {
   onDateFromChange: (date: string) => void;
   onDateToChange: (date: string) => void;
   onStatusChange: (id: string, status: AttendanceStatus) => Promise<void>;
+  onOvertimeChange: (id: string, overtimeHours: number) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
 }
 
@@ -64,6 +65,7 @@ export function AttendanceTable({
   onDateFromChange,
   onDateToChange,
   onStatusChange,
+  onOvertimeChange,
   onDelete,
 }: AttendanceTableProps) {
   const { canEdit, canDelete } = usePermissions();
@@ -122,6 +124,7 @@ export function AttendanceTable({
                 <TableHead>Date</TableHead>
                 <TableHead>Employee</TableHead>
                 <TableHead>Status</TableHead>
+                <TableHead>OT Hours</TableHead>
                 <TableHead>Notes</TableHead>
                 <TableHead className="w-16" />
               </TableRow>
@@ -181,6 +184,28 @@ export function AttendanceTable({
                     </TableCell>
                     <TableCell className="text-xs text-muted-foreground max-w-[200px] truncate">
                       {record.notes || '—'}
+                    </TableCell>
+                    <TableCell>
+                      {canEdit('employees') ? (
+                        <Input
+                          type="number"
+                          min="0"
+                          step="0.5"
+                          defaultValue={record.overtimeHours ?? 0}
+                          className="h-7 w-20 text-xs"
+                          onBlur={(e) => {
+                            const val = parseFloat(e.target.value);
+                            const next = isNaN(val) ? 0 : Math.max(0, val);
+                            if (next !== (record.overtimeHours ?? 0)) {
+                              onOvertimeChange(record.id, next);
+                            }
+                          }}
+                        />
+                      ) : (
+                        <span className="text-xs font-mono tabular-nums">
+                          {(record.overtimeHours ?? 0).toFixed(1)} h
+                        </span>
+                      )}
                     </TableCell>
                     <TableCell>
                       {canDelete('employees') && (

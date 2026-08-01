@@ -410,14 +410,14 @@ export const attendanceApi = {
     return request<ApiResponse<{ data: AttendanceRecord[]; total: number }>>(`/attendance${qs ? `?${qs}` : ""}`);
   },
 
-  create: async (data: { employeeId: string; date: string; status: string; notes?: string }): Promise<ApiResponse<AttendanceRecord>> => {
+  create: async (data: { employeeId: string; date: string; status: string; notes?: string; overtimeHours?: number }): Promise<ApiResponse<AttendanceRecord>> => {
     return mutate<ApiResponse<AttendanceRecord>>("/attendance", {
       method: "POST",
       body: JSON.stringify(data),
     }, "/attendance");
   },
 
-  update: async (id: string, data: { status?: string; notes?: string }): Promise<ApiResponse<AttendanceRecord>> => {
+  update: async (id: string, data: { status?: string; notes?: string; overtimeHours?: number }): Promise<ApiResponse<AttendanceRecord>> => {
     return mutate<ApiResponse<AttendanceRecord>>(`/attendance/${id}`, {
       method: "PUT",
       body: JSON.stringify(data),

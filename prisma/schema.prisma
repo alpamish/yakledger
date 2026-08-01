@@ -86,6 +86,8 @@ model Employee {
   department            String
   employmentType        String          @default("FULL_TIME")
   salary                Float           @default(0)
+  workHoursPerDay       Int             @default(9)
+  overtimeRate          Float           @default(1.25)
   hireDate              DateTime
   status                String          @default("ACTIVE")
   quitingDate           DateTime?
@@ -328,6 +330,7 @@ model Attendance {
   date        DateTime
   status      String
   notes       String?
+  overtimeHours Float   @default(0)
   createdBy   String
   creator     User     @relation(fields: [createdBy], references: [id])
   createdAt   DateTime @default(now())

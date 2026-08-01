@@ -99,7 +99,8 @@ export function EmployeeProfile() {
   const { canEdit, hasPermission } = usePermissions();
 
   const [showExpensesDialog, setShowExpensesDialog] = React.useState(false);
-  const [expenseType, setExpenseType] = React.useState<'taken' | 'spent'>('taken');
+  const [expenseType, setExpenseType] = React.useState<'salary' | 'rewards' | 'spent'>('salary');
+  const [expenseCategoryFilter, setExpenseCategoryFilter] = React.useState<string[]>([]);
   const [isGeneratingPdf, setIsGeneratingPdf] = React.useState(false);
   const [isUploadingIdImage, setIsUploadingIdImage] = React.useState(false);
   const [isUploadingIdImageBack, setIsUploadingIdImageBack] = React.useState(false);
@@ -134,6 +135,7 @@ export function EmployeeProfile() {
     holidayDays: number;
     totalDays: number;
     effectiveDays: number;
+    totalOvertimeHours: number;
   } | null>(null);
   const [attendanceSummaryLoading, setAttendanceSummaryLoading] = React.useState(false);
 
@@ -268,13 +270,21 @@ export function EmployeeProfile() {
     if (showExpensesDialog && emp.id) {
       setExpenseLoading(true);
       const today = format(new Date(), 'yyyy-MM-dd');
-      expensesApi.getAll({
+      const filters: Record<string, unknown> = {
         page: expensePage,
         pageSize: expensePageSize,
         dateFrom: today,
         dateTo: today,
-        ...(expenseType === 'taken' ? { paidToId: emp.id } : { paidById: emp.id }),
-      })
+      };
+      if (expenseType === 'spent') {
+        filters.paidById = emp.id;
+      } else {
+        filters.paidToId = emp.id;
+        if (expenseCategoryFilter.length > 0) {
+          filters.categories = expenseCategoryFilter;
+        }
+      }
+      expensesApi.getAll(filters as any)
         .then((res) => {
           if (res.success) {
             setExpenseList(res.data?.data ?? []);
@@ -284,7 +294,7 @@ export function EmployeeProfile() {
         .catch(() => setExpenseList([]))
         .finally(() => setExpenseLoading(false));
     }
-  }, [showExpensesDialog, emp.id, expenseType, expensePage, expensePageSize]);
+  }, [showExpensesDialog, emp.id, expenseType, expenseCategoryFilter, expensePage, expensePageSize]);
 
   const handleDownloadPDF = React.useCallback(async () => {
     setIsPdfGenerating(true);
@@ -294,7 +304,6 @@ export function EmployeeProfile() {
         employeesApi.getById(emp.id),
       ]);
 
-      const ledger = walletRes.data?.ledger ?? [];
       const balance = walletRes.data?.account?.currentBalance ?? 0;
       const fullEmployee = empRes.data ?? emp;
 
@@ -312,13 +321,11 @@ export function EmployeeProfile() {
 
       const { default: EmployeePDFDocument } = await import('@/components/pdf/employee-pdf-document');
 
-      const filteredLedger = ledger.filter((e): e is LedgerEntry => Boolean(e && e.id));
       const blob = await pdf(
         <EmployeePDFDocument
           employee={fullEmployee}
           expensesPaidBy={paidBy}
           expensesPaidTo={paidTo}
-          ledger={filteredLedger}
           walletBalance={balance}
           filters={{ dateFrom: pdfDateFrom || undefined, dateTo: pdfDateTo || undefined }}
         />
@@ -327,15 +334,15 @@ export function EmployeeProfile() {
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = `employee-report-${emp.fullName.replace(/\s+/g, '-').toLowerCase()}-${format(new Date(), 'yyyy-MM-dd')}.pdf`;
+      link.download = `employee-financial-${emp.fullName.replace(/\s+/g, '-').toLowerCase()}-${format(new Date(), 'yyyy-MM-dd')}.pdf`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
-      toast.success('Employee report PDF downloaded successfully');
+      toast.success('Employee financial summary PDF downloaded successfully');
     } catch (err) {
       console.error('Failed to generate PDF:', err);
-      toast.error('Failed to generate employee report PDF');
+      toast.error('Failed to generate employee financial summary PDF');
     } finally {
       setIsPdfGenerating(false);
       setShowPdfDialog(false);
@@ -355,7 +362,14 @@ export function EmployeeProfile() {
     : (emp.quitingDate ? new Date(emp.quitingDate) : currentDate);
   const fallbackDays = Math.max(0, Math.floor((endDate.getTime() - hireDateObj.getTime()) / (1000 * 60 * 60 * 24)));
   const daysWorked = hasAttendance ? effectiveDays! : fallbackDays;
-  const earnedSalary = dailySalary * daysWorked;
+  const workHoursPerDay = emp.workHoursPerDay ?? 9;
+  const overtimeRate = emp.overtimeRate ?? 1.25;
+  const totalOvertimeHours = attendanceSummary?.totalOvertimeHours ?? 0;
+  const hourlySalary = workHoursPerDay > 0 ? dailySalary / workHoursPerDay : dailySalary / 9;
+  const overtimePay = totalOvertimeHours * hourlySalary * overtimeRate;
+  const earnedSalary = dailySalary * daysWorked + overtimePay;
+  const totalSalaryPaid = emp.totalSalaryPaid ?? 0;
+  const totalRewards = emp.totalRewards ?? 0;
   const totalTake = emp.totalExpensesPaidTo ?? 0;
   const totalSpent = emp.totalExpensesPaidBy ?? 0;
   const totalAdvanceReceived = ledger
@@ -363,7 +377,7 @@ export function EmployeeProfile() {
     .reduce((sum, e) => sum + e.amount, 0);
   const netBalance = totalTake + totalAdvanceReceived - totalSpent;
   const isOwingBalance = netBalance > 0;
-  const remainingToBePaid = earnedSalary - totalTake - (walletBalance ?? 0);
+  const remainingToBePaid = earnedSalary - totalSalaryPaid - (walletBalance ?? 0);
   const isRemainingPositive = remainingToBePaid >= 0;
 
   return (
@@ -480,22 +494,50 @@ export function EmployeeProfile() {
             </div>
           </div>
           <Separator className="my-4" />
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
             <div 
               className="p-3 rounded-lg bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 cursor-pointer hover:opacity-80 transition-opacity"
-              onClick={() => { setExpenseType('taken'); setExpensePage(1); setShowExpensesDialog(true); }}
+              onClick={() => { setExpenseType('salary'); setExpenseCategoryFilter(['SALARY']); setExpensePage(1); setShowExpensesDialog(true); }}
             >
               <div className="flex items-center gap-2 mb-1">
                 <UserCheck className="h-4 w-4 text-blue-600 dark:text-blue-400" />
-                <p className="text-xs text-blue-700 dark:text-blue-400">Total Taken</p>
+                <p className="text-xs text-blue-700 dark:text-blue-400">Total Salary Paid</p>
               </div>
               <p className="text-lg font-bold font-mono text-blue-700 dark:text-blue-400">
-                {formatCurrency(totalTake)}
+                {formatCurrency(totalSalaryPaid)}
               </p>
               <div className="flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400 mt-1">
                 <span>View details</span>
                 <ArrowUpRight className="h-3 w-3" />
               </div>
+            </div>
+            <div 
+              className="p-3 rounded-lg bg-pink-50 dark:bg-pink-950/30 border border-pink-200 dark:border-pink-800 cursor-pointer hover:opacity-80 transition-opacity"
+              onClick={() => { setExpenseType('rewards'); setExpenseCategoryFilter(['REWARD', 'BONUS']); setExpensePage(1); setShowExpensesDialog(true); }}
+            >
+              <div className="flex items-center gap-2 mb-1">
+                <TrendingUp className="h-4 w-4 text-pink-600 dark:text-pink-400" />
+                <p className="text-xs text-pink-700 dark:text-pink-400">Total Rewards</p>
+              </div>
+              <p className="text-lg font-bold font-mono text-pink-700 dark:text-pink-400">
+                {formatCurrency(totalRewards)}
+              </p>
+              <div className="flex items-center gap-1 text-xs text-pink-600 dark:text-pink-400 mt-1">
+                <span>View details</span>
+                <ArrowUpRight className="h-3 w-3" />
+              </div>
+            </div>
+            <div className="p-3 rounded-lg bg-teal-50 dark:bg-teal-950/30 border border-teal-200 dark:border-teal-800">
+              <div className="flex items-center gap-2 mb-1">
+                <Clock className="h-4 w-4 text-teal-600 dark:text-teal-400" />
+                <p className="text-xs text-teal-700 dark:text-teal-400">Overtime</p>
+              </div>
+              <p className="text-lg font-bold font-mono text-teal-700 dark:text-teal-400">
+                {attendanceSummaryLoading ? '—' : formatCurrency(overtimePay)}
+              </p>
+              <p className="text-[10px] text-teal-600 dark:text-teal-400 mt-1">
+                {attendanceSummaryLoading ? '' : `${totalOvertimeHours.toFixed(1)} hrs`}
+              </p>
             </div>
             <div className="p-3 rounded-lg bg-indigo-50 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-800">
               <div className="flex items-center gap-2 mb-1">
@@ -580,7 +622,7 @@ export function EmployeeProfile() {
                   Remaining to be Paid
                 </span>
                 <span className="text-xs text-muted-foreground">
-                  (Earned Salary - Taken - Wallet)
+                  (Earned Salary - Salary Paid - Wallet)
                 </span>
               </div>
               <p className={`text-xl font-bold font-mono ${
@@ -984,10 +1026,10 @@ export function EmployeeProfile() {
         <DialogContent className="sm:max-w-[600px] max-h-[80vh] overflow-hidden flex flex-col">
           <DialogHeader>
             <DialogTitle>
-              {expenseType === 'taken' ? 'Expenses Paid To' : 'Expenses Paid By'}
+              {expenseType === 'salary' ? 'Salary Payments' : expenseType === 'rewards' ? 'Rewards & Bonuses' : 'Expenses Paid By'}
             </DialogTitle>
             <DialogDescription>
-              {emp.fullName} &mdash; showing expenses for today ({format(new Date(), 'MMM dd, yyyy')})
+              {emp.fullName} &mdash; {expenseType === 'salary' ? 'salary payments' : expenseType === 'rewards' ? 'rewards and bonuses' : 'expenses paid by employee'} for today ({format(new Date(), 'MMM dd, yyyy')})
             </DialogDescription>
           </DialogHeader>
           

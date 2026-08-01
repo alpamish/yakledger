@@ -45,6 +45,8 @@ export interface Employee {
   department: Department;
   employmentType: EmploymentType;
   salary: number;
+  workHoursPerDay: number;
+  overtimeRate: number;
   hireDate: string;
   status: EmployeeStatus;
   quitingDate?: string | null;
@@ -70,10 +72,14 @@ export interface Employee {
   expensesPaidTo?: ExpenseBrief[];
   totalExpensesPaidBy?: number;
   totalExpensesPaidTo?: number;
+  totalSalaryPaid?: number;
+  totalRewards?: number;
   // Financial calculation fields
   daysWorked?: number;
   dailySalary?: number;
   earnedSalary?: number;
+  totalOvertimeHours?: number;
+  overtimePay?: number;
   netBalance?: number;
 }
 
@@ -98,6 +104,8 @@ export interface EmployeeFormData {
   department: Department;
   employmentType: EmploymentType;
   salary: number;
+  workHoursPerDay: number;
+  overtimeRate: number;
   hireDate: string;
   status: EmployeeStatus;
   quitingDate?: string;
@@ -208,8 +216,12 @@ export interface EmployeeFinancialSummaryItem {
   earnedSalary: number;
   totalExpensesPaidBy: number;
   totalExpensesPaidTo: number;
+  totalSalaryPaid: number;
+  totalRewards: number;
   totalAdvanceReceived: number;
   walletBalance: number;
+  totalOvertimeHours: number;
+  overtimePay: number;
   netBalance: number;
 }
 
@@ -218,8 +230,12 @@ export interface EmployeeFinancialTotals {
   totalEarnedSalary: number;
   totalExpensesPaidBy: number;
   totalExpensesPaidTo: number;
+  totalSalaryPaid: number;
+  totalRewards: number;
   totalAdvanceReceived: number;
   totalWalletBalance: number;
+  totalOvertimeHours: number;
+  totalOvertimePay: number;
   totalNetBalance: number;
   employeeCount: number;
 }
@@ -262,6 +278,7 @@ export interface AttendanceRecord {
   date: string;
   status: AttendanceStatus;
   notes: string | null;
+  overtimeHours: number;
   createdAt: string;
 }
 
@@ -273,6 +290,7 @@ export interface AttendanceSummary {
   holidayDays: number;
   totalDays: number;
   effectiveDays: number;
+  totalOvertimeHours: number;
 }
 
 export interface AttendanceFilters {

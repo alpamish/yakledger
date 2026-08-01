@@ -20,6 +20,8 @@ const createExpenseSchema = z.object({
     "MATERIALS",
     "EQUIPMENT_RENTAL",
     "OFFICE_EXPENSE",
+    "REWARD",
+    "BONUS",
     "MISCELLANEOUS",
   ]),
   amount: z.number().positive("Amount must be positive").max(999_999_999, "Amount too large"),

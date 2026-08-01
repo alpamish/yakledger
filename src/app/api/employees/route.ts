@@ -30,6 +30,8 @@ const createEmployeeSchema = z.object({
   department: z.enum(DEPARTMENT_VALUES),
   employmentType: z.enum(EMPLOYMENT_TYPE_VALUES).default("FULL_TIME"),
   salary: z.number().min(0).default(0),
+  workHoursPerDay: z.number().int().min(1).default(9),
+  overtimeRate: z.number().min(1).default(1.25),
   hireDate: z.string().min(1, "Hire date is required"),
   status: z.enum(EMPLOYEE_STATUS_VALUES).default("ACTIVE"),
   idImageFront: z.string().optional().nullable(),

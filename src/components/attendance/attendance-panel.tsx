@@ -74,6 +74,7 @@ export function AttendancePanel() {
   const [quickDateFrom, setQuickDateFrom] = React.useState(format(new Date(), 'yyyy-MM-dd'));
   const [quickDateTo, setQuickDateTo] = React.useState('');
   const [quickStatus, setQuickStatus] = React.useState<AttendanceStatus>('PRESENT');
+  const [quickOvertime, setQuickOvertime] = React.useState(0);
 
   // Local employee selection
   const [localEmployeeId, setLocalEmployeeId] = React.useState<string | null>(null);
@@ -214,6 +215,20 @@ export function AttendancePanel() {
     }
   };
 
+  const handleOvertimeChange = async (id: string, overtimeHours: number) => {
+    try {
+      const res = await attendanceApi.update(id, { overtimeHours });
+      if (res.success) {
+        setRecords((prev) =>
+          prev.map((r) => (r.id === id ? { ...r, overtimeHours } : r))
+        );
+        toast.success('Overtime hours updated');
+      }
+    } catch {
+      toast.error('Failed to update overtime hours');
+    }
+  };
+
   const handleCalendarDateClick = async (date: Date) => {
     if (!targetEmployeeId) {
       toast.error('Please select an employee first');
@@ -269,6 +284,7 @@ export function AttendancePanel() {
       employeeId: targetEmployeeId,
       date: d,
       status: quickStatus,
+      overtimeHours: quickStatus === 'PRESENT' ? quickOvertime : 0,
     }));
 
     try {
@@ -445,6 +461,19 @@ export function AttendancePanel() {
                   })}
                 </SelectContent>
               </Select>
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground">OT Hours</label>
+                <Input
+                  type="number"
+                  min="0"
+                  step="0.5"
+                  value={quickOvertime}
+                  onChange={(e) => setQuickOvertime(Math.max(0, parseFloat(e.target.value) || 0))}
+                  disabled={quickStatus !== 'PRESENT'}
+                  className="h-8 w-20 text-xs"
+                  placeholder="0"
+                />
+              </div>
               <Button
                 size="sm"
                 className="h-8 text-xs"
@@ -557,6 +586,7 @@ export function AttendancePanel() {
                   onDateFromChange={(d) => { setDateFrom(d); setPage(1); }}
                   onDateToChange={(d) => { setDateTo(d); setPage(1); }}
                   onStatusChange={handleStatusChange}
+                  onOvertimeChange={handleOvertimeChange}
                   onDelete={handleDelete}
                 />
               </TabsContent>

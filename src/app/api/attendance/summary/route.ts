@@ -30,7 +30,7 @@ export async function GET(request: NextRequest) {
 
     const records = await db.attendance.findMany({
       where,
-      select: { status: true },
+      select: { status: true, overtimeHours: true },
     });
 
     const summary = {
@@ -41,9 +41,11 @@ export async function GET(request: NextRequest) {
       holidayDays: 0,
       totalDays: records.length,
       effectiveDays: 0,
+      totalOvertimeHours: 0,
     };
 
     for (const r of records) {
+      summary.totalOvertimeHours += r.overtimeHours ?? 0;
       switch (r.status) {
         case "PRESENT":
           summary.presentDays++;

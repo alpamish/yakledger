@@ -21,21 +21,6 @@ function formatCurrency(amount: number): string {
   return `AFN ${Math.round(amount).toLocaleString("en-US")}`;
 }
 
-export interface EmployeePDFFilters {
-  dateFrom?: string;
-  dateTo?: string;
-}
-
-interface EmployeePDFDocumentProps {
-  employee: Employee;
-  expensesPaidBy: Expense[];
-  expensesPaidTo: Expense[];
-  ledger?: Expense[];
-  walletBalance: number;
-  filters?: EmployeePDFFilters;
-  companyName?: string;
-}
-
 const ECOL = {
   title: "24%",
   category: "16%",
@@ -190,7 +175,7 @@ function ExpensesTable({ title, rows }: { title: string; rows: Expense[] }) {
           </Text>
           <Text style={[styles.tableDataCell, { width: ECOL.amount, textAlign: "right" }]}>{formatCurrency(e.amount)}</Text>
           <Text style={[styles.tableDataCell, { width: ECOL.date }]}>
-            {typeof e.expenseDate === "string" ? e.expenseDate.slice(0, 10) : format(new Date(e.expenseDate), "yyyy-MM-dd")}
+            {e.expenseDate?.slice(0, 10) || "—"}
           </Text>
           <Text style={[styles.tableDataCell, { width: ECOL.notes }]}>{e.notes || "—"}</Text>
         </View>
@@ -206,28 +191,36 @@ function ExpensesTable({ title, rows }: { title: string; rows: Expense[] }) {
   );
 }
 
-function EmployeePDFDocument({
-  employee: e,
-  expensesPaidBy: rawExpensesPaidBy,
-  expensesPaidTo: rawExpensesPaidTo,
-  walletBalance,
-  filters,
-  companyName = "YakhshiLedger",
-}: EmployeePDFDocumentProps) {
-  const dateFrom = filters?.dateFrom;
-  const dateTo = filters?.dateTo;
-  const expensesPaidBy = (Array.isArray(rawExpensesPaidBy) ? rawExpensesPaidBy : []).filter(
-    (exp): exp is Expense => Boolean(exp && exp.id)
-  );
-  const expensesPaidTo = (Array.isArray(rawExpensesPaidTo) ? rawExpensesPaidTo : []).filter(
-    (exp): exp is Expense => Boolean(exp && exp.id)
-  );
+interface EmployeeFinancialPDFDocumentProps {
+  employee: Employee;
+  expensesPaidBy: Expense[];
+  expensesPaidTo: Expense[];
+  walletBalance: number;
+  companyName?: string;
+  dateFrom?: string;
+  dateTo?: string;
+}
 
-  const genDate = format(new Date(), "MMMM d, yyyy");
+export default function EmployeeFinancialPDFDocument({
+  employee: e,
+  expensesPaidBy,
+  expensesPaidTo,
+  walletBalance,
+  companyName = "YakhshiLedger",
+  dateFrom,
+  dateTo,
+}: EmployeeFinancialPDFDocumentProps) {
+  const genDate = new Date().toLocaleDateString("en-US", {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
 
   const dailySalary = e.salary / 30;
-  const totalSalaryPaid = e.totalSalaryPaid ?? expensesPaidTo.filter((exp) => exp.category === "SALARY").reduce((s, exp) => s + exp.amount, 0);
-  const totalRewards = e.totalRewards ?? expensesPaidTo.filter((exp) => exp.category === "REWARD" || exp.category === "BONUS").reduce((s, exp) => s + exp.amount, 0);
+  const totalSalaryPaid = e.totalSalaryPaid ?? 0;
+  const totalRewards = e.totalRewards ?? 0;
+  const totalTaken = e.totalExpensesPaidTo ?? 0;
+  const totalSpent = e.totalExpensesPaidBy ?? 0;
   const remaining = e.salary - totalSalaryPaid - walletBalance;
   const isRemainingNegative = remaining < 0;
 
@@ -275,8 +268,13 @@ function EmployeePDFDocument({
           />
         </View>
 
-        <ExpensesTable title="Expenses Paid To Employee" rows={expensesPaidTo} />
-        <ExpensesTable title="Expenses Paid By Employee" rows={expensesPaidBy} />
+        {expensesPaidTo.length > 0 && (
+          <ExpensesTable title="Expenses Paid To Employee" rows={expensesPaidTo} />
+        )}
+
+        {expensesPaidBy.length > 0 && (
+          <ExpensesTable title="Expenses Paid By Employee" rows={expensesPaidBy} />
+        )}
 
         {allExpenses.length === 0 && (
           <Text style={styles.noData}>No expense records found for this employee</Text>
@@ -295,5 +293,3 @@ function EmployeePDFDocument({
     </Document>
   );
 }
-
-export default EmployeePDFDocument;

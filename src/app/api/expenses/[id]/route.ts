@@ -20,6 +20,8 @@ const updateExpenseSchema = z.object({
       "MATERIALS",
       "EQUIPMENT_RENTAL",
       "OFFICE_EXPENSE",
+      "REWARD",
+      "BONUS",
       "MISCELLANEOUS",
     ])
     .optional(),
@@ -134,19 +136,33 @@ export async function PUT(
       return updated;
     });
 
-    // If amount changed, adjust wallet balance (best-effort)
-    const newPaidById = data.paidById !== undefined ? data.paidById : existingExpense.paidById;
+    // If paidById or amount changed, adjust wallet balance (best-effort)
+    const oldPaidById = existingExpense.paidById;
+    const newPaidById = data.paidById !== undefined ? data.paidById : oldPaidById;
     const oldAmount = existingExpense.amount;
     const newAmount = data.amount !== undefined ? data.amount : oldAmount;
 
+    // Refund the old employee if paidById changed
+    if (oldPaidById && oldPaidById !== newPaidById) {
+      try { await walletService.addBackToWallet(oldPaidById, oldAmount, user.id); }
+      catch (e) { console.warn("Wallet refund on paidById change failed:", e); }
+    }
+
     if (newPaidById) {
-      const diff = newAmount - oldAmount;
-      if (diff > 0) {
-        try { await walletService.deductFromWallet(newPaidById, diff, user.id); }
-        catch (e) { console.warn("Wallet deduction on update failed:", e); }
-      } else if (diff < 0) {
-        try { await walletService.addBackToWallet(newPaidById, Math.abs(diff), user.id); }
-        catch (e) { console.warn("Wallet add-back on update failed:", e); }
+      if (!oldPaidById || oldPaidById !== newPaidById) {
+        // Deduct full amount for a newly assigned employee
+        try { await walletService.deductFromWallet(newPaidById, newAmount, user.id); }
+        catch (e) { console.warn("Wallet deduction on paidById change failed:", e); }
+      } else {
+        // Same employee — adjust by the diff only
+        const diff = newAmount - oldAmount;
+        if (diff > 0) {
+          try { await walletService.deductFromWallet(newPaidById, diff, user.id); }
+          catch (e) { console.warn("Wallet deduction on update failed:", e); }
+        } else if (diff < 0) {
+          try { await walletService.addBackToWallet(newPaidById, Math.abs(diff), user.id); }
+          catch (e) { console.warn("Wallet add-back on update failed:", e); }
+        }
       }
     }
 

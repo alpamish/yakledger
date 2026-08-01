@@ -73,7 +73,7 @@ export async function POST(request: NextRequest) {
     const user = result.user;
 
     const body = await request.json();
-    const { employeeId, date, status, notes } = body;
+    const { employeeId, date, status, notes, overtimeHours } = body;
 
     if (!employeeId || !date || !status) {
       return NextResponse.json(
@@ -89,6 +89,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const ot = overtimeHours !== undefined && overtimeHours !== null ? Number(overtimeHours) : 0;
+    if (isNaN(ot) || ot < 0) {
+      return NextResponse.json(
+        { success: false, error: "overtimeHours must be a non-negative number" },
+        { status: 400 }
+      );
+    }
+
     // Upsert: create or update if record exists for same employee + date
     const existing = await db.attendance.findUnique({
       where: { employeeId_date: { employeeId, date: new Date(date) } },
@@ -98,7 +106,7 @@ export async function POST(request: NextRequest) {
     if (existing) {
       record = await db.attendance.update({
         where: { id: existing.id },
-        data: { status, notes: notes ?? null },
+        data: { status, notes: notes ?? null, overtimeHours: ot },
       });
     } else {
       record = await db.attendance.create({
@@ -107,6 +115,7 @@ export async function POST(request: NextRequest) {
           date: new Date(date),
           status,
           notes: notes ?? null,
+          overtimeHours: ot,
           createdBy: user.id,
         },
       });
