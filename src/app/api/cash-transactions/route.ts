@@ -3,6 +3,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/permissions";
 import { walletService } from "@/services/wallet.service";
+import { buildAccessScope, withScope } from "@/lib/access-control";
 
 const createTransactionSchema = z.object({
   employeeId: z.string().min(1, "Employee is required"),
@@ -16,6 +17,7 @@ export async function GET(request: NextRequest) {
   try {
     const result = await requirePermission(request, "cashAdvance:view");
     if ("status" in result) return result;
+    const user = result.user;
 
     const { searchParams } = new URL(request.url);
     const employeeId = searchParams.get("employeeId");
@@ -25,8 +27,11 @@ export async function GET(request: NextRequest) {
     if (employeeId) where.employeeId = employeeId;
     if (type) where.type = type;
 
+    const scope = await buildAccessScope(user, "cashTransaction");
+    const scopedWhere = withScope(where, scope);
+
     const transactions = await db.cashTransaction.findMany({
-      where,
+      where: scopedWhere,
       include: {
         employee: { select: { id: true, fullName: true, jobTitle: true, department: true } },
         creator: { select: { id: true, name: true } },
@@ -62,13 +67,13 @@ export async function POST(request: NextRequest) {
 
     switch (data.type) {
       case "ADVANCE":
-        transaction = await walletService.createAdvance(data.employeeId, data.amount, user.id, data.note ?? undefined, data.referenceNumber ?? undefined);
+        transaction = await walletService.createAdvance(data.employeeId, data.amount, user, data.note ?? undefined, data.referenceNumber ?? undefined);
         break;
       case "RETURN":
-        transaction = await walletService.createReturn(data.employeeId, data.amount, user.id, data.note ?? undefined, data.referenceNumber ?? undefined);
+        transaction = await walletService.createReturn(data.employeeId, data.amount, user, data.note ?? undefined, data.referenceNumber ?? undefined);
         break;
       case "ADJUSTMENT":
-        transaction = await walletService.createAdjustment(data.employeeId, data.amount, user.id, data.note ?? undefined);
+        transaction = await walletService.createAdjustment(data.employeeId, data.amount, user, data.note ?? undefined);
         break;
     }
 

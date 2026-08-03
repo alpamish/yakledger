@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/permissions";
+import { buildAccessScope, withScope } from "@/lib/access-control";
 
 const bulkActionSchema = z.object({
   ids: z.array(z.string()).min(1, "At least one ID is required"),
@@ -39,7 +40,7 @@ export async function POST(request: NextRequest) {
           );
         }
         const updated = await db.machinery.updateMany({
-          where: { id: { in: ids } },
+          where: withScope({ id: { in: ids } }, await buildAccessScope(user, "machinery")),
           data: { status: value },
         });
         affected = updated.count;

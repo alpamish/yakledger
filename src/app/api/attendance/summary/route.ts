@@ -1,12 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/permissions";
+import { buildAccessScope, withScope, APPROVED } from "@/lib/access-control";
 
 // GET /api/attendance/summary?employeeId=X&dateFrom=Y&dateTo=Z
 export async function GET(request: NextRequest) {
   try {
     const result = await requirePermission(request, "employees:view");
     if ("status" in result) return result;
+    const user = result.user;
 
     const { searchParams } = new URL(request.url);
     const employeeId = searchParams.get("employeeId");
@@ -29,7 +31,10 @@ export async function GET(request: NextRequest) {
     }
 
     const records = await db.attendance.findMany({
-      where,
+      where: withScope(
+        { ...where, approvalStatus: APPROVED },
+        await buildAccessScope(user, "attendance")
+      ),
       select: { status: true, overtimeHours: true },
     });
 

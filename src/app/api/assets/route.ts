@@ -3,6 +3,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/permissions";
 import { Prisma } from "@prisma/client";
+import { buildAccessScope, withScope } from "@/lib/access-control";
 
 const createAssetSchema = z.object({
   name: z.string().min(1, "Name is required"),
@@ -27,6 +28,7 @@ export async function GET(request: NextRequest) {
   try {
     const result = await requirePermission(request, "assets:view");
     if ("status" in result) return result;
+    const user = result.user;
 
     const { searchParams } = new URL(request.url);
 
@@ -77,9 +79,11 @@ export async function GET(request: NextRequest) {
     const sortField = validSortFields.includes(sortBy) ? sortBy : "createdAt";
     const order = sortOrder === "asc" ? "asc" : "desc";
 
+    const scopedWhere = withScope(where, await buildAccessScope(user, "asset"));
+
     const [assets, total] = await Promise.all([
       db.asset.findMany({
-        where,
+        where: scopedWhere,
         include: {
           assignedTo: { select: { id: true, fullName: true, jobTitle: true } },
           _count: { select: { maintenanceRecords: true, assetLogs: true, fuelTransactions: true } },
@@ -88,7 +92,7 @@ export async function GET(request: NextRequest) {
         skip: (page - 1) * pageSize,
         take: pageSize,
       }),
-      db.asset.count({ where }),
+      db.asset.count({ where: scopedWhere }),
     ]);
 
     return NextResponse.json({

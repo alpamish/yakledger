@@ -30,6 +30,7 @@ import {
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import { usePermissions } from '@/hooks/use-permissions';
+import { ApprovalStatusBadge } from '@/components/common/approval-status-badge';
 
 export function TimesheetPage() {
   const { canView, canCreate, canEdit, canDelete, canApprove } = usePermissions();
@@ -199,21 +200,11 @@ export function TimesheetPage() {
                         {t.notes ?? '—'}
                       </TableCell>
                       <TableCell>
-                        {t.approvedBy ? (
-                          <span className="inline-flex items-center gap-1 text-xs bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400 px-2 py-0.5 rounded-full font-medium">
-                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                            Approved{t.approver ? ` by ${t.approver.name}` : ''}
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 text-xs bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 px-2 py-0.5 rounded-full font-medium">
-                            <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
-                            Pending
-                          </span>
-                        )}
+                        <ApprovalStatusBadge status={t.approvalStatus} />
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="flex items-center justify-end gap-1">
-                          {!t.approvedBy && canApprove('timesheets') && (
+                          {t.approvalStatus === 'PENDING' && canApprove('timesheets') && (
                             <Button variant="ghost" size="sm" className="text-emerald-600" onClick={() => handleApprove(t.id)}>
                               Approve
                             </Button>

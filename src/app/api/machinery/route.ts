@@ -3,6 +3,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/permissions";
 import { Prisma } from "@prisma/client";
+import { buildAccessScope, withScope } from "@/lib/access-control";
 
 const FUEL_TYPE_VALUES = [
   "DIESEL", "GASOLINE", "LPG", "CNG", "OTHER",
@@ -36,6 +37,7 @@ export async function GET(request: NextRequest) {
   try {
     const result = await requirePermission(request, "machinery:view");
     if ("status" in result) return result;
+    const user = result.user;
 
     const { searchParams } = new URL(request.url);
 
@@ -87,9 +89,11 @@ export async function GET(request: NextRequest) {
     const sortField = validSortFields.includes(sortBy) ? sortBy : "createdAt";
     const order = sortOrder === "asc" ? "asc" : "desc";
 
+    const scopedWhere = withScope(where, await buildAccessScope(user, "machinery"));
+
     const [machinery, total] = await Promise.all([
       db.machinery.findMany({
-        where,
+        where: scopedWhere,
         include: {
           assignedContractor: {
             select: { id: true, contractorName: true, contractorType: true },
@@ -102,7 +106,7 @@ export async function GET(request: NextRequest) {
         skip: (page - 1) * pageSize,
         take: pageSize,
       }),
-      db.machinery.count({ where }),
+      db.machinery.count({ where: scopedWhere }),
     ]);
 
     const totalPages = Math.ceil(total / pageSize);

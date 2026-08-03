@@ -3,6 +3,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/permissions";
 import { Prisma } from "@prisma/client";
+import { buildAccessScope, withScope } from "@/lib/access-control";
 
 const DEPARTMENT_VALUES = [
   "ADMINISTRATION", "FINANCE", "OPERATIONS", "ENGINEERING",
@@ -45,6 +46,7 @@ export async function GET(request: NextRequest) {
   try {
     const result = await requirePermission(request, "employees:view");
     if ("status" in result) return result;
+    const user = result.user;
 
     const { searchParams } = new URL(request.url);
 
@@ -104,9 +106,11 @@ export async function GET(request: NextRequest) {
     const sortField = validSortFields.includes(sortBy) ? sortBy : "createdAt";
     const order = sortOrder === "asc" ? "asc" : "desc";
 
+    const scopedWhere = withScope(where, await buildAccessScope(user, "employee"));
+
     const [employees, total] = await Promise.all([
       db.employee.findMany({
-        where,
+        where: scopedWhere,
         include: {
           creator: {
             select: { id: true, email: true, name: true, role: true, avatar: true },
@@ -119,7 +123,7 @@ export async function GET(request: NextRequest) {
         skip: (page - 1) * pageSize,
         take: pageSize,
       }),
-      db.employee.count({ where }),
+      db.employee.count({ where: scopedWhere }),
     ]);
 
     const totalPages = Math.ceil(total / pageSize);

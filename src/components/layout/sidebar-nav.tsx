@@ -15,6 +15,7 @@ import {
   Settings,
   Package,
   UserCog,
+  BadgeCheck,
 } from 'lucide-react';
 
 import {
@@ -35,7 +36,7 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { usePermissions } from '@/hooks/use-permissions';
 import Image from 'next/image';
 
-export type NavSection = 'dashboard' | 'projectCost' | 'expenses' | 'employees' | 'contractors' | 'timesheets' | 'fuelUsage' | 'machinery' | 'reports' | 'cashAdvance' | 'settings' | 'assets' | 'users';
+export type NavSection = 'dashboard' | 'projectCost' | 'expenses' | 'employees' | 'contractors' | 'timesheets' | 'fuelUsage' | 'machinery' | 'reports' | 'cashAdvance' | 'approvals' | 'settings' | 'assets' | 'users';
 
 interface NavItem {
   id: NavSection;
@@ -55,6 +56,7 @@ const allNavItems: NavItem[] = [
   { id: 'machinery', label: 'Machinery', icon: Truck, permission: 'machinery:view' },
   { id: 'assets', label: 'Assets', icon: Package, permission: 'assets:view' },
   { id: 'cashAdvance', label: 'Cash & Advances', icon: HandCoins, permission: 'cashAdvance:view' },
+  { id: 'approvals', label: 'Approvals', icon: BadgeCheck, permission: 'expenses:approve' },
   { id: 'reports', label: 'Reports', icon: BarChart3, permission: 'reports:view' },
   { id: 'settings', label: 'Settings', icon: Settings, permission: 'settings:view' },
   { id: 'users', label: 'Users', icon: UserCog, permission: 'users:view' },

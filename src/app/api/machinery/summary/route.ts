@@ -1,11 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/permissions";
+import { buildAccessScope, withScope, APPROVED } from "@/lib/access-control";
 
 export async function GET(request: NextRequest) {
   const result = await requirePermission(request, "machinery:view");
   if ("status" in result) return result;
+  const user = result.user;
   try {
+    const machScope = await buildAccessScope(user, "machinery");
     const [
       totalMachinery,
       machineryByTypeRaw,
@@ -14,33 +17,44 @@ export async function GET(request: NextRequest) {
       timesheetDaysAgg,
       fuelAgg,
     ] = await Promise.all([
-      db.machinery.count(),
+      db.machinery.count({ where: withScope({}, machScope) }),
 
       db.machinery.groupBy({
+        where: withScope({}, machScope),
         by: ["machineryType"],
         _count: { id: true },
         orderBy: { _count: { id: "desc" } },
       }),
 
       db.machinery.groupBy({
+        where: withScope({}, machScope),
         by: ["status"],
         _count: { id: true },
         orderBy: { _count: { id: "desc" } },
       }),
 
       db.timesheet.aggregate({
-        where: { machineryId: { not: null } },
+        where: withScope(
+          { machineryId: { not: null }, approvalStatus: APPROVED },
+          await buildAccessScope(user, "timesheet")
+        ),
         _sum: { totalHours: true },
       }),
 
       db.timesheet.findMany({
-        where: { machineryId: { not: null } },
+        where: withScope(
+          { machineryId: { not: null }, approvalStatus: APPROVED },
+          await buildAccessScope(user, "timesheet")
+        ),
         select: { date: true },
         distinct: ["date"],
       }),
 
       db.fuelUsage.aggregate({
-        where: { machineryId: { not: null } },
+        where: withScope(
+          { machineryId: { not: null }, approvalStatus: APPROVED },
+          await buildAccessScope(user, "fuelUsage")
+        ),
         _sum: { quantity: true, totalCost: true },
       }),
     ]);

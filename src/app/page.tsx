@@ -19,6 +19,7 @@ const FuelUsagePage = dynamic(() => import('@/components/fuel-usage/fuel-usage-p
 const ProjectCostPage = dynamic(() => import('@/components/project-cost/project-cost-page').then(mod => mod.ProjectCostPage), { loading: PageSkeleton });
 const ReportsPage = dynamic(() => import('@/components/reports/reports-page').then(mod => mod.ReportsPage), { loading: PageSkeleton });
 const CashAdvancePage = dynamic(() => import('@/components/cash-advance/cash-advance-page').then(mod => mod.CashAdvancePage), { loading: PageSkeleton });
+const ApprovalsPage = dynamic(() => import('@/components/approvals/approvals-page').then(mod => mod.ApprovalsPage), { loading: PageSkeleton });
 const SettingsPage = dynamic(() => import('@/components/settings/settings-page').then(mod => mod.SettingsPage), { loading: PageSkeleton });
 const AssetsPage = dynamic(() => import('@/components/assets/assets-page').then(mod => mod.AssetsPage), { loading: PageSkeleton });
 const UsersPage = dynamic(() => import('@/components/users/users-page').then(mod => mod.UsersPage), { loading: PageSkeleton });
@@ -55,6 +56,8 @@ const SectionContent = React.memo(function SectionContent({ section }: { section
       return <AssetsPage />;
     case 'cashAdvance':
       return <CashAdvancePage />;
+    case 'approvals':
+      return <ApprovalsPage />;
     case 'settings':
       return <SettingsPage />;
     case 'users':

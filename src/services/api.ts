@@ -20,6 +20,11 @@ import type {
   AttendanceSummary,
   AttendanceFilters,
 } from "@/types/employee";
+import type {
+  ApprovalsResponse,
+  ApprovalStatus,
+  RecordAccessGrant,
+} from "@/types/expense";
 
 const API_BASE = "/api";
 
@@ -442,6 +447,54 @@ export const attendanceApi = {
       method: "POST",
       body: JSON.stringify({ records: data }),
     }, "/attendance");
+  },
+};
+
+// ─── Approvals API ─────────────────────────────────────────────────────────
+
+export const approvalsApi = {
+  getAll: async (params?: { status?: ApprovalStatus; entity?: string }): Promise<ApiResponse<ApprovalsResponse>> => {
+    const searchParams = new URLSearchParams();
+    if (params?.status) searchParams.set("status", params.status);
+    if (params?.entity) searchParams.set("entity", params.entity);
+    const qs = searchParams.toString();
+    return request<ApiResponse<ApprovalsResponse>>(`/approvals${qs ? `?${qs}` : ""}`);
+  },
+
+  approve: async (entity: string, id: string, note?: string): Promise<ApiResponse<unknown>> => {
+    return mutate<ApiResponse<unknown>>(`/approvals/${entity}/${id}`, {
+      method: "POST",
+      body: JSON.stringify({ action: "approve", note }),
+    }, "/approvals");
+  },
+
+  reject: async (entity: string, id: string, note?: string): Promise<ApiResponse<unknown>> => {
+    return mutate<ApiResponse<unknown>>(`/approvals/${entity}/${id}`, {
+      method: "POST",
+      body: JSON.stringify({ action: "reject", note }),
+    }, "/approvals");
+  },
+};
+
+// ─── Record Access API ─────────────────────────────────────────────────────
+
+export const accessApi = {
+  getGrants: async (entity: string, entityId: string): Promise<ApiResponse<RecordAccessGrant[]>> => {
+    const searchParams = new URLSearchParams({ entity, entityId });
+    return request<ApiResponse<RecordAccessGrant[]>>(`/access?${searchParams.toString()}`);
+  },
+
+  grant: async (data: { entity: string; entityId: string; userId: string; accessType: "view" | "edit" }): Promise<ApiResponse<RecordAccessGrant>> => {
+    return mutate<ApiResponse<RecordAccessGrant>>("/access", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }, "/access");
+  },
+
+  revoke: async (id: string): Promise<ApiResponse<void>> => {
+    return mutate<ApiResponse<void>>(`/access/${id}`, {
+      method: "DELETE",
+    }, "/access");
   },
 };
 

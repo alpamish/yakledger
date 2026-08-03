@@ -94,6 +94,8 @@ export interface Timesheet {
   overtimeHours: number;
   approvedBy?: string | null;
   approvedAt?: string | null;
+  approvalStatus?: import("@/types/expense").ApprovalStatus;
+  approvalNote?: string | null;
   notes?: string | null;
   createdBy: string;
   createdAt: string;
@@ -141,6 +143,8 @@ export interface FuelUsage {
   receiptAttachment?: string | null;
   linkedExpenseId?: string | null;
   notes?: string | null;
+  approvalStatus?: import("@/types/expense").ApprovalStatus;
+  approvalNote?: string | null;
   createdBy: string;
   createdAt: string;
   updatedAt: string;

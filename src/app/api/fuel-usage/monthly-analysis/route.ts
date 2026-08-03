@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/permissions";
+import { buildAccessScope, withScope, APPROVED } from "@/lib/access-control";
 
 const WARNING_THRESHOLD = 0.05;
 const CRITICAL_THRESHOLD = 0.15;
@@ -35,6 +36,7 @@ interface TimesheetMonthlyGroup {
 export async function GET(request: NextRequest) {
   const result = await requirePermission(request, "fuelUsage:view");
   if ("status" in result) return result;
+  const user = result.user;
 
   try {
     const { searchParams } = new URL(request.url);
@@ -67,7 +69,7 @@ export async function GET(request: NextRequest) {
     }
 
     const allMachinery = await db.machinery.findMany({
-      where: machineryFilter,
+      where: withScope(machineryFilter, await buildAccessScope(user, "machinery")),
       include: {
         assignedContractor: {
           select: { contractorName: true },
@@ -90,12 +92,19 @@ export async function GET(request: NextRequest) {
       dateFilter.fuelType = fuelTypeParam;
     }
 
-    const fuelQueryFilter = { ...dateFilter };
+    const fuelQueryFilter = withScope(
+      { ...dateFilter, approvalStatus: APPROVED },
+      await buildAccessScope(user, "fuelUsage")
+    );
 
-    const timesheetDateFilter = {
-      date: { gte: startDate, lt: endDate } as Record<string, unknown>,
-      machineryId: { in: machineryIds } as { in: string[] },
-    };
+    const timesheetDateFilter = withScope(
+      {
+        date: { gte: startDate, lt: endDate } as Record<string, unknown>,
+        machineryId: { in: machineryIds } as { in: string[] },
+        approvalStatus: APPROVED,
+      },
+      await buildAccessScope(user, "timesheet")
+    );
 
     const [fuelUsageRecords, timesheetRecords] = await Promise.all([
       db.fuelUsage.findMany({

@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/permissions";
+import { buildAccessScope, withScope, APPROVED } from "@/lib/access-control";
 
 export async function GET(request: NextRequest) {
   const result = await requirePermission(request, "machinery:view");
   if ("status" in result) return result;
+  const user = result.user;
   try {
     const { searchParams } = new URL(request.url);
     const page = Math.max(1, parseInt(searchParams.get("page") || "1"));
@@ -32,17 +34,22 @@ export async function GET(request: NextRequest) {
       ? { assignedContractorId: { in: contractorIdFilter } }
       : undefined;
 
+    const machScope = await buildAccessScope(user, "machinery");
+    const machWhere = whereFilter
+      ? withScope(whereFilter, machScope)
+      : withScope({}, machScope);
+
     const [grouped, total] = await Promise.all([
       db.machinery.groupBy({
         by: ["assignedContractorId"],
-        where: whereFilter,
+        where: machWhere,
         _count: { id: true },
         orderBy: { _count: { id: "desc" } },
         skip: (page - 1) * pageSize,
         take: pageSize,
       }),
       db.machinery
-        .groupBy({ by: ["assignedContractorId"], where: whereFilter })
+        .groupBy({ by: ["assignedContractorId"], where: machWhere })
         .then((r) => r.length),
     ]);
 
@@ -63,7 +70,7 @@ export async function GET(request: NextRequest) {
     for (const g of grouped) {
       if (g.assignedContractorId) {
         const machines = await db.machinery.findMany({
-          where: { assignedContractorId: g.assignedContractorId },
+          where: withScope({ assignedContractorId: g.assignedContractorId }, machScope),
           select: { id: true },
         });
         machineryIdsPerContractor.set(g.assignedContractorId, machines.map((m) => m.id));
@@ -78,11 +85,17 @@ export async function GET(request: NextRequest) {
 
           const [hoursAgg, fuelAgg] = await Promise.all([
             db.timesheet.aggregate({
-              where: { machineryId: { in: ids } },
+              where: withScope(
+                { machineryId: { in: ids }, approvalStatus: APPROVED },
+                await buildAccessScope(user, "timesheet")
+              ),
               _sum: { totalHours: true },
             }),
             db.fuelUsage.aggregate({
-              where: { machineryId: { in: ids } },
+              where: withScope(
+                { machineryId: { in: ids }, approvalStatus: APPROVED },
+                await buildAccessScope(user, "fuelUsage")
+              ),
               _sum: { quantity: true, totalCost: true },
             }),
           ]);

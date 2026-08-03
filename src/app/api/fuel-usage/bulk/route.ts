@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/permissions";
+import { resolveApprovalStatusOnCreate, APPROVED } from "@/lib/access-control";
 
 const FUEL_TYPE_VALUES = [
   "DIESEL", "GASOLINE", "LPG", "CNG", "OTHER",
@@ -67,7 +68,10 @@ export async function POST(request: NextRequest) {
         avgPrice = totalQty > 0 ? purchaseCost / totalQty : 0;
       }
 
-      const results = [];
+      const results: Awaited<ReturnType<typeof tx.fuelUsage.create>>[] = [];
+      const approvalStatus = resolveApprovalStatusOnCreate(user);
+      const approvedById = approvalStatus === APPROVED ? user.id : null;
+      const approvedAt = approvalStatus === APPROVED ? new Date() : null;
       for (const record of records) {
         const totalCost = record.quantity * record.unitPrice;
         let fuelTransactionId: string | null = null;
@@ -85,6 +89,9 @@ export async function POST(request: NextRequest) {
               machineryId: record.machineryId ?? null,
               date: new Date(record.date),
               createdBy: user.id,
+              approvalStatus,
+              approvedById,
+              approvedAt,
             },
           });
           fuelTransactionId = fuelTxn.id;
@@ -103,6 +110,9 @@ export async function POST(request: NextRequest) {
             fuelTransactionId,
             notes: record.notes ?? null,
             createdBy: user.id,
+            approvalStatus,
+            approvedById,
+            approvedAt,
           },
           include: includes,
         });

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/permissions";
+import { buildAccessScope, withScope } from "@/lib/access-control";
 
 const updateAssetSchema = z.object({
   name: z.string().min(1).optional(),
@@ -26,10 +27,11 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   try {
     const result = await requirePermission(request, "assets:view");
     if ("status" in result) return result;
+    const user = result.user;
 
     const { id } = await params;
-    const asset = await db.asset.findUnique({
-      where: { id },
+    const asset = await db.asset.findFirst({
+      where: withScope({ id }, await buildAccessScope(user, "asset")),
       include: {
         assignedTo: { select: { id: true, fullName: true, jobTitle: true } },
         maintenanceRecords: {
@@ -68,7 +70,10 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     const user = result.user;
 
     const { id } = await params;
-    const existing = await db.asset.findUnique({ where: { id } });
+    const existing = await db.asset.findFirst({
+      where: withScope({ id }, await buildAccessScope(user, "asset")),
+      select: { id: true },
+    });
     if (!existing) return NextResponse.json({ success: false, error: "Asset not found" }, { status: 404 });
 
     const body = await request.json();
@@ -120,7 +125,10 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
     const user = result.user;
 
     const { id } = await params;
-    const existing = await db.asset.findUnique({ where: { id } });
+    const existing = await db.asset.findFirst({
+      where: withScope({ id }, await buildAccessScope(user, "asset")),
+      select: { name: true },
+    });
     if (!existing) return NextResponse.json({ success: false, error: "Asset not found" }, { status: 404 });
 
     await db.asset.delete({ where: { id } });

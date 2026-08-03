@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/permissions";
+import { buildAccessScope, withScope } from "@/lib/access-control";
 
 const updateMaintenanceSchema = z.object({
   serviceDate: z.string().optional(),
@@ -17,10 +18,11 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   try {
     const result = await requirePermission(request, "assets:view");
     if ("status" in result) return result;
+    const user = result.user;
 
     const { id } = await params;
-    const record = await db.maintenanceRecord.findUnique({
-      where: { id },
+    const record = await db.maintenanceRecord.findFirst({
+      where: withScope({ id }, await buildAccessScope(user, "maintenance")),
       include: { asset: { select: { id: true, name: true, category: true, plateNumber: true } } },
     });
     if (!record) return NextResponse.json({ success: false, error: "Maintenance record not found" }, { status: 404 });
@@ -38,7 +40,10 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     const user = result.user;
 
     const { id } = await params;
-    const existing = await db.maintenanceRecord.findUnique({ where: { id } });
+    const existing = await db.maintenanceRecord.findFirst({
+      where: withScope({ id }, await buildAccessScope(user, "maintenance")),
+      select: { id: true },
+    });
     if (!existing) return NextResponse.json({ success: false, error: "Maintenance record not found" }, { status: 404 });
 
     const body = await request.json();
@@ -81,7 +86,10 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
     const user = result.user;
 
     const { id } = await params;
-    const existing = await db.maintenanceRecord.findUnique({ where: { id } });
+    const existing = await db.maintenanceRecord.findFirst({
+      where: withScope({ id }, await buildAccessScope(user, "maintenance")),
+      select: { id: true },
+    });
     if (!existing) return NextResponse.json({ success: false, error: "Maintenance record not found" }, { status: 404 });
 
     await db.maintenanceRecord.delete({ where: { id } });

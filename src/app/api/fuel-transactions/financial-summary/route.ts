@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/permissions";
+import { buildAccessScope, withScope, APPROVED } from "@/lib/access-control";
 
 const transactionIncludes = {
   asset: { select: { id: true, name: true, category: true } },
@@ -13,6 +14,7 @@ const transactionIncludes = {
 export async function GET(request: NextRequest) {
   const result = await requirePermission(request, "fuelUsage:view");
   if ("status" in result) return result;
+  const user = result.user;
   try {
     const { searchParams } = new URL(request.url);
     const dateFrom = searchParams.get("dateFrom");
@@ -26,7 +28,10 @@ export async function GET(request: NextRequest) {
     }
 
     const allTransactions = await db.fuelTransaction.findMany({
-      where: dateFilter,
+      where: withScope(
+        { ...dateFilter, approvalStatus: APPROVED },
+        await buildAccessScope(user, "fuelTransaction")
+      ),
       include: transactionIncludes,
       orderBy: { date: "desc" },
     });
@@ -93,6 +98,7 @@ export async function GET(request: NextRequest) {
       .sort((a, b) => b.totalQty - a.totalQty);
 
     const allMachinery = await db.machinery.findMany({
+      where: withScope({}, await buildAccessScope(user, "machinery")),
       include: {
         assignedContractor: { select: { contractorName: true } },
       },

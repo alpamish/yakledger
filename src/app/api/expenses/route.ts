@@ -4,6 +4,12 @@ import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/permissions";
 import { Prisma } from "@prisma/client";
 import { walletService } from "@/services/wallet.service";
+import {
+  buildAccessScope,
+  withScope,
+  resolveApprovalStatusOnCreate,
+  APPROVED,
+} from "@/lib/access-control";
 
 // Schema for creating an expense
 const createExpenseSchema = z.object({
@@ -52,6 +58,7 @@ export async function GET(request: NextRequest) {
   try {
     const result = await requirePermission(request, "expenses:view");
     if ("status" in result) return result;
+    const user = result.user;
 
     const { searchParams } = new URL(request.url);
 
@@ -175,10 +182,13 @@ export async function GET(request: NextRequest) {
     const sortField = validSortFields.includes(sortBy) ? sortBy : "createdAt";
     const order = sortOrder === "asc" ? "asc" : "desc";
 
+    const scope = await buildAccessScope(user, "expense");
+    const scopedWhere = withScope(where, scope);
+
     // Execute queries
     const [expenses, total] = await Promise.all([
       db.expense.findMany({
-        where,
+        where: scopedWhere,
         include: {
           paidToEmployee: {
             select: {
@@ -201,7 +211,7 @@ export async function GET(request: NextRequest) {
         skip: (page - 1) * pageSize,
         take: pageSize,
       }),
-      db.expense.count({ where }),
+      db.expense.count({ where: scopedWhere }),
     ]);
 
     const totalPages = Math.ceil(total / pageSize);
@@ -257,6 +267,7 @@ export async function POST(request: NextRequest) {
     }
 
     const expense = await db.$transaction(async (tx) => {
+      const approvalStatus = resolveApprovalStatusOnCreate(user);
       const created = await tx.expense.create({
         data: {
           title: data.title,
@@ -276,6 +287,9 @@ export async function POST(request: NextRequest) {
           paidToContractorId: data.paidToContractorId ?? null,
           paidByContractorId: data.paidByContractorId ?? null,
           createdBy: user.id,
+          approvalStatus,
+          approvedById: approvalStatus === APPROVED ? user.id : null,
+          approvedAt: approvalStatus === APPROVED ? new Date() : null,
         },
         include: {
           creator: {
@@ -303,8 +317,8 @@ export async function POST(request: NextRequest) {
       return created;
     });
 
-    // If expense is paid by an employee, auto-deduct from their wallet (best-effort)
-    if (data.paidById) {
+    // If expense is approved and paid by an employee, deduct from their wallet (best-effort)
+    if (expense.approvalStatus === APPROVED && data.paidById) {
       try {
         await walletService.deductFromWallet(data.paidById, data.amount, user.id);
       } catch (walletErr) {

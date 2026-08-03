@@ -8,11 +8,13 @@ const PERMISSIONS = [
   { name: "expenses:create", label: "Create Expenses", module: "expenses" },
   { name: "expenses:edit", label: "Edit Expenses", module: "expenses" },
   { name: "expenses:delete", label: "Delete Expenses", module: "expenses" },
+  { name: "expenses:approve", label: "Approve Expenses", module: "expenses" },
 
   { name: "employees:view", label: "View Employees", module: "employees" },
   { name: "employees:create", label: "Create Employees", module: "employees" },
   { name: "employees:edit", label: "Edit Employees", module: "employees" },
   { name: "employees:delete", label: "Delete Employees", module: "employees" },
+  { name: "employees:approve", label: "Approve Attendance", module: "employees" },
 
   { name: "contractors:view", label: "View Contractors", module: "contractors" },
   { name: "contractors:create", label: "Create Contractors", module: "contractors" },
@@ -29,6 +31,7 @@ const PERMISSIONS = [
   { name: "fuelUsage:create", label: "Create Fuel Usage", module: "fuelUsage" },
   { name: "fuelUsage:edit", label: "Edit Fuel Usage", module: "fuelUsage" },
   { name: "fuelUsage:delete", label: "Delete Fuel Usage", module: "fuelUsage" },
+  { name: "fuelUsage:approve", label: "Approve Fuel Usage", module: "fuelUsage" },
 
   { name: "machinery:view", label: "View Machinery", module: "machinery" },
   { name: "machinery:create", label: "Create Machinery", module: "machinery" },
@@ -39,10 +42,12 @@ const PERMISSIONS = [
   { name: "assets:create", label: "Create Assets", module: "assets" },
   { name: "assets:edit", label: "Edit Assets", module: "assets" },
   { name: "assets:delete", label: "Delete Assets", module: "assets" },
+  { name: "assets:approve", label: "Approve Asset Logs", module: "assets" },
 
   { name: "cashAdvance:view", label: "View Cash & Advances", module: "cashAdvance" },
   { name: "cashAdvance:create", label: "Create Cash Transactions", module: "cashAdvance" },
   { name: "cashAdvance:delete", label: "Delete Cash Transactions", module: "cashAdvance" },
+  { name: "cashAdvance:approve", label: "Approve Cash Transactions", module: "cashAdvance" },
 
   { name: "reports:view", label: "View Reports", module: "reports" },
 
@@ -60,14 +65,14 @@ const ROLE_PERMISSIONS: Record<string, string[]> = {
   ADMIN: PERMISSIONS.map((p) => p.name),
   MANAGER: [
     "dashboard:view", "projectCost:view",
-    "expenses:view", "expenses:create", "expenses:edit",
-    "employees:view", "employees:create", "employees:edit",
+    "expenses:view", "expenses:create", "expenses:edit", "expenses:approve",
+    "employees:view", "employees:create", "employees:edit", "employees:approve",
     "contractors:view", "contractors:create", "contractors:edit",
     "timesheets:view", "timesheets:create", "timesheets:edit", "timesheets:approve",
-    "fuelUsage:view", "fuelUsage:create", "fuelUsage:edit",
+    "fuelUsage:view", "fuelUsage:create", "fuelUsage:edit", "fuelUsage:approve",
     "machinery:view", "machinery:create", "machinery:edit",
-    "assets:view", "assets:create", "assets:edit",
-    "cashAdvance:view", "cashAdvance:create",
+    "assets:view", "assets:create", "assets:edit", "assets:approve",
+    "cashAdvance:view", "cashAdvance:create", "cashAdvance:approve",
     "reports:view",
     "settings:view",
     "users:view", "users:create", "users:edit",

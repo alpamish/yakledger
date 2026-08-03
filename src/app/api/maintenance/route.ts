@@ -3,6 +3,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/permissions";
 import { Prisma } from "@prisma/client";
+import { buildAccessScope, withScope } from "@/lib/access-control";
 
 const createMaintenanceSchema = z.object({
   assetId: z.string().min(1, "Asset is required"),
@@ -19,6 +20,7 @@ export async function GET(request: NextRequest) {
   try {
     const result = await requirePermission(request, "assets:view");
     if ("status" in result) return result;
+    const user = result.user;
 
     const { searchParams } = new URL(request.url);
     const page = Math.max(1, parseInt(searchParams.get("page") || "1"));
@@ -43,15 +45,17 @@ export async function GET(request: NextRequest) {
     const sortField = validSortFields.includes(sortBy) ? sortBy : "serviceDate";
     const order = sortOrder === "asc" ? "asc" : "desc";
 
+    const scopedWhere = withScope(where, await buildAccessScope(user, "maintenance"));
+
     const [records, total] = await Promise.all([
       db.maintenanceRecord.findMany({
-        where,
+        where: scopedWhere,
         include: { asset: { select: { id: true, name: true, category: true, plateNumber: true } } },
         orderBy: { [sortField]: order },
         skip: (page - 1) * pageSize,
         take: pageSize,
       }),
-      db.maintenanceRecord.count({ where }),
+      db.maintenanceRecord.count({ where: scopedWhere }),
     ]);
 
     return NextResponse.json({
@@ -78,8 +82,11 @@ export async function POST(request: NextRequest) {
 
     const data = parsed.data;
 
-    // Verify asset exists
-    const asset = await db.asset.findUnique({ where: { id: data.assetId } });
+    // Verify asset exists and is accessible
+    const asset = await db.asset.findFirst({
+      where: withScope({ id: data.assetId }, await buildAccessScope(user, "asset")),
+      select: { id: true, name: true, status: true },
+    });
     if (!asset) return NextResponse.json({ success: false, error: "Asset not found" }, { status: 404 });
 
     const record = await db.maintenanceRecord.create({

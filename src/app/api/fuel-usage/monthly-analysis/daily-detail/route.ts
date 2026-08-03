@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/permissions";
+import { buildAccessScope, withScope, APPROVED } from "@/lib/access-control";
 
 const WARNING_THRESHOLD = 0.05;
 const CRITICAL_THRESHOLD = 0.15;
@@ -17,6 +18,7 @@ function getMonthLabel(month: number): string {
 export async function GET(request: NextRequest) {
   const result = await requirePermission(request, "fuelUsage:view");
   if ("status" in result) return result;
+  const user = result.user;
 
   try {
     const { searchParams } = new URL(request.url);
@@ -48,8 +50,8 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const mach = await db.machinery.findUnique({
-      where: { id: machineryId },
+    const mach = await db.machinery.findFirst({
+      where: withScope({ id: machineryId }, await buildAccessScope(user, "machinery")),
       include: {
         assignedContractor: {
           select: { contractorName: true },
@@ -68,10 +70,14 @@ export async function GET(request: NextRequest) {
     const endDate = new Date(year, monthNum, 1);
 
     const fuelUsageRecords = await db.fuelUsage.findMany({
-      where: {
-        machineryId,
-        date: { gte: startDate, lt: endDate },
-      },
+      where: withScope(
+        {
+          machineryId,
+          approvalStatus: APPROVED,
+          date: { gte: startDate, lt: endDate },
+        },
+        await buildAccessScope(user, "fuelUsage")
+      ),
       select: {
         date: true,
         quantity: true,
@@ -81,10 +87,14 @@ export async function GET(request: NextRequest) {
     });
 
     const timesheetRecords = await db.timesheet.findMany({
-      where: {
-        machineryId,
-        date: { gte: startDate, lt: endDate },
-      },
+      where: withScope(
+        {
+          machineryId,
+          approvalStatus: APPROVED,
+          date: { gte: startDate, lt: endDate },
+        },
+        await buildAccessScope(user, "timesheet")
+      ),
       select: {
         date: true,
         totalHours: true,

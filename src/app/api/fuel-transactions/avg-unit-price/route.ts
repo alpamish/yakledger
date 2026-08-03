@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/permissions";
+import { buildAccessScope, withScope, APPROVED } from "@/lib/access-control";
 
 export async function GET(request: NextRequest) {
   const result = await requirePermission(request, "fuelUsage:view");
   if ("status" in result) return result;
+  const user = result.user;
   try {
     const { searchParams } = new URL(request.url);
     const fuelType = searchParams.get("fuelType");
@@ -17,7 +19,10 @@ export async function GET(request: NextRequest) {
     }
 
     const aggregation = await db.fuelTransaction.aggregate({
-      where: { type: "PURCHASE", fuelType },
+      where: withScope(
+        { type: "PURCHASE", fuelType, approvalStatus: APPROVED },
+        await buildAccessScope(user, "fuelTransaction")
+      ),
       _sum: { quantity: true, totalCost: true },
     });
 

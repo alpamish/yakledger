@@ -1,22 +1,28 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/permissions";
+import { buildAccessScope, withScope, APPROVED } from "@/lib/access-control";
 
 export async function GET(request: NextRequest) {
   const result = await requirePermission(request, "fuelUsage:view");
   if ("status" in result) return result;
+  const user = result.user;
   try {
     const { searchParams } = new URL(request.url);
     const containerId = searchParams.get("containerId") || undefined;
 
+    const fuelTxnScope = await buildAccessScope(user, "fuelTransaction");
+    const approvedFuelWhere = (extra: Record<string, unknown>) =>
+      withScope({ ...extra, approvalStatus: APPROVED }, fuelTxnScope);
+
     if (containerId) {
       const transactions = await db.fuelTransaction.findMany({
-        where: {
+        where: approvedFuelWhere({
           OR: [
             { containerId },
             { destinationContainerId: containerId },
           ],
-        },
+        }),
       });
 
       let balance = 0;
@@ -71,6 +77,7 @@ export async function GET(request: NextRequest) {
 
     const fuelPurchases = await db.fuelTransaction.groupBy({
       by: ["fuelType", "type"],
+      where: withScope({ approvalStatus: APPROVED }, fuelTxnScope),
       _sum: { quantity: true },
     });
 
@@ -91,19 +98,19 @@ export async function GET(request: NextRequest) {
     }));
 
     const containers = await db.asset.findMany({
-      where: { category: "FUEL", status: "ACTIVE" },
+      where: withScope({ category: "FUEL", status: "ACTIVE" }, await buildAccessScope(user, "asset")),
       select: { id: true, name: true, fuelType: true, fuelCapacity: true, fuelLocation: true, isMainContainer: true },
     });
 
     const containerStock = await Promise.all(
       containers.map(async (c) => {
         const containerTransactions = await db.fuelTransaction.findMany({
-          where: {
+          where: approvedFuelWhere({
             OR: [
               { containerId: c.id },
               { destinationContainerId: c.id },
             ],
-          },
+          }),
         });
 
         let balance = 0;

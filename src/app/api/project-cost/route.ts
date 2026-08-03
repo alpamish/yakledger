@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/permissions";
+import { buildAccessScope, withScope, approvedOnly } from "@/lib/access-control";
 import { CATEGORY_LABELS, CATEGORY_COLORS } from "@/types/expense";
 import { PROJECT_COST_COLORS, FUEL_TYPE_LABELS } from "@/types/project-cost";
 import type {
@@ -61,16 +62,36 @@ function getMonthRange(monthsBack: number): Date[] {
 export async function GET(request: NextRequest) {
   const result = await requirePermission(request, "projectCost:view");
   if ("status" in result) return result;
+  const user = result.user;
 
   try {
     const { searchParams } = new URL(request.url);
     const dateFrom = searchParams.get("dateFrom");
     const dateTo = searchParams.get("dateTo");
 
+    const [expenseScope, fuelScope, timesheetScope, cashScope, assetScope, employeeScope, attendanceScope, machineryScope] =
+      await Promise.all([
+        buildAccessScope(user, "expense"),
+        buildAccessScope(user, "fuelTransaction"),
+        buildAccessScope(user, "timesheet"),
+        buildAccessScope(user, "cashTransaction"),
+        buildAccessScope(user, "asset"),
+        buildAccessScope(user, "employee"),
+        buildAccessScope(user, "attendance"),
+        buildAccessScope(user, "machinery"),
+      ]);
+
     const dateFilter = buildDateFilter(dateFrom, dateTo, "expenseDate");
     const fuelDateFilter = buildDateFilter(dateFrom, dateTo, "date");
     const timesheetDateFilter = buildDateFilter(dateFrom, dateTo, "date");
     const cashDateFilter = buildDateFilter(dateFrom, dateTo, "createdAt");
+
+    const scopedExpenses = (extra: Record<string, unknown> = {}) =>
+      withScope({ ...approvedOnly(), ...dateFilter, ...extra }, expenseScope);
+    const scopedFuel = (extra: Record<string, unknown> = {}) =>
+      withScope({ ...approvedOnly(), ...fuelDateFilter, ...extra }, fuelScope);
+    const scopedCash = (extra: Record<string, unknown> = {}) =>
+      withScope({ ...approvedOnly(), ...cashDateFilter, ...extra }, cashScope);
 
     const [
       totalExpAgg,
@@ -89,48 +110,48 @@ export async function GET(request: NextRequest) {
       rawExpenses,
       rawFuelPurchases,
     ] = await Promise.all([
-      db.expense.aggregate({ where: dateFilter as never, _sum: { amount: true } }),
+      db.expense.aggregate({ where: scopedExpenses() as never, _sum: { amount: true } }),
 
       db.expense.aggregate({
-        where: { ...dateFilter, category: "SALARY" } as never,
+        where: scopedExpenses({ category: "SALARY" }) as never,
         _sum: { amount: true },
       }),
 
       db.expense.aggregate({
-        where: { ...dateFilter, paidToContractorId: { not: null } } as never,
+        where: scopedExpenses({ paidToContractorId: { not: null } }) as never,
         _sum: { amount: true },
       }),
 
       db.fuelTransaction.aggregate({
-        where: { ...fuelDateFilter, type: "PURCHASE" } as never,
+        where: scopedFuel({ type: "PURCHASE" }) as never,
         _sum: { totalCost: true },
       }),
 
       db.fuelTransaction.groupBy({
         by: ["fuelType"],
-        where: { ...fuelDateFilter, type: "PURCHASE" } as never,
+        where: scopedFuel({ type: "PURCHASE" }) as never,
         _sum: { totalCost: true },
       }),
 
-      db.asset.aggregate({ _sum: { purchasePrice: true } }),
+      db.asset.aggregate({ where: withScope({}, assetScope) as never, _sum: { purchasePrice: true } }),
 
       db.cashTransaction.aggregate({
-        where: { ...cashDateFilter, type: "ADVANCE" } as never,
+        where: scopedCash({ type: "ADVANCE" }) as never,
         _sum: { amount: true },
       }),
 
       db.cashTransaction.aggregate({
-        where: { ...cashDateFilter, type: "RETURN" } as never,
+        where: scopedCash({ type: "RETURN" }) as never,
         _sum: { amount: true },
       }),
 
       db.transfer.aggregate({
-        where: cashDateFilter as never,
+        where: withScope({ ...approvedOnly(), ...cashDateFilter }, await buildAccessScope(user, "transfer")) as never,
         _sum: { amount: true },
       }),
 
       db.timesheet.findMany({
-        where: timesheetDateFilter as never,
+        where: withScope({ ...approvedOnly(), ...timesheetDateFilter }, timesheetScope) as never,
         select: {
           totalHours: true,
           date: true,
@@ -141,25 +162,30 @@ export async function GET(request: NextRequest) {
       }),
 
       db.employee.findMany({
-        where: { status: "ACTIVE" },
+        where: withScope({ status: "ACTIVE" }, employeeScope) as never,
         select: { id: true, fullName: true, salary: true },
       }),
 
       db.attendance.findMany({
-        where: {
-          employee: { status: "ACTIVE" },
-          ...timesheetDateFilter,
-          status: { in: ["PRESENT", "HALF_DAY"] },
-        } as never,
+        where: withScope(
+          {
+            ...approvedOnly(),
+            employee: { status: "ACTIVE" },
+            ...timesheetDateFilter,
+            status: { in: ["PRESENT", "HALF_DAY"] },
+          },
+          attendanceScope
+        ) as never,
         select: { employeeId: true, status: true, date: true },
       }),
 
       db.machinery.findMany({
+        where: withScope({}, machineryScope) as never,
         select: { assignedContractorId: true },
       }),
 
       db.expense.findMany({
-        where: dateFilter as never,
+        where: scopedExpenses() as never,
         select: {
           amount: true,
           expenseDate: true,
@@ -172,7 +198,7 @@ export async function GET(request: NextRequest) {
       }),
 
       db.fuelTransaction.findMany({
-        where: { ...fuelDateFilter, type: "PURCHASE" } as never,
+        where: scopedFuel({ type: "PURCHASE" }) as never,
         select: { totalCost: true, date: true, fuelType: true },
       }),
     ]);
@@ -187,10 +213,7 @@ export async function GET(request: NextRequest) {
     let machineryPaid = 0;
     if (machineryContractorIds.length > 0) {
       const paidResult = await db.expense.aggregate({
-        where: {
-          ...dateFilter,
-          paidToContractorId: { in: machineryContractorIds },
-        } as never,
+        where: scopedExpenses({ paidToContractorId: { in: machineryContractorIds } }) as never,
         _sum: { amount: true },
       });
       machineryPaid = paidResult._sum.amount ?? 0;
@@ -361,7 +384,7 @@ export async function GET(request: NextRequest) {
 
     const advanceDetailMap: Record<string, ProjectCostDetail> = {};
     const allAdvances = await db.cashTransaction.findMany({
-      where: { ...cashDateFilter, type: { in: ["ADVANCE", "RETURN"] } } as never,
+      where: scopedCash({ type: { in: ["ADVANCE", "RETURN"] } }) as never,
       select: { amount: true, type: true, employee: { select: { id: true, fullName: true } } },
     });
     for (const txn of allAdvances) {

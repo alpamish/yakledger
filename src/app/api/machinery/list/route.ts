@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/permissions";
+import { buildAccessScope, withScope } from "@/lib/access-control";
 
 // GET /api/machinery/list - Simple machinery list for dropdowns
 export async function GET(request: NextRequest) {
   const result = await requirePermission(request, "machinery:view");
   if ("status" in result) return result;
+  const user = result.user;
   try {
     const { searchParams } = new URL(request.url);
     const statusesParam = searchParams.get("status");
@@ -17,7 +19,7 @@ export async function GET(request: NextRequest) {
     }
 
     const machinery = await db.machinery.findMany({
-      where,
+      where: withScope(where, await buildAccessScope(user, "machinery")),
       select: {
         id: true,
         machineryName: true,

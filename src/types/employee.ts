@@ -279,6 +279,8 @@ export interface AttendanceRecord {
   status: AttendanceStatus;
   notes: string | null;
   overtimeHours: number;
+  approvalStatus?: import("@/types/expense").ApprovalStatus;
+  approvalNote?: string | null;
   createdAt: string;
 }
 

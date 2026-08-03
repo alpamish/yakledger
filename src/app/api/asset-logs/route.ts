@@ -3,6 +3,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/permissions";
 import { Prisma } from "@prisma/client";
+import { buildAccessScope, withScope, resolveApprovalStatusOnCreate, APPROVED } from "@/lib/access-control";
 
 const createAssetLogSchema = z.object({
   assetId: z.string().min(1, "Asset is required"),
@@ -29,6 +30,7 @@ export async function GET(request: NextRequest) {
   try {
     const result = await requirePermission(request, "assets:view");
     if ("status" in result) return result;
+    const user = result.user;
 
     const { searchParams } = new URL(request.url);
     const page = Math.max(1, parseInt(searchParams.get("page") || "1"));
@@ -56,9 +58,11 @@ export async function GET(request: NextRequest) {
     const sortField = validSortFields.includes(sortBy) ? sortBy : "date";
     const order = sortOrder === "asc" ? "asc" : "desc";
 
+    const scopedWhere = withScope(where, await buildAccessScope(user, "assetLog"));
+
     const [logs, total] = await Promise.all([
       db.assetLog.findMany({
-        where,
+        where: scopedWhere,
         include: {
           asset: { select: { id: true, name: true, category: true, plateNumber: true } },
           operator: { select: { id: true, fullName: true } },
@@ -68,7 +72,7 @@ export async function GET(request: NextRequest) {
         skip: (page - 1) * pageSize,
         take: pageSize,
       }),
-      db.assetLog.count({ where }),
+      db.assetLog.count({ where: scopedWhere }),
     ]);
 
     return NextResponse.json({
@@ -109,6 +113,10 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    const approvalStatus = resolveApprovalStatusOnCreate(user);
+    const approvedById = approvalStatus === APPROVED ? user.id : null;
+    const approvedAt = approvalStatus === APPROVED ? new Date() : null;
+
     const log = await db.assetLog.create({
       data: {
         assetId: data.assetId,
@@ -130,6 +138,9 @@ export async function POST(request: NextRequest) {
         status: data.status ?? "PENDING",
         remarks: data.remarks ?? null,
         createdBy: user.id,
+        approvalStatus,
+        approvedById,
+        approvedAt,
       },
       include: {
         asset: { select: { id: true, name: true, category: true, plateNumber: true } },

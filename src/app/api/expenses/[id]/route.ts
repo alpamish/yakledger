@@ -3,6 +3,13 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/permissions";
 import { walletService } from "@/services/wallet.service";
+import {
+  buildAccessScope,
+  withScope,
+  resolveApprovalStatusOnEdit,
+  APPROVED,
+  PENDING,
+} from "@/lib/access-control";
 
 // Schema for updating an expense (all fields optional)
 const updateExpenseSchema = z.object({
@@ -62,9 +69,11 @@ export async function PUT(
 
     const { id } = await params;
 
-    // Check if expense exists
-    const existingExpense = await db.expense.findUnique({
-      where: { id },
+    const scope = await buildAccessScope(user, "expense");
+
+    // Check if expense exists AND the user has access to it
+    const existingExpense = await db.expense.findFirst({
+      where: withScope({ id }, scope),
     });
 
     if (!existingExpense) {
@@ -106,6 +115,19 @@ export async function PUT(
     if (data.paidToContractorId !== undefined) updateData.paidToContractorId = data.paidToContractorId;
     if (data.paidByContractorId !== undefined) updateData.paidByContractorId = data.paidByContractorId;
 
+    const newApprovalStatus = resolveApprovalStatusOnEdit(user, existingExpense.approvalStatus);
+    updateData.approvalStatus = newApprovalStatus;
+    if (newApprovalStatus === PENDING) {
+      updateData.approvedById = null;
+      updateData.approvedAt = null;
+    } else if (newApprovalStatus === APPROVED) {
+      updateData.approvedById = user.id;
+      updateData.approvedAt = new Date();
+    }
+
+    const wasApproved = existingExpense.approvalStatus === APPROVED;
+    const staysApproved = newApprovalStatus === APPROVED;
+
     const expense = await db.$transaction(async (tx) => {
       const updated = await tx.expense.update({
         where: { id },
@@ -136,32 +158,40 @@ export async function PUT(
       return updated;
     });
 
-    // If paidById or amount changed, adjust wallet balance (best-effort)
+    // Wallet adjustments only ever apply to approved expenses.
     const oldPaidById = existingExpense.paidById;
     const newPaidById = data.paidById !== undefined ? data.paidById : oldPaidById;
     const oldAmount = existingExpense.amount;
     const newAmount = data.amount !== undefined ? data.amount : oldAmount;
 
-    // Refund the old employee if paidById changed
-    if (oldPaidById && oldPaidById !== newPaidById) {
-      try { await walletService.addBackToWallet(oldPaidById, oldAmount, user.id); }
-      catch (e) { console.warn("Wallet refund on paidById change failed:", e); }
-    }
+    if (wasApproved && !staysApproved) {
+      // Re-submission: refund the wallet; deduction re-applies on re-approval.
+      if (oldPaidById) {
+        try { await walletService.addBackToWallet(oldPaidById, oldAmount, user.id); }
+        catch (e) { console.warn("Wallet refund on re-submission failed:", e); }
+      }
+    } else if (wasApproved && staysApproved) {
+      // Refund the old employee if paidById changed
+      if (oldPaidById && oldPaidById !== newPaidById) {
+        try { await walletService.addBackToWallet(oldPaidById, oldAmount, user.id); }
+        catch (e) { console.warn("Wallet refund on paidById change failed:", e); }
+      }
 
-    if (newPaidById) {
-      if (!oldPaidById || oldPaidById !== newPaidById) {
-        // Deduct full amount for a newly assigned employee
-        try { await walletService.deductFromWallet(newPaidById, newAmount, user.id); }
-        catch (e) { console.warn("Wallet deduction on paidById change failed:", e); }
-      } else {
-        // Same employee — adjust by the diff only
-        const diff = newAmount - oldAmount;
-        if (diff > 0) {
-          try { await walletService.deductFromWallet(newPaidById, diff, user.id); }
-          catch (e) { console.warn("Wallet deduction on update failed:", e); }
-        } else if (diff < 0) {
-          try { await walletService.addBackToWallet(newPaidById, Math.abs(diff), user.id); }
-          catch (e) { console.warn("Wallet add-back on update failed:", e); }
+      if (newPaidById) {
+        if (!oldPaidById || oldPaidById !== newPaidById) {
+          // Deduct full amount for a newly assigned employee
+          try { await walletService.deductFromWallet(newPaidById, newAmount, user.id); }
+          catch (e) { console.warn("Wallet deduction on paidById change failed:", e); }
+        } else {
+          // Same employee — adjust by the diff only
+          const diff = newAmount - oldAmount;
+          if (diff > 0) {
+            try { await walletService.deductFromWallet(newPaidById, diff, user.id); }
+            catch (e) { console.warn("Wallet deduction on update failed:", e); }
+          } else if (diff < 0) {
+            try { await walletService.addBackToWallet(newPaidById, Math.abs(diff), user.id); }
+            catch (e) { console.warn("Wallet add-back on update failed:", e); }
+          }
         }
       }
     }
@@ -192,9 +222,11 @@ export async function DELETE(
 
     const { id } = await params;
 
-    // Check if expense exists
-    const existingExpense = await db.expense.findUnique({
-      where: { id },
+    const scope = await buildAccessScope(user, "expense");
+
+    // Check if expense exists AND the user has access to it
+    const existingExpense = await db.expense.findFirst({
+      where: withScope({ id }, scope),
     });
 
     if (!existingExpense) {
@@ -220,8 +252,8 @@ export async function DELETE(
       });
     });
 
-    // If expense was paid by an employee, add back to their wallet (best-effort)
-    if (existingExpense.paidById) {
+    // If expense was approved and paid by an employee, add back to their wallet (best-effort)
+    if (existingExpense.approvalStatus === APPROVED && existingExpense.paidById) {
       try {
         await walletService.addBackToWallet(existingExpense.paidById, existingExpense.amount, user.id);
       } catch (walletErr) {

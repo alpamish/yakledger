@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/permissions";
+import { buildAccessScope, withScope, resolveApprovalStatusOnEdit, APPROVED } from "@/lib/access-control";
 
 const updateAssetLogSchema = z.object({
   date: z.string().optional(),
@@ -31,10 +32,11 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   try {
     const result = await requirePermission(request, "assets:view");
     if ("status" in result) return result;
+    const user = result.user;
 
     const { id } = await params;
-    const log = await db.assetLog.findUnique({
-      where: { id },
+    const log = await db.assetLog.findFirst({
+      where: withScope({ id }, await buildAccessScope(user, "assetLog")),
       include: {
         asset: { select: { id: true, name: true, category: true, plateNumber: true } },
         operator: { select: { id: true, fullName: true } },
@@ -56,7 +58,16 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     const user = result.user;
 
     const { id } = await params;
-    const existing = await db.assetLog.findUnique({ where: { id } });
+    const existing = await db.assetLog.findFirst({
+      where: withScope({ id }, await buildAccessScope(user, "assetLog")),
+      select: {
+        startOdometer: true,
+        endOdometer: true,
+        engineHoursStart: true,
+        engineHoursEnd: true,
+        approvalStatus: true,
+      },
+    });
     if (!existing) return NextResponse.json({ success: false, error: "Asset log not found" }, { status: 404 });
 
     const body = await request.json();
@@ -102,6 +113,11 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     if (data.status !== undefined) updateData.status = data.status;
     if (data.remarks !== undefined) updateData.remarks = data.remarks ?? null;
 
+    const approvalStatus = resolveApprovalStatusOnEdit(user, existing.approvalStatus);
+    updateData.approvalStatus = approvalStatus;
+    updateData.approvedById = approvalStatus === APPROVED ? user.id : null;
+    updateData.approvedAt = approvalStatus === APPROVED ? new Date() : null;
+
     const log = await db.assetLog.update({
       where: { id },
       data: updateData,
@@ -130,7 +146,10 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     const user = result.user;
 
     const { id } = await params;
-    const existing = await db.assetLog.findUnique({ where: { id } });
+    const existing = await db.assetLog.findFirst({
+      where: withScope({ id }, await buildAccessScope(user, "assetLog")),
+      select: { id: true },
+    });
     if (!existing) return NextResponse.json({ success: false, error: "Asset log not found" }, { status: 404 });
 
     const body = await request.json();
@@ -143,8 +162,10 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       where: { id },
       data: {
         status: parsed.data.status,
+        approvalStatus: parsed.data.status,
         approvedById: user.id,
         approvedAt: new Date(),
+        approvalNote: parsed.data.status === "REJECTED" ? "Rejected via asset log review" : null,
       },
       include: {
         asset: { select: { id: true, name: true, category: true, plateNumber: true } },
@@ -177,7 +198,10 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
     const user = result.user;
 
     const { id } = await params;
-    const existing = await db.assetLog.findUnique({ where: { id } });
+    const existing = await db.assetLog.findFirst({
+      where: withScope({ id }, await buildAccessScope(user, "assetLog")),
+      select: { id: true },
+    });
     if (!existing) return NextResponse.json({ success: false, error: "Asset log not found" }, { status: 404 });
 
     await db.assetLog.delete({ where: { id } });

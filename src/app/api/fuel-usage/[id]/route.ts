@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/permissions";
+import { buildAccessScope, withScope, resolveApprovalStatusOnEdit, APPROVED } from "@/lib/access-control";
 
 const FUEL_TYPE_VALUES = [
   "DIESEL", "GASOLINE", "LPG", "CNG", "OTHER",
@@ -46,9 +47,9 @@ export async function PUT(
     const data = parsed.data;
 
     // Get existing record including fuelTransactionId
-    const existing = await db.fuelUsage.findUnique({
-      where: { id },
-      select: { quantity: true, unitPrice: true, fuelTransactionId: true },
+    const existing = await db.fuelUsage.findFirst({
+      where: withScope({ id }, await buildAccessScope(user, "fuelUsage")),
+      select: { quantity: true, unitPrice: true, fuelTransactionId: true, approvalStatus: true },
     });
 
     if (!existing) {
@@ -79,9 +80,15 @@ export async function PUT(
 
     // Use transaction to update both FuelUsage and linked FuelTransaction
     const fuelUsage = await db.$transaction(async (tx) => {
+      const approvalStatus = resolveApprovalStatusOnEdit(user, existing.approvalStatus);
       const fuelUsage = await tx.fuelUsage.update({
         where: { id },
-        data: updateData,
+        data: {
+          ...updateData,
+          approvalStatus,
+          approvedById: approvalStatus === APPROVED ? user.id : null,
+          approvedAt: approvalStatus === APPROVED ? new Date() : null,
+        },
         include: {
           contractor: {
             select: { id: true, contractorName: true, contractorType: true },
@@ -164,8 +171,8 @@ export async function DELETE(
     const { id } = await params;
 
     // Get fuel usage info before deletion for audit log and linked transaction
-    const fuelUsage = await db.fuelUsage.findUnique({
-      where: { id },
+    const fuelUsage = await db.fuelUsage.findFirst({
+      where: withScope({ id }, await buildAccessScope(user, "fuelUsage")),
       select: { fuelType: true, quantity: true, totalCost: true, fuelTransactionId: true },
     });
 

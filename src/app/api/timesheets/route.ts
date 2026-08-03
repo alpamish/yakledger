@@ -3,6 +3,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/permissions";
 import { Prisma } from "@prisma/client";
+import { buildAccessScope, withScope, resolveApprovalStatusOnCreate, APPROVED } from "@/lib/access-control";
 
 const createTimesheetSchema = z.object({
   contractorId: z.string().min(1, "Contractor is required"),
@@ -49,6 +50,7 @@ export async function GET(request: NextRequest) {
   try {
     const result = await requirePermission(request, "timesheets:view");
     if ("status" in result) return result;
+    const user = result.user;
 
     const { searchParams } = new URL(request.url);
 
@@ -96,9 +98,11 @@ export async function GET(request: NextRequest) {
     const sortField = validSortFields.includes(sortBy) ? sortBy : "date";
     const order = sortOrder === "asc" ? "asc" : "desc";
 
+    const scopedWhere = withScope(where, await buildAccessScope(user, "timesheet"));
+
     const [timesheets, total] = await Promise.all([
       db.timesheet.findMany({
-        where,
+        where: scopedWhere,
         include: {
           contractor: {
             select: { id: true, contractorName: true, contractorType: true },
@@ -114,7 +118,7 @@ export async function GET(request: NextRequest) {
         skip: (page - 1) * pageSize,
         take: pageSize,
       }),
-      db.timesheet.count({ where }),
+      db.timesheet.count({ where: scopedWhere }),
     ]);
 
     const totalPages = Math.ceil(total / pageSize);
@@ -165,6 +169,7 @@ export async function POST(request: NextRequest) {
     }
 
     const timesheet = await db.$transaction(async (tx) => {
+      const approvalStatus = resolveApprovalStatusOnCreate(user);
       const created = await tx.timesheet.create({
         data: {
           contractorId: data.contractorId,
@@ -182,6 +187,9 @@ export async function POST(request: NextRequest) {
           approvedBy: data.approvedBy ?? null,
           notes: data.notes ?? null,
           createdBy: user.id,
+          approvalStatus,
+          approvedById: approvalStatus === APPROVED ? user.id : null,
+          approvedAt: approvalStatus === APPROVED ? new Date() : null,
         },
         include: {
           contractor: {

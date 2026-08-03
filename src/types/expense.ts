@@ -56,6 +56,55 @@ export function buildPermissionName(module: Module, action: PermissionAction): s
   return `${module}:${action}`;
 }
 
+// ─── Approval Workflow Types ──────────────────────────────────────────────────
+
+export const APPROVAL_STATUSES = ["PENDING", "APPROVED", "REJECTED"] as const;
+export type ApprovalStatus = (typeof APPROVAL_STATUSES)[number];
+
+export const APPROVAL_STATUS_LABELS: Record<ApprovalStatus, string> = {
+  PENDING: "Pending",
+  APPROVED: "Approved",
+  REJECTED: "Rejected",
+};
+
+export const APPROVAL_STATUS_COLORS: Record<ApprovalStatus, string> = {
+  PENDING: "#f59e0b",
+  APPROVED: "#10b981",
+  REJECTED: "#ef4444",
+};
+
+export const RECORD_ACCESS_TYPES = ["view", "edit"] as const;
+export type RecordAccessType = (typeof RECORD_ACCESS_TYPES)[number];
+
+export interface ApprovalItem {
+  entity: string;
+  id: string;
+  summary: string;
+  amount?: number;
+  date?: string;
+  status: ApprovalStatus;
+  approvalNote: string | null;
+  createdAt: string;
+  createdBy: { id: string; name: string } | null;
+}
+
+export interface ApprovalsResponse {
+  items: ApprovalItem[];
+  counts: Record<string, number>;
+  total: number;
+}
+
+export interface RecordAccessGrant {
+  id: string;
+  entity: string;
+  entityId: string;
+  userId: string;
+  accessType: RecordAccessType;
+  grantedBy: string;
+  createdAt: string;
+  user?: { id: string; name: string; email: string; role: string };
+}
+
 export interface PermissionDefinition {
   name: string;
   label: string;
@@ -163,6 +212,10 @@ export interface Expense {
   paidByContractorId?: string | null;
   createdAt: string;
   updatedAt: string;
+  approvalStatus?: ApprovalStatus;
+  approvalNote?: string | null;
+  approvedById?: string | null;
+  approvedAt?: string | null;
   creator?: User;
   paidByEmployee?: { id: string; fullName: string; jobTitle: string; department: string } | null;
   paidToEmployee?: { id: string; fullName: string; jobTitle: string; department: string } | null;
@@ -284,6 +337,8 @@ export interface CashTransaction {
   referenceNumber?: string | null;
   createdById: string;
   createdAt: string;
+  approvalStatus?: ApprovalStatus;
+  approvalNote?: string | null;
   employee?: { id: string; fullName: string; jobTitle: string; department: string };
   creator?: { id: string; name: string };
 }
@@ -305,6 +360,8 @@ export interface Transfer {
   referenceNumber?: string | null;
   createdById: string;
   createdAt: string;
+  approvalStatus?: ApprovalStatus;
+  approvalNote?: string | null;
   fromEmployee?: { id: string; fullName: string; jobTitle: string; department: string };
   toEmployee?: { id: string; fullName: string; jobTitle: string; department: string };
   creator?: { id: string; name: string };

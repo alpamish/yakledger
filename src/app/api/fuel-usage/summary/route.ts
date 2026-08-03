@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/permissions";
+import { buildAccessScope, withScope, APPROVED } from "@/lib/access-control";
 
 export async function GET(request: NextRequest) {
   const result = await requirePermission(request, "fuelUsage:view");
   if ("status" in result) return result;
+  const user = result.user;
   try {
     const { searchParams } = new URL(request.url);
     const dateFrom = searchParams.get("dateFrom") || undefined;
@@ -32,30 +34,35 @@ export async function GET(request: NextRequest) {
       dateFilter.machinery = { machineryType };
     }
 
+    const where = withScope(
+      { ...dateFilter, approvalStatus: APPROVED },
+      await buildAccessScope(user, "fuelUsage")
+    );
+
     const [aggregation, dailyGroup, typeGroup, fuelGroup, count] = await Promise.all([
       db.fuelUsage.aggregate({
-        where: dateFilter,
+        where,
         _sum: { quantity: true, totalCost: true },
         _avg: { unitPrice: true },
       }),
       db.fuelUsage.groupBy({
         by: ["date"],
-        where: dateFilter,
+        where,
         _sum: { quantity: true, totalCost: true },
         _count: true,
         orderBy: { date: "asc" },
       }),
       db.fuelUsage.groupBy({
         by: ["machineryId"],
-        where: dateFilter,
+        where,
         _sum: { quantity: true, totalCost: true },
       }),
       db.fuelUsage.groupBy({
         by: ["fuelType"],
-        where: dateFilter,
+        where,
         _sum: { quantity: true, totalCost: true },
       }),
-      db.fuelUsage.count({ where: dateFilter }),
+      db.fuelUsage.count({ where }),
     ]);
 
     const dailyUsage = dailyGroup.map((d) => ({

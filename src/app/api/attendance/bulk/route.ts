@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/permissions";
+import { buildAccessScope, withScope, resolveApprovalStatusOnCreate, resolveApprovalStatusOnEdit, APPROVED } from "@/lib/access-control";
 
 const ATTENDANCE_STATUSES = ["PRESENT", "ABSENT", "HALF_DAY", "LEAVE", "HOLIDAY"] as const;
 const VALID_STATUSES = new Set(ATTENDANCE_STATUSES);
@@ -33,15 +34,29 @@ export async function POST(request: NextRequest) {
 
       const existing = await db.attendance.findUnique({
         where: { employeeId_date: { employeeId, date: new Date(date) } },
+        select: { id: true, approvalStatus: true },
       });
 
       if (existing) {
+        const scopedExisting = await db.attendance.findFirst({
+          where: withScope({ id: existing.id }, await buildAccessScope(user, "attendance")),
+          select: { id: true },
+        });
+        if (!scopedExisting) continue;
+        const approvalStatus = resolveApprovalStatusOnEdit(user, existing.approvalStatus);
         await db.attendance.update({
           where: { id: existing.id },
-          data: { status, notes: notes ?? null },
+          data: {
+            status,
+            notes: notes ?? null,
+            approvalStatus,
+            approvedById: approvalStatus === APPROVED ? user.id : null,
+            approvedAt: approvalStatus === APPROVED ? new Date() : null,
+          },
         });
         updated++;
       } else {
+        const approvalStatus = resolveApprovalStatusOnCreate(user);
         await db.attendance.create({
           data: {
             employeeId,
@@ -49,6 +64,9 @@ export async function POST(request: NextRequest) {
             status,
             notes: notes ?? null,
             createdBy: user.id,
+            approvalStatus,
+            approvedById: approvalStatus === APPROVED ? user.id : null,
+            approvedAt: approvalStatus === APPROVED ? new Date() : null,
           },
         });
         created++;

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/permissions";
+import { buildAccessScope, withScope, resolveApprovalStatusOnEdit, APPROVED } from "@/lib/access-control";
 
 const ATTENDANCE_STATUSES = ["PRESENT", "ABSENT", "HALF_DAY", "LEAVE", "HOLIDAY"] as const;
 const VALID_STATUSES = new Set(ATTENDANCE_STATUSES);
@@ -13,6 +14,7 @@ export async function PUT(
   try {
     const result = await requirePermission(request, "employees:edit");
     if ("status" in result) return result;
+    const user = result.user;
 
     const { id } = await params;
     const body = await request.json();
@@ -35,7 +37,10 @@ export async function PUT(
       }
     }
 
-    const existing = await db.attendance.findUnique({ where: { id } });
+    const existing = await db.attendance.findFirst({
+      where: withScope({ id }, await buildAccessScope(user, "attendance")),
+      select: { approvalStatus: true },
+    });
     if (!existing) {
       return NextResponse.json(
         { success: false, error: "Attendance record not found" },
@@ -47,6 +52,11 @@ export async function PUT(
     if (status) updateData.status = status;
     if (notes !== undefined) updateData.notes = notes;
     if (overtimeHours !== undefined && overtimeHours !== null) updateData.overtimeHours = Number(overtimeHours);
+
+    const approvalStatus = resolveApprovalStatusOnEdit(user, existing.approvalStatus);
+    updateData.approvalStatus = approvalStatus;
+    updateData.approvedById = approvalStatus === APPROVED ? user.id : null;
+    updateData.approvedAt = approvalStatus === APPROVED ? new Date() : null;
 
     const record = await db.attendance.update({
       where: { id },
@@ -71,10 +81,14 @@ export async function DELETE(
   try {
     const result = await requirePermission(request, "employees:delete");
     if ("status" in result) return result;
+    const user = result.user;
 
     const { id } = await params;
 
-    const existing = await db.attendance.findUnique({ where: { id } });
+    const existing = await db.attendance.findFirst({
+      where: withScope({ id }, await buildAccessScope(user, "attendance")),
+      select: { id: true },
+    });
     if (!existing) {
       return NextResponse.json(
         { success: false, error: "Attendance record not found" },

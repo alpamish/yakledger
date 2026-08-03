@@ -2,17 +2,26 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { Prisma } from "@prisma/client";
 import { requirePermission } from "@/lib/permissions";
+import { buildAccessScope, APPROVED } from "@/lib/access-control";
 
 // GET /api/expenses/dashboard - Get dashboard statistics
 export async function GET(request: NextRequest) {
   const result = await requirePermission(request, "dashboard:view");
   if ("status" in result) return result;
+  const user = result.user;
   try {
+    const scope = await buildAccessScope(user, "expense");
+    const approvedFilter: Prisma.ExpenseWhereInput = {
+      approvalStatus: APPROVED,
+      ...scope,
+    };
+
     // Get total expenses and total amount
     const aggregateResult = await db.expense.aggregate({
       _count: { id: true },
       _sum: { amount: true },
       _avg: { amount: true },
+      where: approvedFilter,
     });
 
     const totalExpenses = aggregateResult._count.id;
@@ -32,6 +41,7 @@ export async function GET(request: NextRequest) {
           gte: startOfMonth,
           lte: endOfMonth,
         },
+        ...approvedFilter,
       },
     });
 
@@ -43,6 +53,7 @@ export async function GET(request: NextRequest) {
       by: ["category"],
       _sum: { amount: true },
       _count: { id: true },
+      where: approvedFilter,
       orderBy: { _sum: { amount: "desc" } },
     });
 
@@ -76,6 +87,7 @@ export async function GET(request: NextRequest) {
             gte: monthStart,
             lte: monthEnd,
           },
+          ...approvedFilter,
         },
       });
 
@@ -94,6 +106,7 @@ export async function GET(request: NextRequest) {
     // Get recent expenses (last 5)
     const recentExpenses = await db.expense.findMany({
       take: 5,
+      where: approvedFilter,
       orderBy: { createdAt: "desc" },
       include: {
         creator: {

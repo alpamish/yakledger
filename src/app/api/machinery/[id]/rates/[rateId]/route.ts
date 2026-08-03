@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/permissions";
+import { buildAccessScope, withScope } from "@/lib/access-control";
 
 const updateRateSchema = z.object({
   rateName: z.string().min(1).optional(),
@@ -19,9 +20,22 @@ export async function PUT(
 ) {
   const result = await requirePermission(request, "machinery:edit");
   if ("status" in result) return result;
+  const user = result.user;
 
   try {
     const { id, rateId } = await params;
+    const rateExists = await db.machineryRate.findFirst({
+      where: withScope({ id: rateId, machineryId: id }, await buildAccessScope(user, "machineryRate")),
+      select: { id: true },
+    });
+
+    if (!rateExists) {
+      return NextResponse.json(
+        { success: false, error: "Rate not found" },
+        { status: 404 }
+      );
+    }
+
     const body = await request.json();
     const parsed = updateRateSchema.safeParse(body);
 
@@ -65,9 +79,22 @@ export async function DELETE(
 ) {
   const result = await requirePermission(request, "machinery:delete");
   if ("status" in result) return result;
+  const user = result.user;
 
   try {
     const { id, rateId } = await params;
+
+    const rateExists = await db.machineryRate.findFirst({
+      where: withScope({ id: rateId, machineryId: id }, await buildAccessScope(user, "machineryRate")),
+      select: { id: true },
+    });
+
+    if (!rateExists) {
+      return NextResponse.json(
+        { success: false, error: "Rate not found" },
+        { status: 404 }
+      );
+    }
 
     const count = await db.machineryRate.count({ where: { machineryId: id } });
     if (count <= 1) {

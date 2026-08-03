@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/permissions";
+import { buildAccessScope, withScope } from "@/lib/access-control";
 
 const FUEL_TYPE_VALUES = [
   "DIESEL", "GASOLINE", "LPG", "CNG", "OTHER",
@@ -38,11 +39,12 @@ export async function GET(
   try {
     const result = await requirePermission(request, "machinery:view");
     if ("status" in result) return result;
+    const user = result.user;
 
     const { id } = await params;
 
-    const machinery = await db.machinery.findUnique({
-      where: { id },
+    const machinery = await db.machinery.findFirst({
+      where: withScope({ id }, await buildAccessScope(user, "machinery")),
       include: {
         assignedContractor: {
           select: { id: true, contractorName: true, contractorType: true },
@@ -109,7 +111,19 @@ export async function PUT(
       }
     }
 
-    const machinery = await db.machinery.update({
+    const machinery = await db.machinery.findFirst({
+      where: withScope({ id }, await buildAccessScope(user, "machinery")),
+      select: { id: true, machineryName: true, machineryType: true },
+    });
+
+    if (!machinery) {
+      return NextResponse.json(
+        { success: false, error: "Machinery not found" },
+        { status: 404 }
+      );
+    }
+
+    const updatedMachinery = await db.machinery.update({
       where: { id },
       data: updateData,
       include: {
@@ -128,14 +142,14 @@ export async function PUT(
         action: "UPDATE",
         entity: "Machinery",
         entityId: machinery.id,
-        details: `Updated machinery: ${machinery.machineryName}`,
+        details: `Updated machinery: ${updatedMachinery.machineryName}`,
         userId: user.id,
       },
     });
 
     return NextResponse.json({
       success: true,
-      data: machinery,
+      data: updatedMachinery,
       message: "Machinery updated successfully",
     });
   } catch (error) {
@@ -160,8 +174,8 @@ export async function DELETE(
     const { id } = await params;
 
     // Get machinery info before deletion for audit log
-    const machinery = await db.machinery.findUnique({
-      where: { id },
+    const machinery = await db.machinery.findFirst({
+      where: withScope({ id }, await buildAccessScope(user, "machinery")),
       select: { machineryName: true, machineryType: true },
     });
 

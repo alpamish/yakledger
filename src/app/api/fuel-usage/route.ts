@@ -3,6 +3,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/permissions";
 import { Prisma } from "@prisma/client";
+import { buildAccessScope, withScope, resolveApprovalStatusOnCreate, APPROVED } from "@/lib/access-control";
 
 const FUEL_TYPE_VALUES = [
   "DIESEL", "GASOLINE", "LPG", "CNG", "OTHER",
@@ -28,6 +29,7 @@ export async function GET(request: NextRequest) {
   try {
     const result = await requirePermission(request, "fuelUsage:view");
     if ("status" in result) return result;
+    const user = result.user;
 
     const { searchParams } = new URL(request.url);
 
@@ -86,9 +88,11 @@ export async function GET(request: NextRequest) {
     const sortField = validSortFields.includes(sortBy) ? sortBy : "date";
     const order = sortOrder === "asc" ? "asc" : "desc";
 
+    const scopedWhere = withScope(where, await buildAccessScope(user, "fuelUsage"));
+
     const [fuelUsages, total] = await Promise.all([
       db.fuelUsage.findMany({
-        where,
+        where: scopedWhere,
         include: {
           contractor: {
             select: { id: true, contractorName: true, contractorType: true },
@@ -104,7 +108,7 @@ export async function GET(request: NextRequest) {
         skip: (page - 1) * pageSize,
         take: pageSize,
       }),
-      db.fuelUsage.count({ where }),
+      db.fuelUsage.count({ where: scopedWhere }),
     ]);
 
     const totalPages = Math.ceil(total / pageSize);
@@ -168,6 +172,7 @@ export async function POST(request: NextRequest) {
 
     const fuelUsage = await db.$transaction(async (tx) => {
       let fuelTransactionId: string | null = null;
+      const approvalStatus = resolveApprovalStatusOnCreate(user);
 
       if (data.containerId) {
         const aggregation = await tx.fuelTransaction.aggregate({
@@ -190,6 +195,9 @@ export async function POST(request: NextRequest) {
             machineryId: data.machineryId ?? null,
             date: new Date(data.date),
             createdBy: user.id,
+            approvalStatus,
+            approvedById: approvalStatus === APPROVED ? user.id : null,
+            approvedAt: approvalStatus === APPROVED ? new Date() : null,
           },
         });
         fuelTransactionId = fuelTxn.id;

@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/permissions";
+import { buildAccessScope, withScope } from "@/lib/access-control";
+import { walletService } from "@/services/wallet.service";
+import { APPROVED } from "@/lib/access-control";
 
 const bulkDeleteSchema = z.object({
   ids: z
@@ -29,10 +32,12 @@ export async function POST(request: NextRequest) {
 
     const { ids } = parsed.data;
 
-    // Verify expenses exist
+    const scope = await buildAccessScope(user, "expense");
+
+    // Verify expenses exist AND are accessible to the user
     const expenses = await db.expense.findMany({
-      where: { id: { in: ids } },
-      select: { id: true, title: true, amount: true },
+      where: withScope({ id: { in: ids } }, scope),
+      select: { id: true, title: true, amount: true, paidById: true, approvalStatus: true },
     });
 
     if (expenses.length === 0) {
@@ -41,6 +46,8 @@ export async function POST(request: NextRequest) {
         { status: 404 }
       );
     }
+
+    const accessibleIds = expenses.map((e) => e.id);
 
     const deleted = await db.$transaction(async (tx) => {
       await tx.auditLog.createMany({
@@ -54,9 +61,20 @@ export async function POST(request: NextRequest) {
       });
 
       return tx.expense.deleteMany({
-        where: { id: { in: ids } },
+        where: { id: { in: accessibleIds } },
       });
     });
+
+    // Refund wallets for any approved, employee-paid expenses (best-effort)
+    for (const expense of expenses) {
+      if (expense.approvalStatus === APPROVED && expense.paidById) {
+        try {
+          await walletService.addBackToWallet(expense.paidById, expense.amount, user.id);
+        } catch (walletErr) {
+          console.warn("Wallet add-back failed:", walletErr);
+        }
+      }
+    }
 
     return NextResponse.json({
       success: true,

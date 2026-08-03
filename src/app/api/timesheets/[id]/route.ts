@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/permissions";
+import { buildAccessScope, withScope, resolveApprovalStatusOnEdit, APPROVED } from "@/lib/access-control";
 
 const updateTimesheetSchema = z.object({
   contractorId: z.string().min(1).optional(),
@@ -81,8 +82,8 @@ export async function PUT(
 
     // Auto-recalculate totalHours if any time field changed and totalHours not explicitly set
     if ((data.startTime !== undefined || data.lunchStart !== undefined || data.lunchEnd !== undefined || data.endTime !== undefined) && data.totalHours === undefined) {
-      const existing = await db.timesheet.findUnique({
-        where: { id },
+      const existing = await db.timesheet.findFirst({
+        where: withScope({ id }, await buildAccessScope(user, "timesheet")),
         select: { startTime: true, lunchStart: true, lunchEnd: true, endTime: true },
       });
       if (existing) {
@@ -96,6 +97,23 @@ export async function PUT(
         }
       }
     }
+
+    const current = await db.timesheet.findFirst({
+      where: withScope({ id }, await buildAccessScope(user, "timesheet")),
+      select: { approvalStatus: true },
+    });
+
+    if (!current) {
+      return NextResponse.json(
+        { success: false, error: "Timesheet not found" },
+        { status: 404 }
+      );
+    }
+
+    const approvalStatus = resolveApprovalStatusOnEdit(user, current.approvalStatus);
+    updateData.approvalStatus = approvalStatus;
+    updateData.approvedById = approvalStatus === APPROVED ? user.id : null;
+    updateData.approvedAt = approvalStatus === APPROVED ? new Date() : null;
 
     const timesheet = await db.timesheet.update({
       where: { id },
@@ -148,8 +166,8 @@ export async function DELETE(
     const { id } = await params;
 
     // Get timesheet info before deletion for audit log
-    const timesheet = await db.timesheet.findUnique({
-      where: { id },
+    const timesheet = await db.timesheet.findFirst({
+      where: withScope({ id }, await buildAccessScope(user, "timesheet")),
       select: { operatorName: true, date: true },
     });
 

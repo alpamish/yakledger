@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/permissions";
+import { buildAccessScope, withScope, resolveApprovalStatusOnEdit, APPROVED } from "@/lib/access-control";
 
 const updateFuelTransactionSchema = z.object({
   type: z.enum(["PURCHASE", "TRANSFER", "ISSUE"]).optional(),
@@ -32,10 +33,11 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   try {
     const result = await requirePermission(request, "fuelUsage:view");
     if ("status" in result) return result;
+    const user = result.user;
 
     const { id } = await params;
-    const transaction = await db.fuelTransaction.findUnique({
-      where: { id },
+    const transaction = await db.fuelTransaction.findFirst({
+      where: withScope({ id }, await buildAccessScope(user, "fuelTransaction")),
       include: transactionIncludes,
     });
     if (!transaction) return NextResponse.json({ success: false, error: "Fuel transaction not found" }, { status: 404 });
@@ -53,7 +55,10 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     const user = result.user;
 
     const { id } = await params;
-    const existing = await db.fuelTransaction.findUnique({ where: { id } });
+    const existing = await db.fuelTransaction.findFirst({
+      where: withScope({ id }, await buildAccessScope(user, "fuelTransaction")),
+      select: { approvalStatus: true },
+    });
     if (!existing) return NextResponse.json({ success: false, error: "Fuel transaction not found" }, { status: 404 });
 
     const body = await request.json();
@@ -79,6 +84,11 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     if (data.notes !== undefined) updateData.notes = data.notes ?? null;
     if (data.date !== undefined) updateData.date = new Date(data.date);
 
+    const approvalStatus = resolveApprovalStatusOnEdit(user, existing.approvalStatus);
+    updateData.approvalStatus = approvalStatus;
+    updateData.approvedById = approvalStatus === APPROVED ? user.id : null;
+    updateData.approvedAt = approvalStatus === APPROVED ? new Date() : null;
+
     const transaction = await db.fuelTransaction.update({
       where: { id },
       data: updateData,
@@ -103,7 +113,10 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
     const user = result.user;
 
     const { id } = await params;
-    const existing = await db.fuelTransaction.findUnique({ where: { id } });
+    const existing = await db.fuelTransaction.findFirst({
+      where: withScope({ id }, await buildAccessScope(user, "fuelTransaction")),
+      select: { id: true },
+    });
     if (!existing) return NextResponse.json({ success: false, error: "Fuel transaction not found" }, { status: 404 });
 
     // Also delete linked FuelUsage if exists

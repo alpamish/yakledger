@@ -226,6 +226,8 @@ export interface AssetLog {
   status: string;
   approvedById?: string | null;
   approvedAt?: string | null;
+  approvalStatus?: import("@/types/expense").ApprovalStatus;
+  approvalNote?: string | null;
   remarks?: string | null;
   createdBy: string;
   createdAt: string;

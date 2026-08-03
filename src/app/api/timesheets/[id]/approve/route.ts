@@ -14,7 +14,7 @@ export async function POST(
 
     const timesheet = await db.timesheet.findUnique({
       where: { id },
-      select: { approvedBy: true },
+      select: { approvedBy: true, approvalStatus: true },
     });
 
     if (!timesheet) {
@@ -24,7 +24,7 @@ export async function POST(
       );
     }
 
-    if (timesheet.approvedBy) {
+    if (timesheet.approvalStatus === "APPROVED" || timesheet.approvedBy) {
       return NextResponse.json(
         { success: false, error: "Timesheet is already approved" },
         { status: 400 }
@@ -35,7 +35,10 @@ export async function POST(
       where: { id },
       data: {
         approvedBy: user.id,
+        approvedById: user.id,
         approvedAt: new Date(),
+        approvalStatus: "APPROVED",
+        approvalNote: null,
       },
       include: {
         contractor: {

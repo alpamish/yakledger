@@ -3,6 +3,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/permissions";
 import { Prisma } from "@prisma/client";
+import { buildAccessScope, withScope, APPROVED } from "@/lib/access-control";
 
 const CONTRACTOR_TYPE_VALUES = [
   "MACHINERY_CONTRACTOR",
@@ -40,16 +41,18 @@ export async function GET(
   try {
     const result = await requirePermission(request, "contractors:view");
     if ("status" in result) return result;
+    const user = result.user;
 
     const { id } = await params;
 
-    const contractor = await db.contractor.findUnique({
-      where: { id },
+    const contractor = await db.contractor.findFirst({
+      where: withScope({ id }, await buildAccessScope(user, "contractor")),
       include: {
         creator: {
           select: { id: true, email: true, name: true, role: true, avatar: true },
         },
         expensesPaidTo: {
+          where: withScope({ approvalStatus: APPROVED }, await buildAccessScope(user, "expense")),
           select: {
             id: true,
             title: true,
@@ -65,6 +68,7 @@ export async function GET(
           take: 20,
         },
         timesheets: {
+          where: withScope({ approvalStatus: APPROVED }, await buildAccessScope(user, "timesheet")),
           orderBy: { date: "desc" },
           take: 20,
           select: {
@@ -92,6 +96,7 @@ export async function GET(
           },
         },
         fuelUsages: {
+          where: withScope({ approvalStatus: APPROVED }, await buildAccessScope(user, "fuelUsage")),
           orderBy: { date: "desc" },
           take: 20,
           include: {
@@ -126,7 +131,10 @@ export async function GET(
 
     // Compute totalExpensesPaid
     const totalExpensesResult = await db.expense.aggregate({
-      where: { paidToContractorId: id },
+      where: withScope(
+        { paidToContractorId: id, approvalStatus: APPROVED },
+        await buildAccessScope(user, "expense")
+      ),
       _sum: { amount: true },
     });
     const totalExpensesPaid = totalExpensesResult._sum.amount ?? 0;
@@ -135,10 +143,14 @@ export async function GET(
     const now = new Date();
     const sixMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 5, 1);
     const monthlyExpensesRaw = await db.expense.findMany({
-      where: {
-        paidToContractorId: id,
-        expenseDate: { gte: sixMonthsAgo },
-      },
+      where: withScope(
+        {
+          paidToContractorId: id,
+          approvalStatus: APPROVED,
+          expenseDate: { gte: sixMonthsAgo },
+        },
+        await buildAccessScope(user, "expense")
+      ),
       select: { amount: true, expenseDate: true },
     });
 
@@ -212,7 +224,19 @@ export async function PUT(
       }
     }
 
-    const contractor = await db.contractor.update({
+    const contractor = await db.contractor.findFirst({
+      where: withScope({ id }, await buildAccessScope(user, "contractor")),
+      select: { id: true },
+    });
+
+    if (!contractor) {
+      return NextResponse.json(
+        { success: false, error: "Contractor not found" },
+        { status: 404 }
+      );
+    }
+
+    const updateResult = await db.contractor.update({
       where: { id },
       data: updateData,
       include: {
@@ -228,7 +252,7 @@ export async function PUT(
         action: "UPDATE",
         entity: "Contractor",
         entityId: contractor.id,
-        details: `Updated contractor: ${contractor.contractorName}`,
+        details: `Updated contractor: ${updateResult.contractorName}`,
         userId: user.id,
       },
     });
@@ -266,8 +290,8 @@ export async function DELETE(
     const { id } = await params;
 
     // Get contractor name before deletion for audit log
-    const contractor = await db.contractor.findUnique({
-      where: { id },
+    const contractor = await db.contractor.findFirst({
+      where: withScope({ id }, await buildAccessScope(user, "contractor")),
       select: { contractorName: true },
     });
 

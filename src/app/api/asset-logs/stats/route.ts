@@ -1,20 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/permissions";
+import { buildAccessScope, withScope, APPROVED } from "@/lib/access-control";
 
 export async function GET(request: NextRequest) {
   const result = await requirePermission(request, "assets:view");
   if ("status" in result) return result;
+  const user = result.user;
   try {
     const now = new Date();
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
     const startOfYear = new Date(now.getFullYear(), 0, 1);
 
+    const scope = await buildAccessScope(user, "assetLog");
     const [totalLogs, monthLogs, yearLogs, assetSummaries] = await Promise.all([
-      db.assetLog.count().catch((e) => { console.error("totalLogs error:", e); return 0; }),
-      db.assetLog.count({ where: { date: { gte: startOfMonth } } }).catch((e) => { console.error("monthLogs error:", e); return 0; }),
+      db.assetLog.count({ where: withScope({ approvalStatus: APPROVED }, scope) }).catch((e) => { console.error("totalLogs error:", e); return 0; }),
+      db.assetLog.count({ where: withScope({ date: { gte: startOfMonth }, approvalStatus: APPROVED }, scope) }).catch((e) => { console.error("monthLogs error:", e); return 0; }),
       db.assetLog.findMany({
-        where: { date: { gte: startOfYear } },
+        where: withScope({ date: { gte: startOfYear }, approvalStatus: APPROVED }, scope),
         select: {
           distanceTraveled: true,
           fuelConsumed: true,
@@ -26,7 +29,7 @@ export async function GET(request: NextRequest) {
         by: ["assetId"],
         _count: true,
         _sum: { distanceTraveled: true, fuelConsumed: true, engineHoursUsed: true },
-        where: { date: { gte: startOfYear } },
+        where: withScope({ date: { gte: startOfYear }, approvalStatus: APPROVED }, scope),
       }).catch((e) => { console.error("assetSummaries error:", e); return []; }),
     ]);
 

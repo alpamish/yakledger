@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/permissions";
+import { resolveApprovalStatusOnCreate, APPROVED } from "@/lib/access-control";
 
 const bulkRecordSchema = z.object({
   contractorId: z.string().min(1, "Contractor is required"),
@@ -82,6 +83,9 @@ export async function POST(request: NextRequest) {
 
     const created = await db.$transaction(async (tx) => {
       const results: Array<{ id: string }> = [];
+      const approvalStatus = resolveApprovalStatusOnCreate(user);
+      const approvedById = approvalStatus === APPROVED ? user.id : null;
+      const approvedAt = approvalStatus === APPROVED ? new Date() : null;
       for (const record of records) {
         const WORK_HOURS_PER_DAY = 9;
         const hours = record.totalHours != null && record.totalHours > 0
@@ -104,6 +108,9 @@ export async function POST(request: NextRequest) {
             overtimeHours: hours.overtimeHours,
             notes: record.notes ?? null,
             createdBy: user.id,
+            approvalStatus,
+            approvedById,
+            approvedAt,
           },
           include: includes,
         });

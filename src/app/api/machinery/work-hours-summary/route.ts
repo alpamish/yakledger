@@ -2,10 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { Prisma } from "@prisma/client";
 import { requirePermission } from "@/lib/permissions";
+import { buildAccessScope, withScope, APPROVED } from "@/lib/access-control";
 
 export async function GET(request: NextRequest) {
   const result = await requirePermission(request, "machinery:view");
   if ("status" in result) return result;
+  const user = result.user;
   try {
     const { searchParams } = new URL(request.url);
     const page = Math.max(1, parseInt(searchParams.get("page") || "1"));
@@ -36,9 +38,11 @@ export async function GET(request: NextRequest) {
       where.OR = orConditions;
     }
 
+    const scopedWhere = withScope(where, await buildAccessScope(user, "machinery"));
+
     const [machinery, total] = await Promise.all([
       db.machinery.findMany({
-        where,
+        where: scopedWhere,
         select: {
           id: true,
           machineryName: true,
@@ -57,14 +61,17 @@ export async function GET(request: NextRequest) {
         skip: (page - 1) * pageSize,
         take: pageSize,
       }),
-      db.machinery.count({ where }),
+      db.machinery.count({ where: scopedWhere }),
     ]);
 
     const machineryIds = machinery.map((m) => m.id);
 
     // Fetch all timesheets with their machineryRateId for these machinery
     const timesheets = await db.timesheet.findMany({
-      where: { machineryId: { in: machineryIds } },
+      where: withScope(
+        { machineryId: { in: machineryIds }, approvalStatus: APPROVED },
+        await buildAccessScope(user, "timesheet")
+      ),
       select: {
         machineryId: true,
         totalHours: true,

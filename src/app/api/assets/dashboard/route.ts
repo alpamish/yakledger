@@ -1,35 +1,48 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/permissions";
+import { buildAccessScope, withScope, APPROVED } from "@/lib/access-control";
 
 export async function GET(request: NextRequest) {
   const result = await requirePermission(request, "assets:view");
   if ("status" in result) return result;
+  const user = result.user;
   try {
+    const assetScope = await buildAccessScope(user, "asset");
+    const maintenanceScope = await buildAccessScope(user, "maintenance");
+    const fuelTxnScope = await buildAccessScope(user, "fuelTransaction");
     const [totalAssets, assetsByCategory, assetsByStatus, underMaintenanceCount, monthlyMaintenance, monthlyFuel, totalValue] =
       await Promise.all([
-        db.asset.count(),
-        db.asset.groupBy({ by: ["category"], _count: true }),
-        db.asset.groupBy({ by: ["status"], _count: true }),
-        db.asset.count({ where: { status: "UNDER_REPAIR" } }),
+        db.asset.count({ where: withScope({}, assetScope) }),
+        db.asset.groupBy({ where: withScope({}, assetScope), by: ["category"], _count: true }),
+        db.asset.groupBy({ where: withScope({}, assetScope), by: ["status"], _count: true }),
+        db.asset.count({ where: withScope({ status: "UNDER_REPAIR" }, assetScope) }),
         db.maintenanceRecord.groupBy({
           by: ["serviceDate"],
           _sum: { cost: true },
-          where: { serviceDate: { gte: new Date(new Date().getFullYear(), new Date().getMonth() - 11, 1) } },
+          where: withScope(
+            { serviceDate: { gte: new Date(new Date().getFullYear(), new Date().getMonth() - 11, 1) } },
+            maintenanceScope
+          ),
         }),
         db.fuelTransaction.groupBy({
           by: ["date"],
-          where: {
-            type: "ISSUE",
-            date: { gte: new Date(new Date().getFullYear(), new Date().getMonth() - 11, 1) },
-          },
+          where: withScope(
+            {
+              type: "ISSUE",
+              approvalStatus: APPROVED,
+              date: { gte: new Date(new Date().getFullYear(), new Date().getMonth() - 11, 1) },
+            },
+            fuelTxnScope
+          ),
           _sum: { quantity: true },
         }),
-        db.asset.aggregate({ _sum: { currentValue: true } }),
+        db.asset.aggregate({ where: withScope({}, assetScope), _sum: { currentValue: true } }),
       ]);
 
     const fuelPurchases = await db.fuelTransaction.groupBy({
       by: ["fuelType", "type"],
+      where: withScope({ approvalStatus: APPROVED }, fuelTxnScope),
       _sum: { quantity: true },
     });
 

@@ -179,6 +179,31 @@ model User {
   userPermissions UserPermission[]
   timesheetApprovals  Timesheet[] @relation("TimesheetApprovedBy")
   machineryRates      MachineryRate[]
+
+  recordAccesses         RecordAccess[]
+  expenseApprovals       Expense[]       @relation("ExpenseApprover")
+  timesheetApprovalApprovals Timesheet[]  @relation("TimesheetApprovalApprover")
+  fuelUsageApprovals     FuelUsage[]      @relation("FuelUsageApprover")
+  cashTransactionApprovals CashTransaction[] @relation("CashTransactionApprover")
+  transferApprovals      Transfer[]       @relation("TransferApprover")
+  attendanceApprovals    Attendance[]     @relation("AttendanceApprover")
+}
+
+model RecordAccess {
+  id         String   @id @default(cuid())
+  entity     String
+  entityId   String
+  userId     String
+  accessType String   @default("view")
+  grantedBy  String
+  createdAt  DateTime @default(now())
+
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([entity, entityId, userId])
+  @@index([entity, entityId])
+  @@index([userId])
+  @@index([entity, userId])
 }
 
 model Permission {
@@ -277,11 +302,18 @@ model Attendance {
   creator     User     @relation(fields: [createdBy], references: [id])
   createdAt   DateTime @default(now())
 
+  approvalStatus  String   @default("PENDING")
+  approvedById    String?
+  approvedAt      DateTime?
+  approvalNote    String?
+  approver        User?    @relation("AttendanceApprover", fields: [approvedById], references: [id], onDelete: SetNull)
+
   @@unique([employeeId, date])
   @@index([employeeId])
   @@index([date])
   @@index([status])
   @@index([createdBy])
+  @@index([approvalStatus])
 }
 
 model Expense {
@@ -316,6 +348,12 @@ model Expense {
   paidToContractor Contractor? @relation("ExpensePaidToContractor", fields: [paidToContractorId], references: [id], onDelete: SetNull)
   paidByContractor Contractor? @relation("ExpensePaidByContractor", fields: [paidByContractorId], references: [id], onDelete: SetNull)
 
+  approvalStatus String   @default("PENDING")
+  approvedById   String?
+  approvedAt     DateTime?
+  approvalNote   String?
+  approver       User?    @relation("ExpenseApprover", fields: [approvedById], references: [id], onDelete: SetNull)
+
   fuelUsage      FuelUsage[]
 
   @@index([expenseDate])
@@ -331,6 +369,7 @@ model Expense {
   @@index([paidBy])
   @@index([paidTo])
   @@index([category, expenseDate])
+  @@index([approvalStatus])
 }
 
 model Contractor {
@@ -381,6 +420,9 @@ model Timesheet {
   overtimeHours   Float    @default(0)
   approvedBy      String?
   approvedAt      DateTime?
+  approvalStatus  String   @default("PENDING")
+  approvedById    String?
+  approvalNote    String?
   notes           String?
   createdBy       String
   createdAt       DateTime @default(now())
@@ -391,11 +433,14 @@ model Timesheet {
   machineryRate   MachineryRate?    @relation(fields: [machineryRateId], references: [id], onDelete: SetNull)
   creator         User              @relation(fields: [createdBy], references: [id], onDelete: Cascade)
   approver        User?             @relation("TimesheetApprovedBy", fields: [approvedBy], references: [id], onDelete: SetNull)
+  approvalApprover User?            @relation("TimesheetApprovalApprover", fields: [approvedById], references: [id], onDelete: SetNull)
 
   @@index([contractorId, date])
   @@index([machineryId])
+  @@index([machineryId, date])
   @@index([approvedBy])
   @@index([createdBy])
+  @@index([approvalStatus])
 }
 
 model FuelUsage {
@@ -421,12 +466,18 @@ model FuelUsage {
   linkedExpense   Expense?         @relation(fields: [linkedExpenseId], references: [id], onDelete: SetNull)
   fuelTransaction FuelTransaction? @relation(fields: [fuelTransactionId], references: [id], onDelete: SetNull)
   creator         User             @relation(fields: [createdBy], references: [id], onDelete: Cascade)
+  approvalStatus  String           @default("PENDING")
+  approvedById    String?
+  approvedAt      DateTime?
+  approvalNote    String?
+  approver        User?            @relation("FuelUsageApprover", fields: [approvedById], references: [id], onDelete: SetNull)
 
   @@index([contractorId, date])
   @@index([machineryId])
   @@index([linkedExpenseId])
   @@index([fuelTransactionId])
   @@index([createdBy])
+  @@index([approvalStatus])
 }
 
 model Machinery {
@@ -513,12 +564,19 @@ model CashTransaction {
   createdById     String
   creator         User               @relation(fields: [createdById], references: [id])
 
+  approvalStatus  String             @default("PENDING")
+  approvedById    String?
+  approvedAt      DateTime?
+  approvalNote    String?
+  approver        User?              @relation("CashTransactionApprover", fields: [approvedById], references: [id], onDelete: SetNull)
+
   createdAt       DateTime           @default(now())
 
   @@index([employeeId])
   @@index([type])
   @@index([createdById])
   @@index([createdAt])
+  @@index([approvalStatus])
 }
 
 model Transfer {
@@ -537,9 +595,16 @@ model Transfer {
   toEmployee      Employee @relation("TransferTo", fields: [toEmployeeId], references: [id])
   creator         User     @relation(fields: [createdById], references: [id])
 
+  approvalStatus  String   @default("PENDING")
+  approvedById    String?
+  approvedAt      DateTime?
+  approvalNote    String?
+  approver        User?    @relation("TransferApprover", fields: [approvedById], references: [id], onDelete: SetNull)
+
   @@index([fromEmployeeId])
   @@index([toEmployeeId])
   @@index([createdById])
+  @@index([approvalStatus])
 }
 
 model AppSettings {
@@ -693,6 +758,8 @@ model AssetLog {
   status           String    @default("PENDING")
   approvedById     String?
   approvedAt       DateTime?
+  approvalStatus   String    @default("PENDING")
+  approvalNote     String?
   remarks          String?
   createdBy        String
   createdAt        DateTime  @default(now())
@@ -707,4 +774,5 @@ model AssetLog {
   @@index([status])
   @@index([approvedById])
   @@index([createdBy])
+  @@index([approvalStatus])
 }

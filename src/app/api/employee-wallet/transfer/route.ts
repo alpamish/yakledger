@@ -3,6 +3,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/permissions";
 import { walletService } from "@/services/wallet.service";
+import { buildAccessScope, withScope } from "@/lib/access-control";
 
 const createTransferSchema = z.object({
   fromEmployeeId: z.string().min(1, "Source employee is required"),
@@ -15,8 +16,12 @@ export async function GET(request: NextRequest) {
   try {
     const result = await requirePermission(request, "cashAdvance:view");
     if ("status" in result) return result;
+    const user = result.user;
+
+    const scope = await buildAccessScope(user, "transfer");
 
     const transfers = await db.transfer.findMany({
+      where: withScope({}, scope),
       include: {
         fromEmployee: { select: { id: true, fullName: true } },
         toEmployee: { select: { id: true, fullName: true } },
@@ -61,7 +66,7 @@ export async function POST(request: NextRequest) {
       data.fromEmployeeId,
       data.toEmployeeId,
       data.amount,
-      user.id,
+      user,
       data.note ?? undefined,
     );
 

@@ -30,15 +30,19 @@ interface HeaderProps {
 
 const sectionTitles: Record<NavSection, string> = {
   dashboard: 'Dashboard',
+  projectCost: 'Project Cost',
   expenses: 'Expenses',
   employees: 'Employees',
   contractors: 'Contractors',
   timesheets: 'Timesheets',
   fuelUsage: 'Fuel Usage',
   machinery: 'Machinery',
+  assets: 'Assets',
   cashAdvance: 'Cash & Advances',
+  approvals: 'Approvals',
   reports: 'Reports',
   settings: 'Settings',
+  users: 'Users',
 };
 
 export function Header({

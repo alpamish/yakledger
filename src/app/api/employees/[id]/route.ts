@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/permissions";
+import { buildAccessScope, withScope, APPROVED } from "@/lib/access-control";
 
 const DEPARTMENT_VALUES = [
   "ADMINISTRATION", "FINANCE", "OPERATIONS", "ENGINEERING",
@@ -48,11 +49,12 @@ export async function GET(
   try {
     const result = await requirePermission(request, "employees:view");
     if ("status" in result) return result;
+    const user = result.user;
 
     const { id } = await params;
 
-    const employee = await db.employee.findUnique({
-      where: { id },
+    const employee = await db.employee.findFirst({
+      where: withScope({ id }, await buildAccessScope(user, "employee")),
       include: {
         creator: {
           select: { id: true, email: true, name: true, role: true, avatar: true },
@@ -81,28 +83,36 @@ export async function GET(
     }
 
     // Calculate totals
+    const expenseScope = withScope(
+      { approvalStatus: APPROVED },
+      await buildAccessScope(user, "expense")
+    );
+
     const totalExpensesPaidBy = await db.expense.aggregate({
-      where: { paidById: id },
+      where: { ...expenseScope, paidById: id },
       _sum: { amount: true },
     });
 
     const totalExpensesPaidTo = await db.expense.aggregate({
-      where: { paidToId: id },
+      where: { ...expenseScope, paidToId: id },
       _sum: { amount: true },
     });
 
     const totalSalaryPaid = await db.expense.aggregate({
-      where: { paidToId: id, category: "SALARY" },
+      where: { ...expenseScope, paidToId: id, category: "SALARY" },
       _sum: { amount: true },
     });
 
     const totalRewards = await db.expense.aggregate({
-      where: { paidToId: id, category: { in: ["REWARD", "BONUS"] } },
+      where: { ...expenseScope, paidToId: id, category: { in: ["REWARD", "BONUS"] } },
       _sum: { amount: true },
     });
 
     const overtimeAgg = await db.attendance.aggregate({
-      where: { employeeId: id },
+      where: withScope(
+        { employeeId: id, approvalStatus: APPROVED },
+        await buildAccessScope(user, "attendance")
+      ),
       _sum: { overtimeHours: true },
     });
     const totalOvertimeHours = overtimeAgg._sum.overtimeHours ?? 0;
@@ -159,10 +169,17 @@ export async function PUT(
     const data = parsed.data;
 
     // Get current employee to check for status change
-    const currentEmployee = await db.employee.findUnique({
-      where: { id },
-      select: { status: true, quitingDate: true },
+    const currentEmployee = await db.employee.findFirst({
+      where: withScope({ id }, await buildAccessScope(user, "employee")),
+      select: { id: true, status: true, quitingDate: true },
     });
+
+    if (!currentEmployee) {
+      return NextResponse.json(
+        { success: false, error: "Employee not found" },
+        { status: 404 }
+      );
+    }
 
     // Build update object, converting date strings to Date objects
     const updateData: Record<string, unknown> = {};
@@ -247,8 +264,8 @@ export async function DELETE(
     const { id } = await params;
 
     // Get employee name before deletion for audit log
-    const employee = await db.employee.findUnique({
-      where: { id },
+    const employee = await db.employee.findFirst({
+      where: withScope({ id }, await buildAccessScope(user, "employee")),
       select: { fullName: true },
     });
 

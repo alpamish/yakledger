@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/permissions";
+import { buildAccessScope, withScope, APPROVED } from "@/lib/access-control";
 
 const MONTH_LABELS = [
   "January", "February", "March", "April", "May", "June",
@@ -14,6 +15,7 @@ function getMonthLabel(month: number): string {
 export async function GET(request: NextRequest) {
   const result = await requirePermission(request, "fuelUsage:view");
   if ("status" in result) return result;
+  const user = result.user;
 
   try {
     const { searchParams } = new URL(request.url);
@@ -44,7 +46,7 @@ export async function GET(request: NextRequest) {
     }
 
     const allMachinery = await db.machinery.findMany({
-      where: machineryFilter,
+      where: withScope(machineryFilter, await buildAccessScope(user, "machinery")),
       select: {
         id: true,
         machineryName: true,
@@ -73,7 +75,10 @@ export async function GET(request: NextRequest) {
     }
 
     const fuelUsageRecords = await db.fuelUsage.findMany({
-      where: dateFilter,
+      where: withScope(
+        { ...dateFilter, approvalStatus: APPROVED },
+        await buildAccessScope(user, "fuelUsage")
+      ),
       select: {
         machineryId: true,
         date: true,

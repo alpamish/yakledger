@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/permissions";
+import { buildAccessScope, withScope } from "@/lib/access-control";
 
 const createRateSchema = z.object({
   rateName: z.string().min(1, "Rate name is required"),
@@ -19,11 +20,12 @@ export async function GET(
 ) {
   const result = await requirePermission(request, "machinery:view");
   if ("status" in result) return result;
+  const user = result.user;
 
   try {
     const { id } = await params;
     const rates = await db.machineryRate.findMany({
-      where: { machineryId: id },
+      where: withScope({ machineryId: id }, await buildAccessScope(user, "machineryRate")),
       orderBy: [{ isDefault: "desc" }, { rateName: "asc" }],
     });
     return NextResponse.json({ success: true, data: rates });
@@ -46,6 +48,18 @@ export async function POST(
 
   try {
     const { id } = await params;
+    const machinery = await db.machinery.findFirst({
+      where: withScope({ id }, await buildAccessScope(user, "machinery")),
+      select: { id: true },
+    });
+
+    if (!machinery) {
+      return NextResponse.json(
+        { success: false, error: "Machinery not found" },
+        { status: 404 }
+      );
+    }
+
     const body = await request.json();
     const parsed = createRateSchema.safeParse(body);
 

@@ -48,6 +48,8 @@ import {
 } from '@/types/expense';
 import type { Expense, Category, PaymentMethod } from '@/types/expense';
 import { EmptyState } from '@/components/common/empty-state';
+import { ApprovalStatusBadge } from '@/components/common/approval-status-badge';
+import { RecordAccessDialog } from '@/components/common/record-access-dialog';
 import {
   ArrowUpDown,
   ArrowUp,
@@ -296,6 +298,13 @@ export function ExpenseTable({
         },
       },
       {
+        id: 'approvalStatus',
+        header: () => <span>Status</span>,
+        cell: ({ row }) => <ApprovalStatusBadge status={row.original.approvalStatus} />,
+        enableSorting: false,
+        size: 110,
+      },
+      {
         accessorKey: 'amount',
         header: ({ column }) => {
           const sorted = column.getIsSorted();
@@ -464,6 +473,13 @@ export function ExpenseTable({
                   Edit
                 </DropdownMenuItem>
               )}
+              <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
+                <RecordAccessDialog
+                  entity="expense"
+                  entityId={row.original.id}
+                  entityLabel="expense"
+                />
+              </DropdownMenuItem>
               {canDelete('expenses') && (
                 <>
                   <DropdownMenuSeparator />

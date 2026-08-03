@@ -3,6 +3,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/permissions";
 import { Prisma } from "@prisma/client";
+import { buildAccessScope, withScope, resolveApprovalStatusOnCreate, APPROVED } from "@/lib/access-control";
 
 const createFuelTransactionSchema = z.object({
   type: z.enum(["PURCHASE", "TRANSFER", "ISSUE"]),
@@ -33,6 +34,7 @@ export async function GET(request: NextRequest) {
   try {
     const result = await requirePermission(request, "fuelUsage:view");
     if ("status" in result) return result;
+    const user = result.user;
 
     const { searchParams } = new URL(request.url);
     const page = Math.max(1, parseInt(searchParams.get("page") || "1"));
@@ -77,15 +79,17 @@ export async function GET(request: NextRequest) {
     const sortField = validSortFields.includes(sortBy) ? sortBy : "date";
     const order = sortOrder === "asc" ? "asc" : "desc";
 
+    const scopedWhere = withScope(where, await buildAccessScope(user, "fuelTransaction"));
+
     const [transactions, total] = await Promise.all([
       db.fuelTransaction.findMany({
-        where,
+        where: scopedWhere,
         include: transactionIncludes,
         orderBy: { [sortField]: order },
         skip: (page - 1) * pageSize,
         take: pageSize,
       }),
-      db.fuelTransaction.count({ where }),
+      db.fuelTransaction.count({ where: scopedWhere }),
     ]);
 
     return NextResponse.json({
@@ -113,6 +117,10 @@ export async function POST(request: NextRequest) {
     const data = parsed.data;
 
     const transaction = await db.$transaction(async (tx) => {
+      const approvalStatus = resolveApprovalStatusOnCreate(user);
+      const approvedById = approvalStatus === APPROVED ? user.id : null;
+      const approvedAt = approvalStatus === APPROVED ? new Date() : null;
+
       if (data.type === 'ISSUE' && !data.unitPrice && !data.totalCost) {
         const aggregation = await tx.fuelTransaction.aggregate({
           where: { type: 'PURCHASE', fuelType: data.fuelType },
@@ -144,6 +152,9 @@ export async function POST(request: NextRequest) {
           notes: data.notes ?? null,
           date: data.date ? new Date(data.date) : new Date(),
           createdBy: user.id,
+          approvalStatus,
+          approvedById,
+          approvedAt,
         },
         include: transactionIncludes,
       });
@@ -160,6 +171,9 @@ export async function POST(request: NextRequest) {
             date: created.date,
             fuelTransactionId: created.id,
             createdBy: user.id,
+            approvalStatus,
+            approvedById,
+            approvedAt,
           },
         });
       }

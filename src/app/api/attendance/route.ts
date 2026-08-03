@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/permissions";
+import { buildAccessScope, withScope, resolveApprovalStatusOnCreate, resolveApprovalStatusOnEdit, APPROVED } from "@/lib/access-control";
 
 const ATTENDANCE_STATUSES = ["PRESENT", "ABSENT", "HALF_DAY", "LEAVE", "HOLIDAY"] as const;
 
@@ -11,6 +12,7 @@ export async function GET(request: NextRequest) {
   try {
     const result = await requirePermission(request, "employees:view");
     if ("status" in result) return result;
+    const user = result.user;
 
     const { searchParams } = new URL(request.url);
     const employeeId = searchParams.get("employeeId");
@@ -37,9 +39,11 @@ export async function GET(request: NextRequest) {
       where.date = dateFilter;
     }
 
+    const scopedWhere = withScope(where, await buildAccessScope(user, "attendance"));
+
     const [records, total] = await Promise.all([
       db.attendance.findMany({
-        where,
+        where: scopedWhere,
         orderBy: { date: "desc" },
         skip: (page - 1) * pageSize,
         take: pageSize,
@@ -49,7 +53,7 @@ export async function GET(request: NextRequest) {
           },
         },
       }),
-      db.attendance.count({ where }),
+      db.attendance.count({ where: scopedWhere }),
     ]);
 
     return NextResponse.json({
@@ -100,15 +104,35 @@ export async function POST(request: NextRequest) {
     // Upsert: create or update if record exists for same employee + date
     const existing = await db.attendance.findUnique({
       where: { employeeId_date: { employeeId, date: new Date(date) } },
+      select: { id: true, approvalStatus: true, createdBy: true },
     });
 
     let record;
     if (existing) {
+      const existingScoped = await db.attendance.findFirst({
+        where: withScope({ id: existing.id }, await buildAccessScope(user, "attendance")),
+        select: { id: true },
+      });
+      if (!existingScoped) {
+        return NextResponse.json(
+          { success: false, error: "Attendance record not found or no access" },
+          { status: 404 }
+        );
+      }
+      const approvalStatus = resolveApprovalStatusOnEdit(user, existing.approvalStatus);
       record = await db.attendance.update({
         where: { id: existing.id },
-        data: { status, notes: notes ?? null, overtimeHours: ot },
+        data: {
+          status,
+          notes: notes ?? null,
+          overtimeHours: ot,
+          approvalStatus,
+          approvedById: approvalStatus === APPROVED ? user.id : null,
+          approvedAt: approvalStatus === APPROVED ? new Date() : null,
+        },
       });
     } else {
+      const approvalStatus = resolveApprovalStatusOnCreate(user);
       record = await db.attendance.create({
         data: {
           employeeId,
@@ -117,6 +141,9 @@ export async function POST(request: NextRequest) {
           notes: notes ?? null,
           overtimeHours: ot,
           createdBy: user.id,
+          approvalStatus,
+          approvedById: approvalStatus === APPROVED ? user.id : null,
+          approvedAt: approvalStatus === APPROVED ? new Date() : null,
         },
       });
     }

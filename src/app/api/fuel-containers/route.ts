@@ -1,19 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/permissions";
+import { buildAccessScope, withScope, APPROVED } from "@/lib/access-control";
 
 export async function GET(request: NextRequest) {
   try {
     const result = await requirePermission(request, "assets:view");
     if ("status" in result) return result;
+    const user = result.user;
     const { searchParams } = new URL(request.url);
     const includeInactive = searchParams.get("includeInactive") === "true";
 
     const where: Record<string, unknown> = { category: "FUEL" };
     if (!includeInactive) where.status = "ACTIVE";
 
+    const fuelTxnScope = await buildAccessScope(user, "fuelTransaction");
+
     const containers = await db.asset.findMany({
-      where: where as never,
+      where: withScope(where, await buildAccessScope(user, "asset")) as never,
       select: {
         id: true,
         name: true,
@@ -32,12 +36,16 @@ export async function GET(request: NextRequest) {
     const containerStock = await Promise.all(
       containers.map(async (c) => {
         const transactions = await db.fuelTransaction.findMany({
-          where: {
-            OR: [
-              { containerId: c.id },
-              { destinationContainerId: c.id },
-            ],
-          },
+          where: withScope(
+            {
+              approvalStatus: APPROVED,
+              OR: [
+                { containerId: c.id },
+                { destinationContainerId: c.id },
+              ],
+            },
+            fuelTxnScope
+          ),
         });
 
         let balance = 0;

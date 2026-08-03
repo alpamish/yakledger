@@ -1,6 +1,14 @@
 import { db } from "@/lib/db";
 import { Prisma } from "@prisma/client";
 import type { LedgerEntry } from "@/types/expense";
+import {
+  resolveApprovalStatusOnCreate,
+  type ApprovalStatus,
+} from "@/lib/access-control";
+
+type Actor = { id: string; role: string };
+
+const APPROVED = "APPROVED" as const;
 
 function createAuditLog(userId: string, entityId: string, action: string, details: string) {
   return db.auditLog.create({
@@ -23,26 +31,26 @@ async function getOrCreateAccount(employeeId: string) {
 async function recalculateBalance(employeeId: string) {
   const advancesAgg = await db.cashTransaction.aggregate({
     _sum: { amount: true },
-    where: { employeeId, type: "ADVANCE" },
+    where: { employeeId, type: "ADVANCE", approvalStatus: APPROVED },
   });
 
   const returnsAgg = await db.cashTransaction.aggregate({
     _sum: { amount: true },
-    where: { employeeId, type: "RETURN" },
+    where: { employeeId, type: "RETURN", approvalStatus: APPROVED },
   });
 
   const expensesAgg = await db.expense.aggregate({
     _sum: { amount: true },
-    where: { paidById: employeeId },
+    where: { paidById: employeeId, approvalStatus: APPROVED },
   });
 
   const transfersFromAgg = await db.transfer.aggregate({
     _sum: { amount: true },
-    where: { fromEmployeeId: employeeId },
+    where: { fromEmployeeId: employeeId, approvalStatus: APPROVED },
   });
   const transfersToAgg = await db.transfer.aggregate({
     _sum: { amount: true },
-    where: { toEmployeeId: employeeId },
+    where: { toEmployeeId: employeeId, approvalStatus: APPROVED },
   });
 
   const totalAdvances = advancesAgg._sum.amount ?? 0;
@@ -65,7 +73,7 @@ export const walletService = {
   async createAdvance(
     employeeId: string,
     amount: number,
-    userId: string,
+    user: Actor,
     note?: string,
     referenceNumber?: string
   ) {
@@ -73,6 +81,7 @@ export const walletService = {
 
     const account = await getOrCreateAccount(employeeId);
 
+    const approvalStatus = resolveApprovalStatusOnCreate(user);
     const txn = await db.cashTransaction.create({
       data: {
         employeeId,
@@ -80,17 +89,22 @@ export const walletService = {
         amount,
         note: note ?? null,
         referenceNumber: referenceNumber ?? null,
-        createdById: userId,
+        createdById: user.id,
+        approvalStatus,
+        approvedById: approvalStatus === APPROVED ? user.id : null,
+        approvedAt: approvalStatus === APPROVED ? new Date() : null,
       },
     });
 
-    const newBalance = account.currentBalance + amount;
-    await db.employeeCashAccount.update({
-      where: { id: account.id },
-      data: { currentBalance: newBalance },
-    });
+    if (approvalStatus === APPROVED) {
+      const newBalance = account.currentBalance + amount;
+      await db.employeeCashAccount.update({
+        where: { id: account.id },
+        data: { currentBalance: newBalance },
+      });
+    }
 
-    await createAuditLog(userId, txn.id, "CREATE", `Cash advance of ${amount} to employee ${employeeId}`);
+    await createAuditLog(user.id, txn.id, "CREATE", `Cash advance of ${amount} to employee ${employeeId}`);
 
     return txn;
   },
@@ -98,7 +112,7 @@ export const walletService = {
   async createReturn(
     employeeId: string,
     amount: number,
-    userId: string,
+    user: Actor,
     note?: string,
     referenceNumber?: string
   ) {
@@ -106,6 +120,7 @@ export const walletService = {
 
     const account = await getOrCreateAccount(employeeId);
 
+    const approvalStatus = resolveApprovalStatusOnCreate(user);
     const txn = await db.cashTransaction.create({
       data: {
         employeeId,
@@ -113,17 +128,22 @@ export const walletService = {
         amount,
         note: note ?? null,
         referenceNumber: referenceNumber ?? null,
-        createdById: userId,
+        createdById: user.id,
+        approvalStatus,
+        approvedById: approvalStatus === APPROVED ? user.id : null,
+        approvedAt: approvalStatus === APPROVED ? new Date() : null,
       },
     });
 
-    const newBalance = account.currentBalance - amount;
-    await db.employeeCashAccount.update({
-      where: { id: account.id },
-      data: { currentBalance: newBalance },
-    });
+    if (approvalStatus === APPROVED) {
+      const newBalance = account.currentBalance - amount;
+      await db.employeeCashAccount.update({
+        where: { id: account.id },
+        data: { currentBalance: newBalance },
+      });
+    }
 
-    await createAuditLog(userId, txn.id, "CREATE", `Cash return of ${amount} from employee ${employeeId}`);
+    await createAuditLog(user.id, txn.id, "CREATE", `Cash return of ${amount} from employee ${employeeId}`);
 
     return txn;
   },
@@ -131,28 +151,34 @@ export const walletService = {
   async createAdjustment(
     employeeId: string,
     amount: number,
-    userId: string,
+    user: Actor,
     note?: string,
   ) {
     const account = await getOrCreateAccount(employeeId);
 
+    const approvalStatus = resolveApprovalStatusOnCreate(user);
     const txn = await db.cashTransaction.create({
       data: {
         employeeId,
         type: "ADJUSTMENT",
         amount,
         note: note ?? null,
-        createdById: userId,
+        createdById: user.id,
+        approvalStatus,
+        approvedById: approvalStatus === APPROVED ? user.id : null,
+        approvedAt: approvalStatus === APPROVED ? new Date() : null,
       },
     });
 
-    const newBalance = account.currentBalance + amount;
-    await db.employeeCashAccount.update({
-      where: { id: account.id },
-      data: { currentBalance: newBalance },
-    });
+    if (approvalStatus === APPROVED) {
+      const newBalance = account.currentBalance + amount;
+      await db.employeeCashAccount.update({
+        where: { id: account.id },
+        data: { currentBalance: newBalance },
+      });
+    }
 
-    await createAuditLog(userId, txn.id, "CREATE", `Adjustment of ${amount} to employee ${employeeId} wallet`);
+    await createAuditLog(user.id, txn.id, "CREATE", `Adjustment of ${amount} to employee ${employeeId} wallet`);
 
     return txn;
   },
@@ -161,7 +187,7 @@ export const walletService = {
     fromEmployeeId: string,
     toEmployeeId: string,
     amount: number,
-    userId: string,
+    user: Actor,
     note?: string,
   ) {
     if (fromEmployeeId === toEmployeeId) {
@@ -176,6 +202,7 @@ export const walletService = {
 
     const referenceNumber = `TRF-${Date.now()}`;
 
+    const approvalStatus = resolveApprovalStatusOnCreate(user);
     const transfer = await db.transfer.create({
       data: {
         fromEmployeeId,
@@ -183,21 +210,26 @@ export const walletService = {
         amount,
         note: note ?? null,
         referenceNumber,
-        createdById: userId,
+        createdById: user.id,
+        approvalStatus,
+        approvedById: approvalStatus === APPROVED ? user.id : null,
+        approvedAt: approvalStatus === APPROVED ? new Date() : null,
       },
     });
 
-    await db.employeeCashAccount.update({
-      where: { id: fromAccount.id },
-      data: { currentBalance: { decrement: amount } },
-    });
+    if (approvalStatus === APPROVED) {
+      await db.employeeCashAccount.update({
+        where: { id: fromAccount.id },
+        data: { currentBalance: { decrement: amount } },
+      });
 
-    await db.employeeCashAccount.update({
-      where: { id: toAccount.id },
-      data: { currentBalance: { increment: amount } },
-    });
+      await db.employeeCashAccount.update({
+        where: { id: toAccount.id },
+        data: { currentBalance: { increment: amount } },
+      });
+    }
 
-    await createAuditLog(userId, transfer.id, "CREATE", `Transfer of ${amount} from ${fromEmployeeId} to ${toEmployeeId}`);
+    await createAuditLog(user.id, transfer.id, "CREATE", `Transfer of ${amount} from ${fromEmployeeId} to ${toEmployeeId}`);
 
     return transfer;
   },
@@ -231,12 +263,12 @@ export const walletService = {
 
   async getLedger(employeeId: string): Promise<LedgerEntry[]> {
     const transactions = await db.cashTransaction.findMany({
-      where: { employeeId },
+      where: { employeeId, approvalStatus: APPROVED },
       orderBy: { createdAt: "asc" },
     });
 
     const expenses = await db.expense.findMany({
-      where: { paidById: employeeId },
+      where: { paidById: employeeId, approvalStatus: APPROVED },
       orderBy: { createdAt: "asc" },
     });
 
@@ -261,12 +293,12 @@ export const walletService = {
     }
 
     const transfersFrom = await db.transfer.findMany({
-      where: { fromEmployeeId: employeeId },
+      where: { fromEmployeeId: employeeId, approvalStatus: APPROVED },
       include: { toEmployee: { select: { fullName: true } } },
       orderBy: { createdAt: "asc" },
     });
     const transfersTo = await db.transfer.findMany({
-      where: { toEmployeeId: employeeId },
+      where: { toEmployeeId: employeeId, approvalStatus: APPROVED },
       include: { fromEmployee: { select: { fullName: true } } },
       orderBy: { createdAt: "asc" },
     });
