@@ -30,6 +30,8 @@ import type { AttendanceRecord, AttendanceStatus } from '@/types/employee';
 import { Search, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { usePermissions } from '@/hooks/use-permissions';
+import { ApprovalStatusBadge } from '@/components/common/approval-status-badge';
+import { RecordAccessDialog } from '@/components/common/record-access-dialog';
 
 interface AttendanceTableProps {
   records: AttendanceRecord[];
@@ -124,8 +126,9 @@ export function AttendanceTable({
                 <TableHead>Date</TableHead>
                 <TableHead>Employee</TableHead>
                 <TableHead>Status</TableHead>
-                <TableHead>OT Hours</TableHead>
                 <TableHead>Notes</TableHead>
+                <TableHead>Approval</TableHead>
+                <TableHead>OT Hours</TableHead>
                 <TableHead className="w-16" />
               </TableRow>
             </TableHeader>
@@ -186,38 +189,50 @@ export function AttendanceTable({
                       {record.notes || '—'}
                     </TableCell>
                     <TableCell>
-                      {canEdit('employees') ? (
-                        <Input
-                          type="number"
-                          min="0"
-                          step="0.5"
-                          defaultValue={record.overtimeHours ?? 0}
-                          className="h-7 w-20 text-xs"
-                          onBlur={(e) => {
-                            const val = parseFloat(e.target.value);
-                            const next = isNaN(val) ? 0 : Math.max(0, val);
-                            if (next !== (record.overtimeHours ?? 0)) {
-                              onOvertimeChange(record.id, next);
-                            }
-                          }}
-                        />
-                      ) : (
-                        <span className="text-xs font-mono tabular-nums">
-                          {(record.overtimeHours ?? 0).toFixed(1)} h
-                        </span>
-                      )}
+                      <ApprovalStatusBadge status={record.approvalStatus} />
                     </TableCell>
-                    <TableCell>
-                      {canDelete('employees') && (
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7 text-muted-foreground hover:text-red-600"
-                          onClick={() => onDelete(record.id)}
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </Button>
-                      )}
+                    <TableCell className="text-xs text-muted-foreground max-w-[200px] truncate">
+                      <div className="flex items-center gap-1">
+                        {canEdit('employees') ? (
+                          <Input
+                            type="number"
+                            min="0"
+                            step="0.5"
+                            defaultValue={record.overtimeHours ?? 0}
+                            className="h-7 w-20 text-xs"
+                            onBlur={(e) => {
+                              const val = parseFloat(e.target.value);
+                              const next = isNaN(val) ? 0 : Math.max(0, val);
+                              if (next !== (record.overtimeHours ?? 0)) {
+                                onOvertimeChange(record.id, next);
+                              }
+                            }}
+                          />
+                        ) : (
+                          <span className="text-xs font-mono tabular-nums">
+                            {(record.overtimeHours ?? 0).toFixed(1)} h
+                          </span>
+                        )}
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex items-center justify-end gap-1">
+                        <RecordAccessDialog
+                          entity="attendance"
+                          entityId={record.id}
+                          entityLabel="attendance record"
+                        />
+                        {canDelete('employees') && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-muted-foreground hover:text-red-600"
+                            onClick={() => onDelete(record.id)}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        )}
+                      </div>
                     </TableCell>
                   </TableRow>
                 );

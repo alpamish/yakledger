@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
+import type { Resolver } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { Button } from '@/components/ui/button';
@@ -83,7 +84,7 @@ export function AssetLogForm({ onSuccess, log }: AssetLogFormProps) {
   }, []);
 
   const form = useForm<FormValues>({
-    resolver: zodResolver(formSchema),
+    resolver: zodResolver(formSchema) as Resolver<FormValues>,
     defaultValues: {
       assetId: log?.assetId || '',
       date: log ? new Date(log.date).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
@@ -125,20 +126,20 @@ export function AssetLogForm({ onSuccess, log }: AssetLogFormProps) {
       const payload = {
         assetId: data.assetId,
         date: data.date,
-        startTime: data.startTime || null,
-        endTime: data.endTime || null,
+        startTime: data.startTime || undefined,
+        endTime: data.endTime || undefined,
         operatorId: data.operatorId || undefined,
         startOdometer: data.startOdometer || undefined,
         endOdometer: data.endOdometer || undefined,
         distanceTraveled: distance || undefined,
-        engineHoursStart: data.engineHoursStart || null,
-        engineHoursEnd: data.engineHoursEnd || null,
-        engineHoursUsed: engHours || null,
+        engineHoursStart: data.engineHoursStart || undefined,
+        engineHoursEnd: data.engineHoursEnd || undefined,
+        engineHoursUsed: engHours || undefined,
         fuelConsumed: data.fuelConsumed || undefined,
         workSite: data.workSite || undefined,
         project: data.project || undefined,
-        conditions: data.conditions || null,
-        issues: data.issues || null,
+        conditions: data.conditions || undefined,
+        issues: data.issues || undefined,
         remarks: data.remarks || undefined,
       };
 

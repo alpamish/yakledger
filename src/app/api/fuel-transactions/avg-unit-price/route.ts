@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/permissions";
-import { buildAccessScope, withScope, APPROVED } from "@/lib/access-control";
+import { buildAccessScope, withScope } from "@/lib/access-control";
 
 export async function GET(request: NextRequest) {
   const result = await requirePermission(request, "fuelUsage:view");
@@ -20,7 +20,7 @@ export async function GET(request: NextRequest) {
 
     const aggregation = await db.fuelTransaction.aggregate({
       where: withScope(
-        { type: "PURCHASE", fuelType, approvalStatus: APPROVED },
+        { type: "PURCHASE", fuelType },
         await buildAccessScope(user, "fuelTransaction")
       ),
       _sum: { quantity: true, totalCost: true },

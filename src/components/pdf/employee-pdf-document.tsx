@@ -8,7 +8,7 @@ import {
 } from "@react-pdf/renderer";
 import { format } from "date-fns";
 import type { Employee, Department } from "@/types/employee";
-import type { Expense } from "@/types/expense";
+import type { Expense, LedgerEntry } from "@/types/expense";
 import { CATEGORY_LABELS } from "@/types/expense";
 import { DEPARTMENT_LABELS } from "@/types/employee";
 
@@ -30,10 +30,16 @@ interface EmployeePDFDocumentProps {
   employee: Employee;
   expensesPaidBy: Expense[];
   expensesPaidTo: Expense[];
-  ledger?: Expense[];
+  ledger?: LedgerEntry[];
   walletBalance: number;
   filters?: EmployeePDFFilters;
   companyName?: string;
+  showPersonalInfo?: boolean;
+  showJobInfo?: boolean;
+  showSalarySummary?: boolean;
+  showExpensesPaidTo?: boolean;
+  showExpensesPaidBy?: boolean;
+  showLedger?: boolean;
 }
 
 const ECOL = {
@@ -213,6 +219,9 @@ function EmployeePDFDocument({
   walletBalance,
   filters,
   companyName = "YakhshiLedger",
+  showSalarySummary = true,
+  showExpensesPaidTo = true,
+  showExpensesPaidBy = true,
 }: EmployeePDFDocumentProps) {
   const dateFrom = filters?.dateFrom;
   const dateTo = filters?.dateTo;
@@ -258,25 +267,31 @@ function EmployeePDFDocument({
         )}
         <View style={styles.divider} />
 
-        <View style={styles.summaryRow}>
-          <SummaryCard label="Monthly Salary" value={formatCurrency(e.salary)} />
-          <SummaryCard label="Daily Salary" value={formatCurrency(dailySalary)} />
-          <SummaryCard label="Salary Paid" value={formatCurrency(totalSalaryPaid)} />
-          <SummaryCard label="Rewards" value={formatCurrency(totalRewards)} />
-          <SummaryCard
-            label={`Overtime (${(e.totalOvertimeHours ?? 0).toFixed(1)} hrs)`}
-            value={formatCurrency(e.overtimePay ?? 0)}
-          />
-          <SummaryCard label="Wallet Balance" value={formatCurrency(walletBalance)} />
-          <SummaryCard
-            label="Net Remaining"
-            value={formatCurrency(Math.abs(remaining)) + (isRemainingNegative ? " (Owes)" : " (Owed)")}
-            isNegative={isRemainingNegative}
-          />
-        </View>
+        {showSalarySummary && (
+          <View style={styles.summaryRow}>
+            <SummaryCard label="Monthly Salary" value={formatCurrency(e.salary)} />
+            <SummaryCard label="Daily Salary" value={formatCurrency(dailySalary)} />
+            <SummaryCard label="Salary Paid" value={formatCurrency(totalSalaryPaid)} />
+            <SummaryCard label="Rewards" value={formatCurrency(totalRewards)} />
+            <SummaryCard
+              label={`Overtime (${(e.totalOvertimeHours ?? 0).toFixed(1)} hrs)`}
+              value={formatCurrency(e.overtimePay ?? 0)}
+            />
+            <SummaryCard label="Wallet Balance" value={formatCurrency(walletBalance)} />
+            <SummaryCard
+              label="Net Remaining"
+              value={formatCurrency(Math.abs(remaining)) + (isRemainingNegative ? " (Owes)" : " (Owed)")}
+              isNegative={isRemainingNegative}
+            />
+          </View>
+        )}
 
-        <ExpensesTable title="Expenses Paid To Employee" rows={expensesPaidTo} />
-        <ExpensesTable title="Expenses Paid By Employee" rows={expensesPaidBy} />
+        {showExpensesPaidTo && (
+          <ExpensesTable title="Expenses Paid To Employee" rows={expensesPaidTo} />
+        )}
+        {showExpensesPaidBy && (
+          <ExpensesTable title="Expenses Paid By Employee" rows={expensesPaidBy} />
+        )}
 
         {allExpenses.length === 0 && (
           <Text style={styles.noData}>No expense records found for this employee</Text>

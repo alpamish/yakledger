@@ -3,6 +3,7 @@
 import { useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
+import type { Resolver } from 'react-hook-form';
 import { z } from 'zod';
 import { format } from 'date-fns';
 import {
@@ -42,7 +43,7 @@ import {
   EMPLOYEE_STATUS_LABELS,
   GENDER_LABELS,
 } from '@/types/employee';
-import type { Department, EmploymentType, EmployeeStatus, Gender } from '@/types/employee';
+import type { Department, EmploymentType, EmployeeStatus, Gender, EmployeeFormData } from '@/types/employee';
 import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -56,13 +57,13 @@ const employeeFormSchema = z.object({
   address: z.string().optional().nullable(),
   nationalId: z.string().optional().nullable(),
   jobTitle: z.string().min(1, 'Job title is required').max(100),
-  department: z.enum(DEPARTMENTS, { required_error: 'Department is required' }),
-  employmentType: z.enum(EMPLOYMENT_TYPES, { required_error: 'Employment type is required' }),
+  department: z.enum(DEPARTMENTS, { message: 'Department is required' }),
+  employmentType: z.enum(EMPLOYMENT_TYPES, { message: 'Employment type is required' }),
   salary: z.coerce.number().min(0, 'Salary must be positive'),
   workHoursPerDay: z.coerce.number().int().min(1).default(9),
   overtimeRate: z.coerce.number().min(1).default(1.25),
   hireDate: z.string().min(1, 'Hire date is required'),
-  status: z.enum(EMPLOYEE_STATUSES, { required_error: 'Status is required' }),
+  status: z.enum(EMPLOYEE_STATUSES, { message: 'Status is required' }),
   idImage: z.string().optional().nullable(),
   emergencyContactName: z.string().optional().nullable(),
   emergencyContactPhone: z.string().optional().nullable(),
@@ -81,7 +82,7 @@ export function EmployeeForm() {
   const isEditing = !!editingEmployee;
 
   const form = useForm<EmployeeFormValues>({
-    resolver: zodResolver(employeeFormSchema),
+    resolver: zodResolver(employeeFormSchema) as Resolver<EmployeeFormValues>,
     defaultValues: {
       fullName: '',
       fatherName: '',
@@ -173,7 +174,7 @@ export function EmployeeForm() {
         await updateEmployee(editingEmployee.id, data);
         toast.success('Employee updated successfully');
       } else {
-        await createEmployee(data as EmployeeFormValues);
+        await createEmployee(data as EmployeeFormData);
         toast.success('Employee created successfully');
       }
     } catch {

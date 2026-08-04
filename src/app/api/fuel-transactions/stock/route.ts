@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/permissions";
-import { buildAccessScope, withScope, APPROVED } from "@/lib/access-control";
+import { buildAccessScope, withScope } from "@/lib/access-control";
 
 export async function GET(request: NextRequest) {
   const result = await requirePermission(request, "fuelUsage:view");
@@ -12,12 +12,12 @@ export async function GET(request: NextRequest) {
     const containerId = searchParams.get("containerId") || undefined;
 
     const fuelTxnScope = await buildAccessScope(user, "fuelTransaction");
-    const approvedFuelWhere = (extra: Record<string, unknown>) =>
-      withScope({ ...extra, approvalStatus: APPROVED }, fuelTxnScope);
+    const scopedFuelWhere = (extra: Record<string, unknown>) =>
+      withScope(extra, fuelTxnScope);
 
     if (containerId) {
       const transactions = await db.fuelTransaction.findMany({
-        where: approvedFuelWhere({
+        where: scopedFuelWhere({
           OR: [
             { containerId },
             { destinationContainerId: containerId },
@@ -77,7 +77,7 @@ export async function GET(request: NextRequest) {
 
     const fuelPurchases = await db.fuelTransaction.groupBy({
       by: ["fuelType", "type"],
-      where: withScope({ approvalStatus: APPROVED }, fuelTxnScope),
+      where: withScope({}, fuelTxnScope),
       _sum: { quantity: true },
     });
 
@@ -105,7 +105,7 @@ export async function GET(request: NextRequest) {
     const containerStock = await Promise.all(
       containers.map(async (c) => {
         const containerTransactions = await db.fuelTransaction.findMany({
-          where: approvedFuelWhere({
+          where: scopedFuelWhere({
             OR: [
               { containerId: c.id },
               { destinationContainerId: c.id },

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
+import type { Resolver } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { Button } from '@/components/ui/button';
@@ -27,7 +28,7 @@ import { FUEL_TYPES, FUEL_TYPE_LABELS } from '@/types/contractor';
 import { assetsApi, fuelApi } from '@/services/asset-api';
 import { contractorsApi, machineryApi } from '@/services/contractor-api';
 import { toast } from 'sonner';
-import type { Asset, FuelTransaction } from '@/types/asset';
+import type { Asset, FuelTransaction, FuelContainer } from '@/types/asset';
 import type { Machinery } from '@/types/contractor';
 
 const issueSchema = z.object({
@@ -50,7 +51,7 @@ interface FuelIssueFormProps {
 
 export function FuelIssueForm({ onSuccess, initialData }: FuelIssueFormProps) {
   const isEditing = !!initialData;
-  const [containers, setContainers] = useState<{ id: string; name: string; fuelType?: string | null; fuelLocation?: string | null }[]>([]);
+  const [containers, setContainers] = useState<FuelContainer[]>([]);
   const [vehicles, setVehicles] = useState<Asset[]>([]);
   const [contractors, setContractors] = useState<{ id: string; contractorName: string }[]>([]);
   const [machineryList, setMachineryList] = useState<Machinery[]>([]);
@@ -58,7 +59,7 @@ export function FuelIssueForm({ onSuccess, initialData }: FuelIssueFormProps) {
   const [loadingMachinery, setLoadingMachinery] = useState(false);
 
   const form = useForm<IssueFormValues>({
-    resolver: zodResolver(issueSchema),
+    resolver: zodResolver(issueSchema) as Resolver<IssueFormValues>,
     defaultValues: {
       fuelType: initialData?.fuelType || 'DIESEL',
       quantity: initialData?.quantity || 0,

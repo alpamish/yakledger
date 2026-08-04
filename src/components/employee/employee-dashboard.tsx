@@ -6,7 +6,7 @@ import {
   DEPARTMENT_LABELS,
   DEPARTMENT_COLORS,
 } from '@/types/employee';
-import type { Department } from '@/types/employee';
+import type { Department, Employee } from '@/types/employee';
 import {
   Card,
   CardContent,
@@ -126,7 +126,7 @@ function PieChartLegend({
 }
 
 interface EmployeeDashboardProps {
-  onViewProfile?: (employee: { id: string }) => void;
+  onViewProfile?: (employee: Employee) => void;
 }
 
 export function EmployeeDashboard({ onViewProfile }: EmployeeDashboardProps) {

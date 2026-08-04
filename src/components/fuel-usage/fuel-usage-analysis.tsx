@@ -46,11 +46,34 @@ import {
   ChevronRight,
   ChevronLeft,
   Search,
+  Calendar,
 } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Command, CommandEmpty, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
 import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
+import { shamsiToGregorian } from '@/lib/shamsi';
+
+type DateMode = 'miladi' | 'shamsi';
+
+function DateModeToggle({ value, onChange }: { value: DateMode; onChange: (v: DateMode) => void }) {
+  return (
+    <div className="flex items-center rounded-md border border-input bg-background p-0.5 h-10">
+      {(['miladi', 'shamsi'] as const).map((m) => (
+        <button
+          key={m}
+          type="button"
+          onClick={() => onChange(m)}
+          className={`px-2.5 h-full rounded text-xs font-medium transition-colors ${
+            value === m ? 'bg-emerald-600 text-white' : 'text-muted-foreground hover:text-foreground'
+          }`}
+        >
+          {m === 'miladi' ? 'Miladi' : 'Shamsi'}
+        </button>
+      ))}
+    </div>
+  );
+}
 
 function formatNumber(n: number, decimals = 1): string {
   return new Intl.NumberFormat('en-US', {
@@ -108,6 +131,9 @@ export function FuelUsageAnalysis() {
   const [selectedFuelType, setSelectedFuelType] = useState<string>('');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
+  const [dateMode, setDateMode] = useState<DateMode>('miladi');
+  const [shamsiFrom, setShamsiFrom] = useState('');
+  const [shamsiTo, setShamsiTo] = useState('');
   const [analysisData, setAnalysisData] = useState<MonthlyAnalysisResponse[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
@@ -148,6 +174,9 @@ export function FuelUsageAnalysis() {
   }, []);
 
   // Fetch analysis data
+  const effectiveDateFrom = dateMode === 'shamsi' ? (shamsiToGregorian(shamsiFrom) ?? undefined) : (dateFrom || undefined);
+  const effectiveDateTo = dateMode === 'shamsi' ? (shamsiToGregorian(shamsiTo) ?? undefined) : (dateTo || undefined);
+
   const fetchAnalysis = useCallback(async () => {
     setIsLoading(true);
     try {
@@ -155,8 +184,8 @@ export function FuelUsageAnalysis() {
         machineryId: selectedMachineId || undefined,
         year: selectedYear,
         fuelType: selectedFuelType || undefined,
-        dateFrom: dateFrom || undefined,
-        dateTo: dateTo || undefined,
+        dateFrom: effectiveDateFrom,
+        dateTo: effectiveDateTo,
       });
       setAnalysisData(res.data ?? []);
     } catch {
@@ -164,7 +193,7 @@ export function FuelUsageAnalysis() {
     } finally {
       setIsLoading(false);
     }
-  }, [selectedMachineId, selectedYear, selectedFuelType, dateFrom, dateTo]);
+  }, [selectedMachineId, selectedYear, selectedFuelType, effectiveDateFrom, effectiveDateTo]);
 
   useEffect(() => {
     fetchAnalysis();
@@ -188,8 +217,8 @@ export function FuelUsageAnalysis() {
         machineryId: selectedMachineId || undefined,
         year: selectedYear,
         fuelType: selectedFuelType || undefined,
-        dateFrom: dateFrom || undefined,
-        dateTo: dateTo || undefined,
+        dateFrom: effectiveDateFrom,
+        dateTo: effectiveDateTo,
       });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -203,7 +232,7 @@ export function FuelUsageAnalysis() {
     } finally {
       setIsExporting(false);
     }
-  }, [selectedMachineId, selectedYear, selectedFuelType, dateFrom, dateTo]);
+  }, [selectedMachineId, selectedYear, selectedFuelType, effectiveDateFrom, effectiveDateTo]);
 
   // Compute aggregate stats
   const allAnomalies = useMemo(() => {
@@ -424,30 +453,64 @@ export function FuelUsageAnalysis() {
             </SelectContent>
           </Select>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-end gap-2">
+          <DateModeToggle value={dateMode} onChange={setDateMode} />
           <div>
             <label className="text-xs font-medium text-muted-foreground mb-1.5 block">
               From
             </label>
-            <Input
-              type="date"
-              value={dateFrom}
-              onChange={(e) => setDateFrom(e.target.value)}
-              className="h-10 w-[130px] text-xs"
-            />
+            {dateMode === 'miladi' ? (
+              <Input
+                type="date"
+                value={dateFrom}
+                onChange={(e) => setDateFrom(e.target.value)}
+                className="h-10 w-[130px] text-xs"
+              />
+            ) : (
+              <div className="relative">
+                <Calendar className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  value={shamsiFrom}
+                  onChange={(e) => setShamsiFrom(e.target.value)}
+                  className="h-10 w-[130px] pl-8 text-xs font-mono"
+                  placeholder="1404/05/01"
+                  inputMode="numeric"
+                />
+              </div>
+            )}
           </div>
-          <span className="text-xs text-muted-foreground mt-6">to</span>
+          <span className="text-xs text-muted-foreground mb-3">to</span>
           <div>
             <label className="text-xs font-medium text-muted-foreground mb-1.5 block">
               To
             </label>
-            <Input
-              type="date"
-              value={dateTo}
-              onChange={(e) => setDateTo(e.target.value)}
-              className="h-10 w-[130px] text-xs"
-            />
+            {dateMode === 'miladi' ? (
+              <Input
+                type="date"
+                value={dateTo}
+                onChange={(e) => setDateTo(e.target.value)}
+                className="h-10 w-[130px] text-xs"
+              />
+            ) : (
+              <div className="relative">
+                <Calendar className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  value={shamsiTo}
+                  onChange={(e) => setShamsiTo(e.target.value)}
+                  className="h-10 w-[130px] pl-8 text-xs font-mono"
+                  placeholder="1404/05/31"
+                  inputMode="numeric"
+                />
+              </div>
+            )}
           </div>
+          {dateMode === 'shamsi' && (shamsiFrom || shamsiTo) && (
+            <span className="text-[10px] text-muted-foreground mb-3 whitespace-nowrap">
+              = {shamsiToGregorian(shamsiFrom) ?? (shamsiFrom ? 'invalid' : '—')}
+              {' → '}
+              {shamsiToGregorian(shamsiTo) ?? (shamsiTo ? 'invalid' : '—')}
+            </span>
+          )}
         </div>
         <Button
           variant="outline"

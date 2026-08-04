@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/permissions";
-import { buildAccessScope, withScope, APPROVED } from "@/lib/access-control";
+import { buildAccessScope, withScope } from "@/lib/access-control";
 
 export async function GET(request: NextRequest) {
   const result = await requirePermission(request, "assets:view");
@@ -30,7 +30,6 @@ export async function GET(request: NextRequest) {
           where: withScope(
             {
               type: "ISSUE",
-              approvalStatus: APPROVED,
               date: { gte: new Date(new Date().getFullYear(), new Date().getMonth() - 11, 1) },
             },
             fuelTxnScope
@@ -42,7 +41,7 @@ export async function GET(request: NextRequest) {
 
     const fuelPurchases = await db.fuelTransaction.groupBy({
       by: ["fuelType", "type"],
-      where: withScope({ approvalStatus: APPROVED }, fuelTxnScope),
+      where: withScope({}, fuelTxnScope),
       _sum: { quantity: true },
     });
 

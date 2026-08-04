@@ -33,6 +33,7 @@ function fmtNum(n: number): string {
 }
 
 interface SummaryItem {
+  machineryId: string;
   machineryName: string;
   driverName: string | null;
   plateNumber: string | null;

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
+import type { Resolver } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import {
@@ -59,9 +60,9 @@ const formSchema = z.object({
   plateNumber: z.string().optional().nullable(),
   model: z.string().optional().nullable(),
   driverName: z.string().optional().nullable(),
-  status: z.enum(MACHINERY_STATUSES, { required_error: 'Status is required' }),
+  status: z.enum(MACHINERY_STATUSES, { message: 'Status is required' }),
   assignedContractorId: z.string().min(1, 'Contractor is required'),
-  fuelType: z.enum(FUEL_TYPES, { required_error: 'Fuel type is required' }),
+  fuelType: z.enum(FUEL_TYPES, { message: 'Fuel type is required' }),
   hourlyConsumptionRate: z.coerce.number().min(0, 'Must be positive').default(0),
   hourlyRate: z.coerce.number().min(0, 'Must be positive').default(0),
   dailyRate: z.coerce.number().min(0, 'Must be positive').default(0),
@@ -100,7 +101,7 @@ export function MachineryForm() {
   const isEditing = !!editingMachinery;
 
   const form = useForm<FormValues>({
-    resolver: zodResolver(formSchema),
+    resolver: zodResolver(formSchema) as Resolver<FormValues>,
     defaultValues: {
       machineryName: '',
       machineryType: '',

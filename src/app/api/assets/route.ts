@@ -58,11 +58,11 @@ export async function GET(request: NextRequest) {
     }
 
     if (categories && categories.length > 0) {
-      where.category = { in: categories as Prisma.EnumAssetCategoryFilter["in"] };
+      where.category = { in: categories as Prisma.StringFilter["in"] };
     }
 
     if (statuses && statuses.length > 0) {
-      where.status = { in: statuses as Prisma.EnumAssetStatusFilter["in"] };
+      where.status = { in: statuses as Prisma.StringFilter["in"] };
     }
 
     if (assignedToId) {

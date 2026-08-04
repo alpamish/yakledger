@@ -89,7 +89,7 @@ export async function GET(request: NextRequest) {
     const scopedExpenses = (extra: Record<string, unknown> = {}) =>
       withScope({ ...approvedOnly(), ...dateFilter, ...extra }, expenseScope);
     const scopedFuel = (extra: Record<string, unknown> = {}) =>
-      withScope({ ...approvedOnly(), ...fuelDateFilter, ...extra }, fuelScope);
+      withScope({ ...fuelDateFilter, ...extra }, fuelScope);
     const scopedCash = (extra: Record<string, unknown> = {}) =>
       withScope({ ...approvedOnly(), ...cashDateFilter, ...extra }, cashScope);
 

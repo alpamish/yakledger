@@ -430,6 +430,7 @@ export interface FuelUsageFilters {
   machineryId?: string;
   machineryType?: string;
   fuelTypes?: FuelType[];
+  approvalStatus?: import("@/types/expense").ApprovalStatus;
   dateFrom?: string;
   dateTo?: string;
 }

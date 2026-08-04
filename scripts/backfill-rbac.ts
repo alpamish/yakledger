@@ -31,7 +31,7 @@ async function backfillApprovalStatus() {
   console.log("=== Backfilling approvalStatus -> APPROVED ===");
   for (const model of APPROVAL_MODELS) {
     const count = await db.$executeRawUnsafe(
-      `UPDATE "${model}" SET "approvalStatus"='APPROVED', "approvedAt"=COALESCE("approvedAt","updatedAt","createdAt") WHERE "approvalStatus"='PENDING'`
+      `UPDATE "${model}" SET "approvalStatus"='APPROVED', "approvedAt"=COALESCE("approvedAt","createdAt") WHERE "approvalStatus"='PENDING'`
     );
     console.log(`  ${model}: ${count} rows -> APPROVED`);
   }

@@ -1095,6 +1095,8 @@ export function ReportsPage() {
     XLSX.writeFile(wb, `expense-report-${format(new Date(), 'yyyy-MM-dd')}.xlsx`);
   }, [selectedExpenses, dashboardStats]);
 
+  const { canView, hasPermission } = usePermissions();
+
   if (isLoading && !dashboardStats) {
     return (
       <div className="flex h-[60vh] items-center justify-center">
@@ -1127,8 +1129,6 @@ export function ReportsPage() {
       count: cat.count,
       color: CATEGORY_COLORS[cat.category as Category] ?? '#78716c',
     }));
-
-  const { canView, hasPermission } = usePermissions();
 
   if (!canView('reports')) return null;
 

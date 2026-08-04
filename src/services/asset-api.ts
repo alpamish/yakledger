@@ -11,6 +11,7 @@ import type {
   FuelTransactionFormData,
   FuelStock,
   FuelContainerStock,
+  FuelContainer,
   FuelFinancialSummary,
   MaintenanceRecord,
   MaintenanceRecordFormData,
@@ -129,9 +130,9 @@ export const fuelApi = {
     return request<ApiResponse<{ stock: FuelStock[]; containerStock: FuelContainerStock[] }>>(`/fuel-transactions/stock${qs}`);
   },
 
-  getContainers: async (includeInactive?: boolean): Promise<ApiResponse<FuelContainerStock[]>> => {
+  getContainers: async (includeInactive?: boolean): Promise<ApiResponse<FuelContainer[]>> => {
     const qs = includeInactive ? "?includeInactive=true" : "";
-    return request<ApiResponse<FuelContainerStock[]>>(`/fuel-containers${qs}`);
+    return request<ApiResponse<FuelContainer[]>>(`/fuel-containers${qs}`);
   },
 
   create: async (data: FuelTransactionFormData): Promise<ApiResponse<FuelTransaction>> => {

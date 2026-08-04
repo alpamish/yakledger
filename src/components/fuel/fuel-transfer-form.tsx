@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
+import type { Resolver } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { Button } from '@/components/ui/button';
@@ -24,7 +25,7 @@ import {
 } from '@/components/ui/select';
 import { FUEL_TYPE_LABELS } from '@/types/contractor';
 import { fuelApi } from '@/services/asset-api';
-import type { FuelTransaction } from '@/types/asset';
+import type { FuelTransaction, FuelContainer } from '@/types/asset';
 import { toast } from 'sonner';
 
 const transferSchema = z.object({
@@ -46,10 +47,10 @@ interface FuelTransferFormProps {
 
 export function FuelTransferForm({ onSuccess, initialData }: FuelTransferFormProps) {
   const isEditing = !!initialData;
-  const [containers, setContainers] = useState<{ id: string; name: string; fuelType?: string | null; balance: number; isMainContainer: boolean }[]>([]);
+  const [containers, setContainers] = useState<FuelContainer[]>([]);
 
   const form = useForm<TransferFormValues>({
-    resolver: zodResolver(transferSchema),
+    resolver: zodResolver(transferSchema) as Resolver<TransferFormValues>,
     defaultValues: {
       sourceContainerId: initialData?.containerId || '',
       destinationContainerId: initialData?.destinationContainerId || '',

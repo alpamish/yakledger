@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useRef } from 'react';
 import { useForm } from 'react-hook-form';
+import type { Resolver } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useAssetStore } from '@/hooks/use-asset-store';
@@ -93,7 +94,7 @@ export function AssetForm({ defaultValues, onSubmit, isSubmitting }: AssetFormPr
   }, []);
 
   const form = useForm<AssetFormValues>({
-    resolver: zodResolver(assetFormSchema),
+    resolver: zodResolver(assetFormSchema) as Resolver<AssetFormValues>,
     defaultValues: {
       name: '',
       category: 'OTHER' as never,

@@ -257,6 +257,8 @@ export const fuelUsageApi = {
     fuelType?: string;
     machineryType?: string;
     machineryId?: string;
+    contractorId?: string;
+    approvalStatus?: string;
   }): Promise<ApiResponse<FuelUsageSummary>> => {
     const searchParams = new URLSearchParams();
     if (params?.dateFrom) searchParams.set("dateFrom", params.dateFrom);
@@ -264,6 +266,8 @@ export const fuelUsageApi = {
     if (params?.fuelType) searchParams.set("fuelType", params.fuelType);
     if (params?.machineryType) searchParams.set("machineryType", params.machineryType);
     if (params?.machineryId) searchParams.set("machineryId", params.machineryId);
+    if (params?.contractorId) searchParams.set("contractorId", params.contractorId);
+    if (params?.approvalStatus) searchParams.set("approvalStatus", params.approvalStatus);
     const qs = searchParams.toString();
     return request<ApiResponse<FuelUsageSummary>>(`/fuel-usage/summary${qs ? `?${qs}` : ""}`);
   },
@@ -285,6 +289,9 @@ export const fuelUsageApi = {
       if (params.machineryType) searchParams.set("machineryType", params.machineryType);
       if (params.fuelTypes?.length) {
         searchParams.set("fuelTypes", params.fuelTypes.join(","));
+      }
+      if (params.approvalStatus) {
+        searchParams.set("approvalStatus", params.approvalStatus);
       }
       if (params.dateFrom) searchParams.set("dateFrom", params.dateFrom);
       if (params.dateTo) searchParams.set("dateTo", params.dateTo);

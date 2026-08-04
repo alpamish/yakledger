@@ -90,15 +90,15 @@ export async function GET(request: NextRequest) {
     }
 
     if (departments && departments.length > 0) {
-      where.department = { in: departments as Prisma.EnumDepartmentFilter["in"] };
+      where.department = { in: departments as Prisma.StringFilter["in"] };
     }
 
     if (statuses && statuses.length > 0) {
-      where.status = { in: statuses as Prisma.EnumEmployeeStatusFilter["in"] };
+      where.status = { in: statuses as Prisma.StringFilter["in"] };
     }
 
     if (employmentTypes && employmentTypes.length > 0) {
-      where.employmentType = { in: employmentTypes as Prisma.EnumEmploymentTypeFilter["in"] };
+      where.employmentType = { in: employmentTypes as Prisma.StringFilter["in"] };
     }
 
     // Validate sort field

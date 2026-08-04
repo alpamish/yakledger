@@ -42,6 +42,8 @@ export async function GET(request: NextRequest) {
     const machineryType = searchParams.get("machineryType") || undefined;
     const fuelTypesParam = searchParams.get("fuelTypes");
     const fuelTypes = fuelTypesParam ? fuelTypesParam.split(",").filter(Boolean) : undefined;
+    const approvalStatusParam = searchParams.get("approvalStatus");
+    const approvalStatus = approvalStatusParam || undefined;
     const dateFrom = searchParams.get("dateFrom") || undefined;
     const dateTo = searchParams.get("dateTo") || undefined;
 
@@ -74,13 +76,17 @@ export async function GET(request: NextRequest) {
     }
 
     if (fuelTypes && fuelTypes.length > 0) {
-      where.fuelType = { in: fuelTypes as Prisma.EnumFuelTypeFilter["in"] };
+      where.fuelType = { in: fuelTypes as Prisma.StringFilter["in"] };
+    }
+
+    if (approvalStatus) {
+      where.approvalStatus = approvalStatus as Prisma.StringFilter["equals"];
     }
 
     if (dateFrom || dateTo) {
       where.date = {};
       if (dateFrom) (where.date as Prisma.DateTimeFilter).gte = new Date(dateFrom);
-      if (dateTo) (where.date as Prisma.DateTimeFilter).lte = new Date(dateTo);
+      if (dateTo) (where.date as Prisma.DateTimeFilter).lte = new Date(dateTo + "T23:59:59.999Z");
     }
 
     // Validate sort field
@@ -195,9 +201,6 @@ export async function POST(request: NextRequest) {
             machineryId: data.machineryId ?? null,
             date: new Date(data.date),
             createdBy: user.id,
-            approvalStatus,
-            approvedById: approvalStatus === APPROVED ? user.id : null,
-            approvedAt: approvalStatus === APPROVED ? new Date() : null,
           },
         });
         fuelTransactionId = fuelTxn.id;
@@ -218,6 +221,9 @@ export async function POST(request: NextRequest) {
           fuelTransactionId,
           notes: data.notes ?? null,
           createdBy: user.id,
+          approvalStatus,
+          approvedById: approvalStatus === APPROVED ? user.id : null,
+          approvedAt: approvalStatus === APPROVED ? new Date() : null,
         },
         include: includes,
       });

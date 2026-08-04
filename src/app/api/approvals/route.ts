@@ -167,14 +167,14 @@ export async function GET(request: NextRequest) {
           where,
           include: {
             creator: { select: { id: true, name: true } },
-            asset: { select: { assetName: true } },
+            asset: { select: { name: true } },
           },
           orderBy: { createdAt: "asc" },
         }).then((rows) =>
           rows.map((r) => ({
             entity: "assetLog",
             id: r.id,
-            summary: `${r.asset?.assetName ?? "Asset"} - ${r.status}`,
+            summary: `${r.asset?.name ?? "Asset"} - ${r.status}`,
             date: r.date.toISOString(),
             status: r.approvalStatus,
             approvalNote: r.approvalNote,

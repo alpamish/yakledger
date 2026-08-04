@@ -101,7 +101,7 @@ function StatusBadge({ value, colorMap, labelMap }: { value: string; colorMap: R
   );
 }
 
-export function ContractorProfile({ contractorId }: { contractorId: string }) {
+export function ContractorProfile({ contractorId }: { contractorId?: string }) {
   const selectedContractor = useContractorStore((s) => s.selectedContractor);
   const isLoading = useContractorStore((s) => s.isLoading);
   const timesheets = useContractorStore((s) => s.timesheets);
@@ -169,10 +169,11 @@ export function ContractorProfile({ contractorId }: { contractorId: string }) {
   }, [selectedContractor, timesheets, fuelUsages, dateFrom, dateTo]);
 
   useEffect(() => {
-    if (contractorId) {
-      fetchContractorProfile(contractorId);
+    const targetId = contractorId ?? selectedContractor?.id;
+    if (targetId) {
+      fetchContractorProfile(targetId);
     }
-  }, [contractorId, fetchContractorProfile]);
+  }, [contractorId, selectedContractor?.id, fetchContractorProfile]);
 
   if (isLoading && !selectedContractor) {
     return (

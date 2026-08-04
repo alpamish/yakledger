@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
+import type { Resolver } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { Button } from '@/components/ui/button';
@@ -24,7 +25,7 @@ import {
 } from '@/components/ui/select';
 import { FUEL_TYPES, FUEL_TYPE_LABELS } from '@/types/contractor';
 import { fuelApi } from '@/services/asset-api';
-import type { FuelTransaction } from '@/types/asset';
+import type { FuelTransaction, FuelContainer } from '@/types/asset';
 import { toast } from 'sonner';
 
 const purchaseSchema = z.object({
@@ -45,11 +46,11 @@ interface FuelPurchaseFormProps {
 }
 
 export function FuelPurchaseForm({ onSuccess, initialData }: FuelPurchaseFormProps) {
-  const [containers, setContainers] = useState<{ id: string; name: string; fuelType?: string | null }[]>([]);
+  const [containers, setContainers] = useState<FuelContainer[]>([]);
   const isEditing = !!initialData;
 
   const form = useForm<PurchaseFormValues>({
-    resolver: zodResolver(purchaseSchema),
+    resolver: zodResolver(purchaseSchema) as Resolver<PurchaseFormValues>,
     defaultValues: {
       fuelType: initialData?.fuelType || 'DIESEL',
       quantity: initialData?.quantity || 0,

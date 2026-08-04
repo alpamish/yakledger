@@ -152,9 +152,6 @@ export async function POST(request: NextRequest) {
           notes: data.notes ?? null,
           date: data.date ? new Date(data.date) : new Date(),
           createdBy: user.id,
-          approvalStatus,
-          approvedById,
-          approvedAt,
         },
         include: transactionIncludes,
       });

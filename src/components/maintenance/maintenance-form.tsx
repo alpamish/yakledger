@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
+import type { Resolver } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { Button } from '@/components/ui/button';
@@ -22,7 +23,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { MAINTENANCE_TYPES, MAINTENANCE_TYPE_LABELS, type Asset } from '@/types/asset';
+import { MAINTENANCE_TYPES, MAINTENANCE_TYPE_LABELS, type Asset, type MaintenanceRecordFormData } from '@/types/asset';
 import { assetsApi, maintenanceApi } from '@/services/asset-api';
 import { toast } from 'sonner';
 
@@ -53,7 +54,7 @@ export function MaintenanceForm({ onSuccess }: MaintenanceFormProps) {
   }, []);
 
   const form = useForm<FormValues>({
-    resolver: zodResolver(formSchema),
+    resolver: zodResolver(formSchema) as Resolver<FormValues>,
     defaultValues: {
       serviceDate: new Date().toISOString().split('T')[0],
       serviceType: 'ROUTINE' as never,
@@ -66,7 +67,7 @@ export function MaintenanceForm({ onSuccess }: MaintenanceFormProps) {
       await maintenanceApi.create({
         assetId: data.assetId,
         serviceDate: data.serviceDate,
-        serviceType: data.serviceType,
+        serviceType: data.serviceType as MaintenanceRecordFormData['serviceType'],
         cost: data.cost,
         description: data.description || undefined,
         vendor: data.vendor || undefined,

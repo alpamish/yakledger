@@ -122,12 +122,12 @@ export async function GET(request: NextRequest) {
     }
 
     if (categories && categories.length > 0) {
-      where.category = { in: categories as Prisma.EnumCategoryFilter["in"] };
+      where.category = { in: categories as Prisma.StringFilter["in"] };
     }
 
     if (paymentMethods && paymentMethods.length > 0) {
       where.paymentMethod = {
-        in: paymentMethods as Prisma.EnumPaymentMethodFilter["in"],
+        in: paymentMethods as Prisma.StringFilter["in"],
       };
     }
 

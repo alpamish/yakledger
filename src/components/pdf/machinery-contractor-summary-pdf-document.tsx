@@ -230,11 +230,11 @@ function MachineryContractorSummaryPDFDocument({
             </View>
           )}
 
-          <View style={styles.pageNumberContainer}
-            render={({ pageNumber, totalPages }: { pageNumber: number; totalPages: number }) => (
-              <Text style={styles.pageNumberText}>Page {pageNumber} of {totalPages}</Text>
-            )}
-          />
+          <View style={styles.pageNumberContainer}>
+            <Text style={styles.pageNumberText} render={({ pageNumber, totalPages }) =>
+              `Page ${pageNumber} of ${totalPages}`
+            } />
+          </View>
         </Page>
       ))}
     </Document>

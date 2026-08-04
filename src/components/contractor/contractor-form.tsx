@@ -2,6 +2,7 @@
 
 import { useEffect } from 'react';
 import { useForm, useFieldArray } from 'react-hook-form';
+import type { Resolver } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import {
@@ -72,8 +73,8 @@ const contractorFormSchema = z.object({
   email: z.string().email('Invalid email format').optional().nullable().or(z.literal('')),
   address: z.string().optional().nullable(),
   nationalId: z.string().optional().nullable(),
-  contractorType: z.enum(CONTRACTOR_TYPES, { required_error: 'Contractor type is required' }),
-  status: z.enum(CONTRACTOR_STATUSES, { required_error: 'Status is required' }),
+  contractorType: z.enum(CONTRACTOR_TYPES, { message: 'Contractor type is required' }),
+  status: z.enum(CONTRACTOR_STATUSES, { message: 'Status is required' }),
   notes: z.string().optional().nullable(),
   machineryEntries: z.array(machineryEntrySchema).optional().default([]),
 });
@@ -91,7 +92,7 @@ export function ContractorForm() {
   const isEditing = !!editingContractor;
 
   const form = useForm<ContractorFormValues>({
-    resolver: zodResolver(contractorFormSchema),
+    resolver: zodResolver(contractorFormSchema) as Resolver<ContractorFormValues>,
     defaultValues: {
       contractorName: '',
       fatherName: '',

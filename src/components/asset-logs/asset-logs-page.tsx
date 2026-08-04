@@ -58,6 +58,8 @@ import { AssetLogForm } from './asset-log-form';
 import { assetsApi } from '@/services/asset-api';
 import { toast } from 'sonner';
 import { ConfirmDialog } from '@/components/common/confirm-dialog';
+import { ApprovalStatusBadge } from '@/components/common/approval-status-badge';
+import { RecordAccessDialog } from '@/components/common/record-access-dialog';
 import type { Asset, AssetLog, LogStatus } from '@/types/asset';
 import { LOG_STATUS_LABELS } from '@/types/asset';
 
@@ -378,21 +380,21 @@ export function AssetLogsPage() {
                     </TableCell>
                     <TableCell className="text-sm">{l.operator?.fullName || 'N/A'}</TableCell>
                     <TableCell>
-                      {l.distanceTraveled !== null ? (
+                      {l.distanceTraveled != null ? (
                         <span className="font-medium">{l.distanceTraveled.toFixed(0)} km</span>
                       ) : (
                         <span className="text-muted-foreground">-</span>
                       )}
                     </TableCell>
                     <TableCell>
-                      {l.engineHoursUsed !== null ? (
+                      {l.engineHoursUsed != null ? (
                         <span>{l.engineHoursUsed.toFixed(1)} h</span>
                       ) : (
                         <span className="text-muted-foreground">-</span>
                       )}
                     </TableCell>
                     <TableCell>
-                      {l.fuelConsumed !== null ? (
+                      {l.fuelConsumed != null ? (
                         <span>{l.fuelConsumed.toFixed(0)} L</span>
                       ) : (
                         <span className="text-muted-foreground">-</span>
@@ -409,6 +411,9 @@ export function AssetLogsPage() {
                       >
                         {LOG_STATUS_LABELS[l.status as LogStatus] || l.status || 'Pending'}
                       </Badge>
+                      <div className="mt-1">
+                        <ApprovalStatusBadge status={l.approvalStatus} />
+                      </div>
                       {l.approvedBy && (
                         <div className="text-xs text-muted-foreground mt-1">by {l.approvedBy.name}</div>
                       )}
@@ -430,6 +435,11 @@ export function AssetLogsPage() {
                             <Pencil className="h-4 w-4 text-blue-600" />
                           </Button>
                         )}
+                        <RecordAccessDialog
+                          entity="assetLog"
+                          entityId={l.id}
+                          entityLabel="asset log"
+                        />
                         {canDelete('assets') && (
                           <Button
                             variant="ghost"

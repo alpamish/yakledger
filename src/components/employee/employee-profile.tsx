@@ -1097,14 +1097,14 @@ export function EmployeeProfile() {
                       <EmployeeExpensePDFDocument 
                         expenses={expenseList} 
                         employeeName={emp.fullName}
-                        type={expenseType}
+                        type={expenseType === 'spent' ? 'spent' : 'taken'}
                       />
                     ).toBlob();
 
                     const url = URL.createObjectURL(blob);
                     const link = document.createElement("a");
                     link.href = url;
-                    link.download = `${expenseType === 'taken' ? 'paid-to' : 'paid-by'}-${emp.fullName.replace(/\s+/g, '-').toLowerCase()}-${format(new Date(), 'yyyy-MM-dd')}.pdf`;
+                    link.download = `${expenseType === 'spent' ? 'paid-by' : 'paid-to'}-${emp.fullName.replace(/\s+/g, '-').toLowerCase()}-${format(new Date(), 'yyyy-MM-dd')}.pdf`;
                     document.body.appendChild(link);
                     link.click();
                     document.body.removeChild(link);

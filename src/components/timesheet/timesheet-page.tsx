@@ -31,6 +31,7 @@ import { format } from 'date-fns';
 import { toast } from 'sonner';
 import { usePermissions } from '@/hooks/use-permissions';
 import { ApprovalStatusBadge } from '@/components/common/approval-status-badge';
+import { RecordAccessDialog } from '@/components/common/record-access-dialog';
 
 export function TimesheetPage() {
   const { canView, canCreate, canEdit, canDelete, canApprove } = usePermissions();
@@ -214,6 +215,11 @@ export function TimesheetPage() {
                               <Pencil className="h-4 w-4" />
                             </Button>
                           )}
+                          <RecordAccessDialog
+                            entity="timesheet"
+                            entityId={t.id}
+                            entityLabel="timesheet"
+                          />
                           {canDelete('timesheets') && (
                             <Button variant="ghost" size="icon" onClick={() => handleDelete(t)}>
                               <Trash2 className="h-4 w-4 text-red-500" />

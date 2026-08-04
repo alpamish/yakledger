@@ -9,7 +9,7 @@ import { Footer } from './footer';
 import { QuickSearch } from '@/components/common/quick-search';
 
 interface AppShellProps {
-  children: React.ReactNode;
+  children: React.ReactNode | ((section: NavSection) => React.ReactNode);
   activeSection?: NavSection;
   onSectionChange?: (section: NavSection) => void;
   userName?: string;
@@ -60,7 +60,7 @@ export function AppShell({
         {/* Main Content */}
         <main className="flex-1 overflow-auto p-4 md:p-6">
           {typeof children === 'function'
-            ? (children as (section: NavSection) => React.ReactNode)(currentSection)
+            ? children(currentSection)
             : children}
         </main>
 

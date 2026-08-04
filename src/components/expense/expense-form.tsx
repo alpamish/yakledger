@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useRef, useMemo, useCallback } from 'react';
 import { useForm } from 'react-hook-form';
+import type { Resolver } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { format } from 'date-fns';
@@ -41,7 +42,7 @@ import {
 } from '@/types/expense';
 import { DEPARTMENT_LABELS } from '@/types/employee';
 import { CONTRACTOR_TYPE_LABELS } from '@/types/contractor';
-import type { Category, PaymentMethod, ExpenseItem } from '@/types/expense';
+import type { Category, PaymentMethod, ExpenseItem, ExpenseFormData } from '@/types/expense';
 import type { Department } from '@/types/employee';
 import type { ContractorType } from '@/types/contractor';
 import ExpenseItemsModal from '@/components/expense/expense-items-modal';
@@ -96,7 +97,7 @@ export function ExpenseForm() {
   const isEditing = !!editingExpense;
 
   const form = useForm<ExpenseFormValues>({
-    resolver: zodResolver(expenseFormSchema),
+    resolver: zodResolver(expenseFormSchema) as Resolver<ExpenseFormValues>,
     defaultValues: {
       title: '',
       description: '',
@@ -256,6 +257,7 @@ export function ExpenseForm() {
       const baseData = {
         ...values,
         amount: itemsTotal,
+        description: values.description || undefined,
         attachment: values.attachment || undefined,
         tags: values.tags || undefined,
         notes: values.notes || undefined,
@@ -266,11 +268,11 @@ export function ExpenseForm() {
           id: editingExpense.id,
           data: {
             ...baseData,
-            paidById: values.paidById || null,
-            paidToId: values.paidToId || null,
-            paidToContractorId: values.paidToContractorId || null,
-            paidByContractorId: values.paidByContractorId || null,
-          },
+            paidById: values.paidById || undefined,
+            paidToId: values.paidToId || undefined,
+            paidToContractorId: values.paidToContractorId || undefined,
+            paidByContractorId: values.paidByContractorId || undefined,
+          } as Partial<ExpenseFormData>,
         });
         toast.success('Expense updated successfully');
       } else {
@@ -280,7 +282,7 @@ export function ExpenseForm() {
           paidToId: values.paidToId || undefined,
           paidToContractorId: values.paidToContractorId || undefined,
           paidByContractorId: values.paidByContractorId || undefined,
-        });
+        } as ExpenseFormData);
         toast.success('Expense created successfully');
       }
       closeForm();

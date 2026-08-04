@@ -14,6 +14,8 @@ export async function GET(request: NextRequest) {
     const fuelType = searchParams.get("fuelType") || undefined;
     const machineryType = searchParams.get("machineryType") || undefined;
     const machineryId = searchParams.get("machineryId") || undefined;
+    const contractorId = searchParams.get("contractorId") || undefined;
+    const approvalStatusParam = searchParams.get("approvalStatus") || undefined;
 
     const dateFilter: Record<string, unknown> = {};
     if (dateFrom || dateTo) {
@@ -34,8 +36,16 @@ export async function GET(request: NextRequest) {
       dateFilter.machinery = { machineryType };
     }
 
+    if (contractorId) {
+      dateFilter.contractorId = contractorId;
+    }
+
+    const statusFilter = approvalStatusParam
+      ? { approvalStatus: approvalStatusParam }
+      : { approvalStatus: APPROVED };
+
     const where = withScope(
-      { ...dateFilter, approvalStatus: APPROVED },
+      { ...dateFilter, ...statusFilter },
       await buildAccessScope(user, "fuelUsage")
     );
 

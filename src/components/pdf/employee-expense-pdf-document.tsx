@@ -342,9 +342,11 @@ function EmployeeExpensePDFDocument({
               <ReportFooter totalExpenses={expenses.length} grandTotal={grandTotal} />
             )}
 
-            <View style={styles.pageNumberContainer} render={({ pageNumber, totalPages }) => (
-              <Text style={styles.pageNumberText}>Page {pageNumber} of {totalPages}</Text>
-            )} />
+            <View style={styles.pageNumberContainer}>
+              <Text style={styles.pageNumberText} render={({ pageNumber, totalPages }) =>
+                `Page ${pageNumber} of ${totalPages}`
+              } />
+            </View>
           </Page>
         );
       })}

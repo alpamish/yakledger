@@ -1,6 +1,6 @@
 import { db } from "./src/lib/db";
 import { hashPassword } from "./src/lib/auth";
-import { Category, PaymentMethod } from "@prisma/client";
+import type { Category, PaymentMethod } from "./src/types/expense";
 
 async function seed() {
   // Create demo user
@@ -203,7 +203,7 @@ async function seed() {
 
   // Set approvedBy to user.id for all timesheets
   for (const ts of sampleTimesheets) {
-    ts.approvedBy = user.id;
+    (ts as { approvedBy?: string }).approvedBy = user.id;
   }
 
   for (const ts of sampleTimesheets) {

@@ -9,6 +9,8 @@ import { Input } from '@/components/ui/input';
 import { Loader2, Search, X, Filter, ChevronLeft, ChevronRight, Slash } from 'lucide-react';
 import { useDebounce } from '@/hooks/use-debounce';
 import type { CashTransaction, Transfer as TransferType } from '@/types/expense';
+import { ApprovalStatusBadge } from '@/components/common/approval-status-badge';
+import { RecordAccessDialog } from '@/components/common/record-access-dialog';
 
 interface CombinedEntry {
   id: string;
@@ -16,6 +18,8 @@ interface CombinedEntry {
   amount: number;
   createdAt: string;
   description: string;
+  approvalStatus?: import('@/types/expense').ApprovalStatus;
+  sourceId: string;
 }
 
 export function TransactionsList() {
@@ -93,6 +97,8 @@ export function TransactionsList() {
       amount: t.type === 'ADVANCE' ? t.amount : -t.amount,
       createdAt: t.createdAt,
       description: `${t.employee?.fullName ?? 'Unknown'}${t.note ? ` — ${t.note}` : ''}`,
+      approvalStatus: t.approvalStatus,
+      sourceId: t.id,
     }));
 
     const transferEntries: CombinedEntry[] = transfers.map((t) => ({
@@ -101,6 +107,8 @@ export function TransactionsList() {
       amount: t.amount,
       createdAt: t.createdAt,
       description: `${t.fromEmployee?.fullName ?? 'Unknown'} → ${t.toEmployee?.fullName ?? 'Unknown'}${t.note ? ` — ${t.note}` : ''}`,
+      approvalStatus: t.approvalStatus,
+      sourceId: t.id,
     }));
 
     return [...cashEntries, ...transferEntries].sort(
@@ -395,6 +403,7 @@ export function TransactionsList() {
                     <Badge style={{ backgroundColor: colors.bg, color: colors.color }}>
                       {getLabel(entry.type)}
                     </Badge>
+                    <ApprovalStatusBadge status={entry.approvalStatus} />
                     <span className="text-sm truncate">{entry.description}</span>
                   </div>
                   <div className="flex items-center gap-4 flex-shrink-0">
@@ -407,6 +416,11 @@ export function TransactionsList() {
                     <span className="text-xs text-muted-foreground">
                       {new Date(entry.createdAt).toLocaleDateString()}
                     </span>
+                    <RecordAccessDialog
+                      entity={entry.type === 'TRANSFER' ? 'transfer' : 'cashTransaction'}
+                      entityId={entry.sourceId}
+                      entityLabel={entry.type === 'TRANSFER' ? 'transfer' : 'cash transaction'}
+                    />
                   </div>
                 </div>
               );

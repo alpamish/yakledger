@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/permissions";
-import { buildAccessScope, withScope, APPROVED } from "@/lib/access-control";
+import { buildAccessScope, withScope } from "@/lib/access-control";
 
 const transactionIncludes = {
   asset: { select: { id: true, name: true, category: true } },
@@ -29,7 +29,7 @@ export async function GET(request: NextRequest) {
 
     const allTransactions = await db.fuelTransaction.findMany({
       where: withScope(
-        { ...dateFilter, approvalStatus: APPROVED },
+        { ...dateFilter },
         await buildAccessScope(user, "fuelTransaction")
       ),
       include: transactionIncludes,

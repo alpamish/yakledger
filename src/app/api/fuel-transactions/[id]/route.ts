@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/permissions";
-import { buildAccessScope, withScope, resolveApprovalStatusOnEdit, APPROVED } from "@/lib/access-control";
+import { buildAccessScope, withScope } from "@/lib/access-control";
 
 const updateFuelTransactionSchema = z.object({
   type: z.enum(["PURCHASE", "TRANSFER", "ISSUE"]).optional(),
@@ -57,7 +57,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     const { id } = await params;
     const existing = await db.fuelTransaction.findFirst({
       where: withScope({ id }, await buildAccessScope(user, "fuelTransaction")),
-      select: { approvalStatus: true },
+      select: { id: true },
     });
     if (!existing) return NextResponse.json({ success: false, error: "Fuel transaction not found" }, { status: 404 });
 
@@ -83,11 +83,6 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     if (data.issuedToName !== undefined) updateData.issuedToName = data.issuedToName ?? null;
     if (data.notes !== undefined) updateData.notes = data.notes ?? null;
     if (data.date !== undefined) updateData.date = new Date(data.date);
-
-    const approvalStatus = resolveApprovalStatusOnEdit(user, existing.approvalStatus);
-    updateData.approvalStatus = approvalStatus;
-    updateData.approvedById = approvalStatus === APPROVED ? user.id : null;
-    updateData.approvedAt = approvalStatus === APPROVED ? new Date() : null;
 
     const transaction = await db.fuelTransaction.update({
       where: { id },

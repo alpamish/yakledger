@@ -96,11 +96,11 @@ export async function GET(request: NextRequest) {
     }
 
     if (contractorTypes && contractorTypes.length > 0) {
-      where.contractorType = { in: contractorTypes as Prisma.EnumContractorTypeFilter["in"] };
+      where.contractorType = { in: contractorTypes as Prisma.StringFilter["in"] };
     }
 
     if (statuses && statuses.length > 0) {
-      where.status = { in: statuses as Prisma.EnumContractorStatusFilter["in"] };
+      where.status = { in: statuses as Prisma.StringFilter["in"] };
     }
 
     // Validate sort field

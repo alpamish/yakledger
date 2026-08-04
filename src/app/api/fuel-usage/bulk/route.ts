@@ -89,9 +89,6 @@ export async function POST(request: NextRequest) {
               machineryId: record.machineryId ?? null,
               date: new Date(record.date),
               createdBy: user.id,
-              approvalStatus,
-              approvedById,
-              approvedAt,
             },
           });
           fuelTransactionId = fuelTxn.id;

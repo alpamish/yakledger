@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
+import type { Resolver } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { format } from 'date-fns';
@@ -76,7 +77,7 @@ interface ContractorOption {
 export function TimesheetForm({ open, onOpenChange, editingTimesheet, onSuccess }: TimesheetFormProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [contractors, setContractors] = useState<ContractorOption[]>([]);
-  const [machineryOptions, setMachineryOptions] = useState<Pick<Machinery, 'id' | 'machineryName' | 'plateNumber'>[]>([]);
+  const [machineryOptions, setMachineryOptions] = useState<Pick<Machinery, 'id' | 'machineryName' | 'plateNumber' | 'workHoursPerDay'>[]>([]);
   const [machineryRates, setMachineryRates] = useState<MachineryRate[]>([]);
   const [loadingContractors, setLoadingContractors] = useState(false);
   const [contractorPopoverOpen, setContractorPopoverOpen] = useState(false);
@@ -85,7 +86,7 @@ export function TimesheetForm({ open, onOpenChange, editingTimesheet, onSuccess 
   const isEditing = !!editingTimesheet;
 
   const form = useForm<FormValues>({
-    resolver: zodResolver(formSchema),
+    resolver: zodResolver(formSchema) as Resolver<FormValues>,
     defaultValues: {
       contractorId: '',
       machineryId: '',
@@ -158,11 +159,6 @@ export function TimesheetForm({ open, onOpenChange, editingTimesheet, onSuccess 
       }).catch(() => {
         setMachineryOptions([]);
       });
-      contractorsApi.getById(selectedContractorId).then((res) => {
-        setWorkHoursPerDay(res.data?.workHoursPerDay ?? 9);
-      }).catch(() => {
-        setWorkHoursPerDay(9);
-      });
     } else {
       setMachineryOptions([]);
       setWorkHoursPerDay(9);
@@ -170,6 +166,13 @@ export function TimesheetForm({ open, onOpenChange, editingTimesheet, onSuccess 
   }, [selectedContractorId]);
 
   const selectedMachineryId = form.watch('machineryId');
+
+  useEffect(() => {
+    if (selectedMachineryId) {
+      const selectedMachinery = machineryOptions.find((m) => m.id === selectedMachineryId);
+      setWorkHoursPerDay(selectedMachinery?.workHoursPerDay ?? 9);
+    }
+  }, [selectedMachineryId, machineryOptions]);
 
   useEffect(() => {
     if (selectedMachineryId) {

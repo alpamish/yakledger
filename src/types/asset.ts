@@ -176,6 +176,23 @@ export interface FuelContainerStock {
   usagePercent: number;
 }
 
+export interface FuelContainer {
+  id: string;
+  name: string;
+  fuelType?: string | null;
+  fuelCapacity?: number | null;
+  fuelLocation?: string | null;
+  isMainContainer: boolean;
+  status?: string;
+  notes?: string | null;
+  balance: number;
+  usagePercent: number;
+  totalPurchased: number;
+  totalTransferredIn: number;
+  totalTransferredOut: number;
+  totalIssued: number;
+}
+
 export interface MaintenanceRecord {
   id: string;
   assetId: string;
@@ -225,6 +242,7 @@ export interface AssetLog {
   issues?: string | null;
   status: string;
   approvedById?: string | null;
+  approvedBy?: { id: string; name: string } | null;
   approvedAt?: string | null;
   approvalStatus?: import("@/types/expense").ApprovalStatus;
   approvalNote?: string | null;
@@ -267,8 +285,8 @@ export interface AssetLogStats {
 
 export interface AssetDashboardStats {
   totalAssets: number;
-  assetsByCategory: { category: string; count: number }[];
-  assetsByStatus: { status: string; count: number }[];
+  assetsByCategory: { category: string; _count: number }[];
+  assetsByStatus: { status: string; _count: number }[];
   fuelStock: FuelStock[];
   underMaintenanceCount: number;
   monthlyMaintenanceCost: { month: string; cost: number }[];

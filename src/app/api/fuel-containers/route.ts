@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/permissions";
-import { buildAccessScope, withScope, APPROVED } from "@/lib/access-control";
+import { buildAccessScope, withScope } from "@/lib/access-control";
 
 export async function GET(request: NextRequest) {
   try {
@@ -38,7 +38,6 @@ export async function GET(request: NextRequest) {
         const transactions = await db.fuelTransaction.findMany({
           where: withScope(
             {
-              approvalStatus: APPROVED,
               OR: [
                 { containerId: c.id },
                 { destinationContainerId: c.id },
