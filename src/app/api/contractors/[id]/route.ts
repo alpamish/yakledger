@@ -28,6 +28,8 @@ const updateContractorSchema = z.object({
   email: z.string().email().optional().nullable(),
   address: z.string().optional().nullable(),
   nationalId: z.string().optional().nullable(),
+  idImageFront: z.string().optional().nullable(),
+  idImageBack: z.string().optional().nullable(),
   contractorType: z.enum(CONTRACTOR_TYPE_VALUES).optional(),
   status: z.enum(CONTRACTOR_STATUS_VALUES).optional(),
   notes: z.string().optional().nullable(),

@@ -255,6 +255,7 @@ export interface ExpenseFilters {
   paidTo?: string;
   paidById?: string;
   paidToId?: string;
+  tags?: string;
 }
 
 export interface DashboardStats {
@@ -335,7 +336,7 @@ export interface CashTransaction {
   amount: number;
   note?: string | null;
   referenceNumber?: string | null;
-  createdById: string;
+  createdBy: string;
   createdAt: string;
   approvalStatus?: ApprovalStatus;
   approvalNote?: string | null;
@@ -358,7 +359,7 @@ export interface Transfer {
   amount: number;
   note?: string | null;
   referenceNumber?: string | null;
-  createdById: string;
+  createdBy: string;
   createdAt: string;
   approvalStatus?: ApprovalStatus;
   approvalNote?: string | null;

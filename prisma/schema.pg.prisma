@@ -561,20 +561,20 @@ model CashTransaction {
   note            String?
   referenceNumber String?
 
-  createdById     String
-  creator         User               @relation(fields: [createdById], references: [id])
+  createdBy       String
+   creator         User               @relation(fields: [createdBy], references: [id])
 
-  approvalStatus  String             @default("PENDING")
-  approvedById    String?
-  approvedAt      DateTime?
-  approvalNote    String?
-  approver        User?              @relation("CashTransactionApprover", fields: [approvedById], references: [id], onDelete: SetNull)
+   approvalStatus  String             @default("PENDING")
+   approvedById    String?
+   approvedAt      DateTime?
+   approvalNote    String?
+   approver        User?              @relation("CashTransactionApprover", fields: [approvedById], references: [id], onDelete: SetNull)
 
-  createdAt       DateTime           @default(now())
+   createdAt       DateTime           @default(now())
 
-  @@index([employeeId])
-  @@index([type])
-  @@index([createdById])
+   @@index([employeeId])
+   @@index([type])
+   @@index([createdBy])
   @@index([createdAt])
   @@index([approvalStatus])
 }
@@ -588,22 +588,22 @@ model Transfer {
   note            String?
   referenceNumber String?
 
-  createdById     String
-  createdAt       DateTime @default(now())
+  createdBy       String
+   createdAt       DateTime @default(now())
 
-  fromEmployee    Employee @relation("TransferFrom", fields: [fromEmployeeId], references: [id])
-  toEmployee      Employee @relation("TransferTo", fields: [toEmployeeId], references: [id])
-  creator         User     @relation(fields: [createdById], references: [id])
+   fromEmployee    Employee @relation("TransferFrom", fields: [fromEmployeeId], references: [id])
+   toEmployee      Employee @relation("TransferTo", fields: [toEmployeeId], references: [id])
+   creator         User     @relation(fields: [createdBy], references: [id])
 
-  approvalStatus  String   @default("PENDING")
-  approvedById    String?
-  approvedAt      DateTime?
-  approvalNote    String?
-  approver        User?    @relation("TransferApprover", fields: [approvedById], references: [id], onDelete: SetNull)
+   approvalStatus  String   @default("PENDING")
+   approvedById    String?
+   approvedAt      DateTime?
+   approvalNote    String?
+   approver        User?    @relation("TransferApprover", fields: [approvedById], references: [id], onDelete: SetNull)
 
-  @@index([fromEmployeeId])
-  @@index([toEmployeeId])
-  @@index([createdById])
+   @@index([fromEmployeeId])
+   @@index([toEmployeeId])
+   @@index([createdBy])
   @@index([approvalStatus])
 }
 

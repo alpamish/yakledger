@@ -22,7 +22,7 @@ interface MachineryStore {
   error: string | null;
 
   fetchMachinery: () => Promise<void>;
-  createMachinery: (data: MachineryFormData) => Promise<void>;
+  createMachinery: (data: MachineryFormData) => Promise<Machinery | null>;
   updateMachinery: (id: string, data: Partial<MachineryFormData>) => Promise<void>;
   deleteMachinery: (id: string) => Promise<void>;
   bulkDelete: (ids: string[]) => Promise<void>;
@@ -89,12 +89,18 @@ export const useMachineryStore = create<MachineryStore>((set, get) => ({
     }
   },
 
-  createMachinery: async (data: MachineryFormData) => {
+   createMachinery: async (data: MachineryFormData): Promise<Machinery | null> => {
     set({ isLoading: true, error: null });
     try {
-      await machineryApi.create(data);
-      set({ isLoading: false, isFormOpen: false, editingMachinery: null });
+      const res = await machineryApi.create(data);
+      set({ isLoading: false });
+      if (res.data) {
+        set({ editingMachinery: res.data });
+        await get().fetchMachinery();
+        return res.data;
+      }
       await get().fetchMachinery();
+      return null;
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to create machinery';
       set({ isLoading: false, error: message });

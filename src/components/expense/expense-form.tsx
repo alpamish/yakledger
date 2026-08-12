@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useRef, useMemo, useCallback } from 'react';
-import { useForm } from 'react-hook-form';
+import { useForm, useFormState } from 'react-hook-form';
 import type { Resolver } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -52,9 +52,15 @@ import { toast } from 'sonner';
 const expenseFormSchema = z.object({
   title: z.string().min(1, 'Title is required').max(100, 'Title must be 100 characters or less'),
   description: z.string().optional().nullable(),
-  category: z.enum(CATEGORIES as unknown as [string, ...string[]]),
-  amount: z.coerce.number().positive('Amount must be positive'),
-  paymentMethod: z.enum(PAYMENT_METHODS as unknown as [string, ...string[]]),
+  category: z
+    .string()
+    .min(1, 'Category is required')
+    .refine((v) => CATEGORIES.includes(v as Category), 'Category is required'),
+  amount: z.coerce.number().positive('Amount must be greater than 0'),
+  paymentMethod: z
+    .string()
+    .min(1, 'Payment method is required')
+    .refine((v) => PAYMENT_METHODS.includes(v as PaymentMethod), 'Payment method is required'),
   paidTo: z.string().min(1, 'Paid to is required'),
   paidBy: z.string().min(1, 'Paid by is required'),
   expenseDate: z.string().min(1, 'Date is required'),
@@ -116,6 +122,8 @@ export function ExpenseForm() {
       paidByContractorId: null,
     },
   });
+
+  const { errors } = useFormState({ control: form.control });
 
   useEffect(() => {
     if (isFormOpen) {
@@ -287,9 +295,8 @@ export function ExpenseForm() {
       }
       closeForm();
     } catch (error) {
-      toast.error(
-        isEditing ? 'Failed to update expense' : 'Failed to create expense'
-      );
+      const fallback = isEditing ? 'Failed to update expense' : 'Failed to create expense';
+      toast.error(error instanceof Error && error.message ? error.message : fallback);
     }
   }
 
@@ -315,7 +322,7 @@ export function ExpenseForm() {
               name="title"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Title</FormLabel>
+                  <FormLabel>Title *</FormLabel>
                   <FormControl>
                     <Input placeholder="Enter expense title" {...field} />
                   </FormControl>
@@ -331,7 +338,7 @@ export function ExpenseForm() {
                 name="category"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Category</FormLabel>
+                    <FormLabel>Category *</FormLabel>
                     <Select
                       onValueChange={field.onChange}
                       value={field.value}
@@ -362,7 +369,7 @@ export function ExpenseForm() {
                   const displayValue = computedTotal > 0 ? computedTotal : (field.value ?? 0);
                   return (
                     <FormItem>
-                      <FormLabel>Amount</FormLabel>
+                      <FormLabel>Amount *</FormLabel>
                       <FormControl>
                         <div className="relative">
                           <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">
@@ -394,7 +401,7 @@ export function ExpenseForm() {
                 name="paymentMethod"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Payment Method</FormLabel>
+                    <FormLabel>Payment Method *</FormLabel>
                     <Select
                       onValueChange={field.onChange}
                       value={field.value}
@@ -422,7 +429,7 @@ export function ExpenseForm() {
                 name="expenseDate"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Expense Date</FormLabel>
+                    <FormLabel>Expense Date *</FormLabel>
                     <FormControl>
                       <Input type="date" {...field} />
                     </FormControl>
@@ -435,7 +442,7 @@ export function ExpenseForm() {
             {/* Row 4: Paid To (with employee/contractor/external selection) */}
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <FormLabel className="text-sm">Paid To</FormLabel>
+                <FormLabel className="text-sm">Paid To *</FormLabel>
                 <div className="flex items-center gap-1">
                   <Button
                     type="button"
@@ -526,7 +533,7 @@ export function ExpenseForm() {
                           </Command>
                         </PopoverContent>
                       </Popover>
-                      <FormMessage />
+                      <FormMessage>{errors.paidTo?.message}</FormMessage>
                     </FormItem>
                   )}
                 />
@@ -575,7 +582,7 @@ export function ExpenseForm() {
                           </Command>
                         </PopoverContent>
                       </Popover>
-                      <FormMessage />
+                      <FormMessage>{errors.paidTo?.message}</FormMessage>
                     </FormItem>
                   )}
                 />
@@ -598,7 +605,7 @@ export function ExpenseForm() {
             {/* Row 5: Paid By (with employee/contractor/external selection) */}
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <FormLabel className="text-sm">Paid By</FormLabel>
+                <FormLabel className="text-sm">Paid By *</FormLabel>
                 <div className="flex items-center gap-1">
                   <Button
                     type="button"
@@ -675,7 +682,7 @@ export function ExpenseForm() {
                           </Command>
                         </PopoverContent>
                       </Popover>
-                      <FormMessage />
+                      <FormMessage>{errors.paidBy?.message}</FormMessage>
                     </FormItem>
                   )}
                 />

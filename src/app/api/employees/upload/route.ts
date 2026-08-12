@@ -2,13 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { requirePermission } from "@/lib/permissions";
 import { writeFile, mkdir } from "fs/promises";
 import path from "path";
+import sharp from "sharp";
+import { EMPLOYEE_ID_UPLOAD } from "@/lib/upload-config";
 
 // POST /api/employees/upload - Upload employee ID images (front and/or back)
 export async function POST(request: NextRequest) {
   try {
     const permResult = await requirePermission(request, "employees:create");
     if ("status" in permResult) return permResult;
-    const user = permResult.user;
 
     const formData = await request.formData();
     const frontFile = formData.get("front") as File | null;
@@ -22,44 +23,16 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Validate file size (max 10MB)
-    const maxSize = 10 * 1024 * 1024;
-    const allowedTypes = ["image/jpeg", "image/png"];
-
-    const result: { path?: string; front?: string; back?: string; error?: string } = {};
+    const result: { front?: string; back?: string; error?: string } = {};
 
     if (frontFile) {
-      if (frontFile.size > maxSize) {
-        return NextResponse.json(
-          { success: false, error: "Front image size must be less than 10MB" },
-          { status: 400 }
-        );
-      }
-      if (!allowedTypes.includes(frontFile.type)) {
-        return NextResponse.json(
-          { success: false, error: "Front image type not allowed. Only JPEG and PNG are accepted" },
-          { status: 400 }
-        );
-      }
-
+      await validateFile(frontFile, "Front image");
       const frontPath = await saveImage(frontFile, employeeId, "front");
       result.front = frontPath;
     }
 
     if (backFile) {
-      if (backFile.size > maxSize) {
-        return NextResponse.json(
-          { success: false, error: "Back image size must be less than 10MB" },
-          { status: 400 }
-        );
-      }
-      if (!allowedTypes.includes(backFile.type)) {
-        return NextResponse.json(
-          { success: false, error: "Back image type not allowed. Only JPEG and PNG are accepted" },
-          { status: 400 }
-        );
-      }
-
+      await validateFile(backFile, "Back image");
       const backPath = await saveImage(backFile, employeeId, "back");
       result.back = backPath;
     }
@@ -69,7 +42,14 @@ export async function POST(request: NextRequest) {
       data: result,
       message: "Files uploaded successfully",
     });
-  } catch (error) {
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Failed to upload file";
+    if (message.startsWith("Validation:")) {
+      return NextResponse.json(
+        { success: false, error: message.replace("Validation: ", "") },
+        { status: 400 }
+      );
+    }
     console.error("Upload error:", error);
     return NextResponse.json(
       { success: false, error: "Failed to upload file" },
@@ -78,9 +58,27 @@ export async function POST(request: NextRequest) {
   }
 }
 
+function validateFile(file: File, label: string): void {
+  if (file.size > EMPLOYEE_ID_UPLOAD.maxSizeBytes) {
+    throw new Error(`Validation: ${label} size must be less than 10MB`);
+  }
+  if (!EMPLOYEE_ID_UPLOAD.allowedTypes.includes(file.type as (typeof EMPLOYEE_ID_UPLOAD.allowedTypes)[number])) {
+    throw new Error(`Validation: ${label} type not allowed. Only JPEG and PNG are accepted`);
+  }
+}
+
 async function saveImage(file: File, employeeId: string | null, side: string): Promise<string> {
   const bytes = await file.arrayBuffer();
   const buffer = Buffer.from(bytes);
+
+  const processedBuffer = await sharp(buffer)
+    .withMetadata()
+    .resize(EMPLOYEE_ID_UPLOAD.maxWidth, EMPLOYEE_ID_UPLOAD.maxHeight, {
+      fit: "inside",
+      withoutEnlargement: true,
+    })
+    .jpeg({ quality: EMPLOYEE_ID_UPLOAD.jpegQuality })
+    .toBuffer();
 
   let uploadsDir: string;
   if (employeeId) {
@@ -91,10 +89,9 @@ async function saveImage(file: File, employeeId: string | null, side: string): P
 
   await mkdir(uploadsDir, { recursive: true });
 
-  const ext = file.type === "image/png" ? ".png" : ".jpg";
-  const uniqueName = `id-${side}-${Date.now()}${ext}`;
+  const uniqueName = `id-${side}-${Date.now()}.jpg`;
   const filePath = path.join(uploadsDir, uniqueName);
-  await writeFile(filePath, buffer);
+  await writeFile(filePath, processedBuffer);
 
   let publicPath: string;
   if (employeeId) {

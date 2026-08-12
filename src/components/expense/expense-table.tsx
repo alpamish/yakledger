@@ -152,6 +152,7 @@ export function ExpenseTable({
   const [localAmountMax, setLocalAmountMax] = useState(
     filters.amountMax !== undefined ? String(filters.amountMax) : ''
   );
+  const [localTags, setLocalTags] = useState(filters.tags ?? '');
 
   const debouncedSearch = useDebounce(searchInput, 300);
   const isFirstRender = useRef(true);
@@ -185,6 +186,7 @@ export function ExpenseTable({
     if (filters.dateTo) count++;
     if (filters.amountMin !== undefined) count++;
     if (filters.amountMax !== undefined) count++;
+    if (filters.tags) count++;
     return count;
   }, [filters]);
 
@@ -543,6 +545,7 @@ export function ExpenseTable({
       dateTo: localDateTo || undefined,
       amountMin: localAmountMin ? Number(localAmountMin) : undefined,
       amountMax: localAmountMax ? Number(localAmountMax) : undefined,
+      tags: localTags || undefined,
     });
   }, [
     localCategories,
@@ -551,6 +554,7 @@ export function ExpenseTable({
     localDateTo,
     localAmountMin,
     localAmountMax,
+    localTags,
     setFilters,
   ]);
 
@@ -563,6 +567,7 @@ export function ExpenseTable({
     setLocalDateTo('');
     setLocalAmountMin('');
     setLocalAmountMax('');
+    setLocalTags('');
     resetFilters();
   }, [resetFilters]);
 
@@ -857,6 +862,20 @@ export function ExpenseTable({
                   />
                 </div>
               </div>
+            </div>
+
+            {/* Tags Filter */}
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Tags</label>
+              <Input
+                placeholder="e.g. urgent, monthly"
+                value={localTags}
+                onChange={(e) => setLocalTags(e.target.value)}
+                className="text-sm"
+              />
+              <p className="text-xs text-muted-foreground">
+                Comma-separated tags to match against
+              </p>
             </div>
           </div>
 

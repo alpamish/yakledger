@@ -109,8 +109,8 @@ export interface EmployeeFormData {
   hireDate: string;
   status: EmployeeStatus;
   quitingDate?: string;
-  idImageFront?: string;
-  idImageBack?: string;
+  idImageFront?: string | null;
+  idImageBack?: string | null;
   emergencyContactName?: string;
   emergencyContactPhone?: string;
 }

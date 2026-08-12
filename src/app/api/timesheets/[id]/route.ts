@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
-import { requirePermission } from "@/lib/permissions";
+import { requirePermission, isAdminUser } from "@/lib/permissions";
 import { buildAccessScope, withScope, resolveApprovalStatusOnEdit, APPROVED } from "@/lib/access-control";
 
 const updateTimesheetSchema = z.object({
@@ -110,6 +110,13 @@ export async function PUT(
       );
     }
 
+    if (current.approvalStatus === APPROVED && !isAdminUser(user)) {
+      return NextResponse.json(
+        { success: false, error: "Approved timesheets can only be modified by an admin" },
+        { status: 403 }
+      );
+    }
+
     const approvalStatus = resolveApprovalStatusOnEdit(user, current.approvalStatus);
     updateData.approvalStatus = approvalStatus;
     updateData.approvedById = approvalStatus === APPROVED ? user.id : null;
@@ -168,13 +175,20 @@ export async function DELETE(
     // Get timesheet info before deletion for audit log
     const timesheet = await db.timesheet.findFirst({
       where: withScope({ id }, await buildAccessScope(user, "timesheet")),
-      select: { operatorName: true, date: true },
+      select: { operatorName: true, date: true, approvalStatus: true },
     });
 
     if (!timesheet) {
       return NextResponse.json(
         { success: false, error: "Timesheet not found" },
         { status: 404 }
+      );
+    }
+
+    if (timesheet.approvalStatus === APPROVED && !isAdminUser(user)) {
+      return NextResponse.json(
+        { success: false, error: "Approved timesheets can only be deleted by an admin" },
+        { status: 403 }
       );
     }
 

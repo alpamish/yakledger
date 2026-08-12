@@ -59,15 +59,18 @@ import {
   Calculator,
   ArrowUpRight,
   Download,
-  Loader2,
+   Loader2,
   Upload,
   ImageIcon,
   X,
   Wallet,
+  RotateCw,
+  RotateCcw,
 } from 'lucide-react';
 import { pdf } from "@react-pdf/renderer";
 import { format } from 'date-fns';
 import { toast } from 'sonner';
+import { rotateCanvas } from '@/lib/image-utils';
 
 function formatCurrency(amount: number): string {
   return new Intl.NumberFormat('en-US', {
@@ -106,6 +109,12 @@ export function EmployeeProfile() {
   const [isUploadingIdImageBack, setIsUploadingIdImageBack] = React.useState(false);
   const [showIdImageDialog, setShowIdImageDialog] = React.useState(false);
   const [idImageSide, setIdImageSide] = React.useState<'front' | 'back'>('front');
+  const [pendingIdImageFile, setPendingIdImageFile] = React.useState<File | null>(null);
+  const [previewRotation, setPreviewRotation] = React.useState(0);
+  const [idImageToRemove, setIdImageToRemove] = React.useState<'front' | 'back' | null>(null);
+  const [showImagePreview, setShowImagePreview] = React.useState(false);
+  const [previewImageSrc, setPreviewImageSrc] = React.useState<string>('');
+  const [previewImageAlt, setPreviewImageAlt] = React.useState<string>('');
 
   const [walletBalance, setWalletBalance] = React.useState<number | null>(null);
   const [walletLoading, setWalletLoading] = React.useState(false);
@@ -139,20 +148,39 @@ export function EmployeeProfile() {
   } | null>(null);
   const [attendanceSummaryLoading, setAttendanceSummaryLoading] = React.useState(false);
 
-  const handleIdImageUpload = async (e: React.ChangeEvent<HTMLInputElement>, side: 'front' | 'back') => {
+  const handleIdImageSelect = (e: React.ChangeEvent<HTMLInputElement>, side: 'front' | 'back') => {
     const file = e.target.files?.[0];
     if (!file || !emp.id) return;
+
+    setPendingIdImageFile(file);
+    setIdImageSide(side);
+    setPreviewRotation(0);
+    setShowIdImageDialog(true);
+  };
+
+  const rotatePreview = (direction: 'left' | 'right') => {
+    setPreviewRotation((prev) => {
+      const delta = direction === 'left' ? -90 : 90;
+      return (prev + delta + 360) % 360;
+    });
+  };
+
+  const uploadPendingIdImage = async () => {
+    if (!pendingIdImageFile || !emp.id) return;
+
+    const side = idImageSide;
+    const fileToUpload = await rotateCanvas(pendingIdImageFile, previewRotation);
 
     if (side === 'front') {
       setIsUploadingIdImage(true);
     } else {
       setIsUploadingIdImageBack(true);
     }
-    
+
     try {
       const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
       const formData = new FormData();
-      formData.append(side, file);
+      formData.append(side, fileToUpload);
       formData.append('employeeId', emp.id);
 
       const response = await fetch('/api/employees/upload', {
@@ -163,7 +191,7 @@ export function EmployeeProfile() {
 
       const result = await response.json();
       console.log('Upload response:', result);
-      
+
       if (result.success && result.data?.[side]) {
         const imagePath = side === 'front' ? result.data.front : result.data.back;
         console.log('Updating employee with:', side === 'front' ? 'idImageFront' : 'idImageBack', imagePath);
@@ -192,7 +220,41 @@ export function EmployeeProfile() {
         setIsUploadingIdImageBack(false);
       }
       setShowIdImageDialog(false);
+      setPendingIdImageFile(null);
+      setPreviewRotation(0);
     }
+  };
+
+  const handleRemoveIdImage = async (side: 'front' | 'back') => {
+    if (!emp.id) return;
+    setIdImageToRemove(side);
+    try {
+      const updates = side === 'front'
+        ? { idImageFront: null }
+        : { idImageBack: null };
+      await updateEmployee(emp.id, updates);
+      toast.success(`${side === 'front' ? 'Front' : 'Back'} ID image removed`);
+    } catch (error) {
+      console.error('Remove error:', error);
+      toast.error('Failed to remove image');
+    } finally {
+      setIdImageToRemove(null);
+    }
+  };
+
+  const openImagePreview = (src: string, alt: string) => {
+    setPreviewImageSrc(src);
+    setPreviewImageAlt(alt);
+    setShowImagePreview(true);
+  };
+
+  const downloadPreviewImage = () => {
+    const link = document.createElement('a');
+    link.href = previewImageSrc;
+    link.download = previewImageAlt.toLowerCase().replace(/\s+/g, '-') + '.jpg';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   if (isLoading && !selectedEmployee) {
@@ -659,18 +721,36 @@ export function EmployeeProfile() {
                   <img 
                     src={emp.idImageFront} 
                     alt="ID Front" 
-                    className="w-full h-48 rounded-lg border object-contain bg-muted"
+                    className="w-full h-48 rounded-lg border object-contain bg-muted cursor-pointer hover:opacity-90 transition-opacity"
+                    onClick={(e) => { e.stopPropagation(); openImagePreview(emp.idImageFront!, 'Front ID'); }}
+                    title="Click to preview full image"
                   />
                   {canEdit('employees') && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="mt-2 w-full"
-                      onClick={() => { setIdImageSide('front'); setShowIdImageDialog(true); }}
-                    >
-                      <Upload className="h-4 w-4 mr-2" />
-                      Update Front
-                    </Button>
+                    <>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="mt-2 w-full"
+                        onClick={() => { setIdImageSide('front'); setShowIdImageDialog(true); }}
+                      >
+                        <Upload className="h-4 w-4 mr-2" />
+                        Update Front
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="mt-2 w-full"
+                        onClick={() => handleRemoveIdImage('front')}
+                        disabled={idImageToRemove === 'front'}
+                      >
+                        {idImageToRemove === 'front' ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <X className="h-4 w-4 mr-2" />
+                        )}
+                        Remove Front
+                      </Button>
+                    </>
                   )}
                 </div>
               ) : (
@@ -702,18 +782,36 @@ export function EmployeeProfile() {
                   <img 
                     src={emp.idImageBack} 
                     alt="ID Back" 
-                    className="w-full h-48 rounded-lg border object-contain bg-muted"
+                    className="w-full h-48 rounded-lg border object-contain bg-muted cursor-pointer hover:opacity-90 transition-opacity"
+                    onClick={(e) => { e.stopPropagation(); openImagePreview(emp.idImageBack!, 'Back ID'); }}
+                    title="Click to preview full image"
                   />
                   {canEdit('employees') && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="mt-2 w-full"
-                      onClick={() => { setIdImageSide('back'); setShowIdImageDialog(true); }}
-                    >
-                      <Upload className="h-4 w-4 mr-2" />
-                      Update Back
-                    </Button>
+                    <>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="mt-2 w-full"
+                        onClick={() => { setIdImageSide('back'); setShowIdImageDialog(true); }}
+                      >
+                        <Upload className="h-4 w-4 mr-2" />
+                        Update Back
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="mt-2 w-full"
+                        onClick={() => handleRemoveIdImage('back')}
+                        disabled={idImageToRemove === 'back'}
+                      >
+                        {idImageToRemove === 'back' ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <X className="h-4 w-4 mr-2" />
+                        )}
+                        Remove Back
+                      </Button>
+                    </>
                   )}
                 </div>
               ) : (
@@ -742,50 +840,128 @@ export function EmployeeProfile() {
 
       {/* Hidden file inputs for ID image upload */}
       <input
+        key={pendingIdImageFile ? 'front-has-file' : 'front-no-file'}
         type="file"
         accept="image/jpeg,image/png"
         className="hidden"
         id="id-image-front-upload"
-        onChange={(e) => handleIdImageUpload(e, 'front')}
-        disabled={isUploadingIdImage}
+        onChange={(e) => handleIdImageSelect(e, 'front')}
       />
       <input
+        key={pendingIdImageFile ? 'back-has-file' : 'back-no-file'}
         type="file"
         accept="image/jpeg,image/png"
         className="hidden"
         id="id-image-back-upload"
-        onChange={(e) => handleIdImageUpload(e, 'back')}
-        disabled={isUploadingIdImageBack}
-      />
+        onChange={(e) => handleIdImageSelect(e, 'back')}
+       />
 
       {/* ID Image Upload Dialog */}
-      <Dialog open={showIdImageDialog} onOpenChange={setShowIdImageDialog}>
-        <DialogContent className="sm:max-w-[400px]">
+      <Dialog open={showIdImageDialog} onOpenChange={(open) => {
+        setShowIdImageDialog(open);
+        if (!open) {
+          setPendingIdImageFile(null);
+          setPreviewRotation(0);
+        }
+      }}>
+        <DialogContent className="sm:max-w-[500px]">
           <DialogHeader>
             <DialogTitle>Upload ID Image - {idImageSide === 'front' ? 'Front' : 'Back'}</DialogTitle>
             <DialogDescription>
-              Upload a JPEG or PNG image of the employee's ID {idImageSide} side (max 10MB)
+              Upload a JPEG or PNG image of the employee's ID {idImageSide} side (max 10MB). Adjust rotation if needed.
             </DialogDescription>
           </DialogHeader>
-          <div className="flex flex-col items-center justify-center py-6">
-            <label
-              htmlFor={`id-image-${idImageSide}-upload`}
-              className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed rounded-lg cursor-pointer hover:bg-muted/50 transition-colors"
+          <div className="space-y-4 py-4">
+            {!pendingIdImageFile ? (
+              <label
+                htmlFor={`id-image-${idImageSide}-upload`}
+                className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed rounded-lg cursor-pointer hover:bg-muted/50 transition-colors"
+              >
+                <Upload className="h-8 w-8 text-muted-foreground mb-2" />
+                <span className="text-sm text-muted-foreground">Click to select image</span>
+                <span className="text-xs text-muted-foreground mt-1">JPEG, PNG (max 10MB)</span>
+              </label>
+            ) : (
+              <div className="flex flex-col items-center gap-3">
+                <div className="relative w-full h-48 rounded-lg border bg-muted overflow-hidden flex items-center justify-center">
+                  <img
+                    src={URL.createObjectURL(pendingIdImageFile)}
+                    alt="Preview"
+                    className="max-w-full max-h-full object-contain transition-transform duration-200"
+                    style={{ transform: `rotate(${previewRotation}deg)` }}
+                  />
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => rotatePreview('left')}
+                    disabled={(idImageSide === 'front' ? isUploadingIdImage : isUploadingIdImageBack)}
+                  >
+                    <RotateCcw className="h-4 w-4 mr-1" />
+                    Rotate Left
+                  </Button>
+                  <span className="text-xs text-muted-foreground w-12 text-center">{previewRotation}°</span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => rotatePreview('right')}
+                    disabled={(idImageSide === 'front' ? isUploadingIdImage : isUploadingIdImageBack)}
+                  >
+                    <RotateCw className="h-4 w-4 mr-1" />
+                    Rotate Right
+                  </Button>
+                </div>
+                <label
+                  htmlFor={`id-image-${idImageSide}-upload`}
+                  className="text-xs text-emerald-600 cursor-pointer hover:underline"
+                >
+                  Choose a different image
+                </label>
+              </div>
+            )}
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => { setShowIdImageDialog(false); setPendingIdImageFile(null); setPreviewRotation(0); }}>
+              Cancel
+            </Button>
+            <Button
+              onClick={uploadPendingIdImage}
+              disabled={!pendingIdImageFile || (idImageSide === 'front' ? isUploadingIdImage : isUploadingIdImageBack)}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white gap-1.5"
             >
               {(idImageSide === 'front' ? isUploadingIdImage : isUploadingIdImageBack) ? (
-                <>
-                  <Loader2 className="h-8 w-8 text-emerald-600 animate-spin mb-2" />
-                  <span className="text-sm text-muted-foreground">Uploading...</span>
-                </>
+                <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
-                <>
-                  <Upload className="h-8 w-8 text-muted-foreground mb-2" />
-                  <span className="text-sm text-muted-foreground">Click to select image</span>
-                  <span className="text-xs text-muted-foreground mt-1">JPEG, PNG (max 10MB)</span>
-                </>
+                <Upload className="h-4 w-4" />
               )}
-            </label>
+              Upload Image
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Full Image Preview Dialog */}
+      <Dialog open={showImagePreview} onOpenChange={setShowImagePreview}>
+        <DialogContent className="max-w-[90vw] max-h-[90vh] p-0 border-none bg-transparent shadow-none">
+          <DialogTitle className="sr-only">{previewImageAlt} Preview</DialogTitle>
+          <div className="relative flex items-center justify-center w-full h-full">
+            <img
+              src={previewImageSrc}
+              alt={previewImageAlt}
+              className="max-w-full max-h-[80vh] rounded-lg border object-contain"
+            />
           </div>
+          <DialogFooter className="absolute bottom-0 left-0 right-0 flex justify-end gap-2 p-4 bg-background/95 backdrop-blur">
+            <Button variant="outline" size="sm" onClick={() => setShowImagePreview(false)}>
+              <X className="h-4 w-4 mr-2" />
+              Close
+            </Button>
+            <Button size="sm" onClick={downloadPreviewImage} className="bg-emerald-600 hover:bg-emerald-700 text-white">
+              <Download className="h-4 w-4 mr-2" />
+              Download
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { requirePermission } from "@/lib/permissions";
+import { requireAnyPermission, checkUserPermission } from "@/lib/permissions";
 import { buildAccessScope, withScope } from "@/lib/access-control";
 
 export async function GET(request: NextRequest) {
   try {
-    const result = await requirePermission(request, "assets:view");
+    const result = await requireAnyPermission(request, ["assets:view", "content:fuel-containers"]);
     if ("status" in result) return result;
     const user = result.user;
     const { searchParams } = new URL(request.url);
@@ -14,10 +14,11 @@ export async function GET(request: NextRequest) {
     const where: Record<string, unknown> = { category: "FUEL" };
     if (!includeInactive) where.status = "ACTIVE";
 
-    const fuelTxnScope = await buildAccessScope(user, "fuelTransaction");
+    const isContentRef = await checkUserPermission(user.id, user.role, "content:fuel-containers");
+    const fuelTxnScope = isContentRef ? {} : await buildAccessScope(user, "fuelTransaction");
 
     const containers = await db.asset.findMany({
-      where: withScope(where, await buildAccessScope(user, "asset")) as never,
+      where: (isContentRef ? where : withScope(where, await buildAccessScope(user, "asset"))) as never,
       select: {
         id: true,
         name: true,

@@ -23,6 +23,12 @@ export function ExpensePage() {
   const bulkDeleteExpenses = useBulkDeleteExpenses();
   const selectedExpenseIds = useExpenseStore((s) => s.selectedExpenseIds);
   const expenses = useExpenseStore((s) => s.expenses);
+  const fetchExpenses = useExpenseStore((s) => s.fetchExpenses);
+
+  // Fetch expenses on mount to populate the store for PDF export
+  useEffect(() => {
+    fetchExpenses();
+  }, [fetchExpenses]);
 
   // Delete confirmation state
   const [deleteConfirm, setDeleteConfirm] = useState<{

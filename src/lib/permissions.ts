@@ -4,6 +4,10 @@ import { db } from "./db";
 
 export type AuthUser = NonNullable<Awaited<ReturnType<typeof getAuthenticatedUser>>>;
 
+export function isAdminUser(user: Pick<AuthUser, "role">): boolean {
+  return ADMIN_ROLES.includes(user.role);
+}
+
 const ADMIN_ROLES = ["ADMIN"];
 
 const ROLE_PERMISSION_DEFAULTS: Record<string, string[]> = {
@@ -130,4 +134,27 @@ export async function requirePermission(
   }
 
   return { user };
+}
+
+export async function requireAnyPermission(
+  request: NextRequest,
+  permissions: string[]
+): Promise<{ user: AuthUser } | NextResponse> {
+  const user = await getAuthenticatedUser(request);
+  if (!user) {
+    return NextResponse.json(
+      { success: false, error: "Unauthorized" },
+      { status: 401 }
+    );
+  }
+
+  for (const permission of permissions) {
+    const has = await checkUserPermission(user.id, user.role, permission);
+    if (has) return { user };
+  }
+
+  return NextResponse.json(
+    { success: false, error: "Forbidden: insufficient permissions" },
+    { status: 403 }
+  );
 }

@@ -48,11 +48,13 @@ import {
   MACHINERY_STATUS_LABELS,
   FUEL_TYPE_LABELS,
 } from '@/types/contractor';
-import type { MachineryFormData, MachineryStatus, FuelType, MachineryRate, MachineryRateFormData } from '@/types/contractor';
+import type { MachineryFormData, MachineryStatus, FuelType, MachineryRate, MachineryRateFormData, Machinery } from '@/types/contractor';
 import { useMachineryStore } from '@/hooks/use-machinery-store';
 import { contractorsApi, machineryApi } from '@/services/contractor-api';
-import { Check, ChevronDown, Loader2, Plus, Pencil, Trash2 } from 'lucide-react';
+import { Check, ChevronDown, Loader2, Plus, Pencil, Trash2, Upload, X, ImageIcon, RotateCw, RotateCcw } from 'lucide-react';
 import { toast } from 'sonner';
+import { rotateCanvas } from '@/lib/image-utils';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 
 const formSchema = z.object({
   machineryName: z.string().min(1, 'Machinery name is required').max(100),
@@ -60,6 +62,9 @@ const formSchema = z.object({
   plateNumber: z.string().optional().nullable(),
   model: z.string().optional().nullable(),
   driverName: z.string().optional().nullable(),
+  driverFatherName: z.string().optional().nullable(),
+  driverPhoneNumber: z.string().optional().nullable(),
+  driverNationalId: z.string().optional().nullable(),
   status: z.enum(MACHINERY_STATUSES, { message: 'Status is required' }),
   assignedContractorId: z.string().min(1, 'Contractor is required'),
   fuelType: z.enum(FUEL_TYPES, { message: 'Fuel type is required' }),
@@ -100,6 +105,17 @@ export function MachineryForm() {
 
   const isEditing = !!editingMachinery;
 
+  const [isUploadingFront, setIsUploadingFront] = useState(false);
+  const [isUploadingBack, setIsUploadingBack] = useState(false);
+  const [showIdImageDialog, setShowIdImageDialog] = useState(false);
+  const [idImageSide, setIdImageSide] = useState<'front' | 'back'>('front');
+  const [pendingIdImageFile, setPendingIdImageFile] = useState<File | null>(null);
+  const [previewRotation, setPreviewRotation] = useState(0);
+  const [idImageToRemove, setIdImageToRemove] = useState<'front' | 'back' | null>(null);
+  const [showImagePreview, setShowImagePreview] = useState(false);
+  const [previewImageSrc, setPreviewImageSrc] = useState('');
+  const [previewImageAlt, setPreviewImageAlt] = useState('');
+
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema) as Resolver<FormValues>,
     defaultValues: {
@@ -108,6 +124,9 @@ export function MachineryForm() {
       plateNumber: '',
       model: '',
       driverName: '',
+      driverFatherName: '',
+      driverPhoneNumber: '',
+      driverNationalId: '',
       status: 'OPERATIONAL',
       assignedContractorId: '',
       fuelType: 'DIESEL',
@@ -136,6 +155,9 @@ export function MachineryForm() {
           plateNumber: editingMachinery.plateNumber ?? '',
           model: editingMachinery.model ?? '',
           driverName: editingMachinery.driverName ?? '',
+          driverFatherName: editingMachinery.driverFatherName ?? '',
+          driverPhoneNumber: editingMachinery.driverPhoneNumber ?? '',
+          driverNationalId: editingMachinery.driverNationalId ?? '',
           status: editingMachinery.status,
           assignedContractorId: editingMachinery.assignedContractorId,
           fuelType: editingMachinery.fuelType,
@@ -155,6 +177,9 @@ export function MachineryForm() {
           plateNumber: '',
           model: '',
           driverName: '',
+          driverFatherName: '',
+          driverPhoneNumber: '',
+          driverNationalId: '',
           status: 'OPERATIONAL',
           assignedContractorId: '',
           fuelType: 'DIESEL',
@@ -170,8 +195,6 @@ export function MachineryForm() {
       }
     }
   }, [isFormOpen, editingMachinery, form]);
-
-  // Load rates when editing
   useEffect(() => {
     if (isFormOpen && editingMachinery) {
       setLoadingRates(true);
@@ -204,6 +227,9 @@ export function MachineryForm() {
         plateNumber: values.plateNumber || undefined,
         model: values.model || undefined,
         driverName: values.driverName || undefined,
+        driverFatherName: values.driverFatherName || undefined,
+        driverPhoneNumber: values.driverPhoneNumber || undefined,
+        driverNationalId: values.driverNationalId || undefined,
         contractStartDate: values.contractStartDate || undefined,
         contractEndDate: values.contractEndDate || undefined,
       };
@@ -212,11 +238,16 @@ export function MachineryForm() {
         await updateMachinery(editingMachinery.id, data);
         toast.success('Machinery updated successfully');
       } else {
-        await createMachinery(data);
-        toast.success('Machinery created successfully');
+        const created = await createMachinery(data);
+        if (created) {
+          toast.success('Machinery created! Upload driver ID documents below.');
+        } else {
+          toast.success('Machinery created successfully');
+        }
       }
-    } catch {
-      toast.error(isEditing ? 'Failed to update machinery' : 'Failed to create machinery');
+    } catch (error) {
+      const fallback = isEditing ? 'Failed to update machinery' : 'Failed to create machinery';
+      toast.error(error instanceof Error && error.message ? error.message : fallback);
     }
   }
 
@@ -316,6 +347,102 @@ export function MachineryForm() {
     }
   }
 
+  const m: Machinery | null = editingMachinery;
+
+  const handleIdImageSelect = (e: React.ChangeEvent<HTMLInputElement>, side: 'front' | 'back') => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setPendingIdImageFile(file);
+    setIdImageSide(side);
+    setPreviewRotation(0);
+    setShowIdImageDialog(true);
+  };
+
+  const rotatePreview = (direction: 'left' | 'right') => {
+    setPreviewRotation((prev) => {
+      const delta = direction === 'left' ? -90 : 90;
+      return (prev + delta + 360) % 360;
+    });
+  };
+
+  const uploadPendingIdImage = async () => {
+    if (!pendingIdImageFile || !m?.id) return;
+
+    const side = idImageSide;
+    const fileToUpload = await rotateCanvas(pendingIdImageFile, previewRotation);
+
+    if (side === 'front') {
+      setIsUploadingFront(true);
+    } else {
+      setIsUploadingBack(true);
+    }
+
+    try {
+      const formData = new FormData();
+      formData.append(side, fileToUpload);
+      formData.append('machineryId', m.id);
+
+      const res = await machineryApi.uploadDriverIdImage(m.id, formData);
+
+      if (res.data) {
+        const imagePath = side === 'front' ? res.data.front : res.data.back;
+        if (imagePath) {
+          const updates = side === 'front'
+            ? { driverIdImageFront: imagePath }
+            : { driverIdImageBack: imagePath };
+          await machineryApi.update(m.id, updates);
+          toast.success(`${side === 'front' ? 'Front' : 'Back'} ID image uploaded successfully`);
+          // Refresh the editing machinery to pick up the new image paths
+          const refreshed = await machineryApi.getById(m.id);
+          if (refreshed.data) {
+            useMachineryStore.setState({ editingMachinery: refreshed.data });
+          }
+        }
+      } else {
+        toast.error(res.error || 'Failed to upload image');
+      }
+    } catch (error) {
+      console.error('Upload error:', error);
+      toast.error('Failed to upload image');
+    } finally {
+      if (side === 'front') {
+        setIsUploadingFront(false);
+      } else {
+        setIsUploadingBack(false);
+      }
+      setShowIdImageDialog(false);
+      setPendingIdImageFile(null);
+      setPreviewRotation(0);
+    }
+  };
+
+  const handleRemoveIdImage = async (side: 'front' | 'back') => {
+    if (!m?.id) return;
+    setIdImageToRemove(side);
+    try {
+      const updates = side === 'front'
+        ? { driverIdImageFront: null }
+        : { driverIdImageBack: null };
+      await machineryApi.update(m.id, updates);
+      toast.success(`${side === 'front' ? 'Front' : 'Back'} ID image removed`);
+      const refreshed = await machineryApi.getById(m.id);
+      if (refreshed.data) {
+        useMachineryStore.setState({ editingMachinery: refreshed.data });
+      }
+    } catch {
+      toast.error('Failed to remove image');
+    } finally {
+      setIdImageToRemove(null);
+    }
+  };
+
+  const openImagePreview = (src: string, alt: string) => {
+    setPreviewImageSrc(src);
+    setPreviewImageAlt(alt);
+    setShowImagePreview(true);
+  };
+
   return (
     <Dialog open={isFormOpen} onOpenChange={(open) => !open && closeForm()}>
       <DialogContent className="sm:max-w-[700px] max-h-[90vh] overflow-y-auto">
@@ -369,6 +496,27 @@ export function MachineryForm() {
                 <FormItem>
                   <FormLabel>Driver Name</FormLabel>
                   <FormControl><Input placeholder="Full name of the driver" {...field} value={field.value ?? ''} /></FormControl>
+                  <FormMessage />
+                </FormItem>
+              )} />
+              <FormField control={form.control} name="driverFatherName" render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Driver's Father Name</FormLabel>
+                  <FormControl><Input placeholder="e.g., Mohammad" {...field} value={field.value ?? ''} /></FormControl>
+                  <FormMessage />
+                </FormItem>
+              )} />
+              <FormField control={form.control} name="driverPhoneNumber" render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Driver's Phone Number</FormLabel>
+                  <FormControl><Input placeholder="e.g., 0700123456" {...field} value={field.value ?? ''} /></FormControl>
+                  <FormMessage />
+                </FormItem>
+              )} />
+              <FormField control={form.control} name="driverNationalId" render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Driver's ID Number</FormLabel>
+                  <FormControl><Input placeholder="e.g., 12345678" {...field} value={field.value ?? ''} /></FormControl>
                   <FormMessage />
                 </FormItem>
               )} />
@@ -696,6 +844,142 @@ export function MachineryForm() {
               )} />
             </div>
 
+            {/* Driver ID Documents */}
+            <div className="border-t pt-4 mt-4">
+              <h3 className="text-sm font-semibold text-muted-foreground mb-3">Driver ID Documents</h3>
+            </div>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <ImageIcon className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
+                  Driver's National ID
+                </CardTitle>
+                <CardDescription>Upload front and back of the driver's national ID</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {m?.id ? (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {/* Front Image */}
+                    <div className="flex flex-col items-center gap-3">
+                      <p className="text-sm font-medium">Front Side</p>
+                      {m.driverIdImageFront ? (
+                        <div className="relative w-full">
+                          <img
+                            src={m.driverIdImageFront}
+                            alt="ID Front"
+                            className="w-full h-48 rounded-lg border object-contain bg-muted cursor-pointer hover:opacity-90 transition-opacity"
+                            onClick={(e) => { e.stopPropagation(); openImagePreview(m.driverIdImageFront!, 'Front ID'); }}
+                            title="Click to preview full image"
+                          />
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="mt-2 w-full"
+                            onClick={() => { setIdImageSide('front'); setShowIdImageDialog(true); }}
+                          >
+                            <Upload className="h-4 w-4 mr-2" />
+                            Update Front
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="mt-2 w-full"
+                            onClick={() => handleRemoveIdImage('front')}
+                            disabled={idImageToRemove === 'front'}
+                          >
+                            {idImageToRemove === 'front' ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <X className="h-4 w-4 mr-2" />
+                            )}
+                            Remove Front
+                          </Button>
+                        </div>
+                      ) : (
+                        <label
+                          htmlFor="driver-id-front-upload"
+                          className="flex flex-col items-center justify-center w-full h-48 border-2 border-dashed rounded-lg cursor-pointer hover:bg-muted/50 transition-colors"
+                        >
+                          {isUploadingFront ? (
+                            <>
+                              <Loader2 className="h-8 w-8 text-emerald-600 animate-spin mb-2" />
+                              <span className="text-sm text-muted-foreground">Uploading...</span>
+                            </>
+                          ) : (
+                            <>
+                              <ImageIcon className="h-8 w-8 text-muted-foreground mb-2" />
+                              <span className="text-sm text-muted-foreground">Click to upload</span>
+                              <span className="text-xs text-muted-foreground mt-1">JPEG, PNG (max 10MB)</span>
+                            </>
+                          )}
+                        </label>
+                      )}
+                    </div>
+
+                    {/* Back Image */}
+                    <div className="flex flex-col items-center gap-3">
+                      <p className="text-sm font-medium">Back Side</p>
+                      {m.driverIdImageBack ? (
+                        <div className="relative w-full">
+                          <img
+                            src={m.driverIdImageBack}
+                            alt="ID Back"
+                            className="w-full h-48 rounded-lg border object-contain bg-muted cursor-pointer hover:opacity-90 transition-opacity"
+                            onClick={(e) => { e.stopPropagation(); openImagePreview(m.driverIdImageBack!, 'Back ID'); }}
+                            title="Click to preview full image"
+                          />
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="mt-2 w-full"
+                            onClick={() => { setIdImageSide('back'); setShowIdImageDialog(true); }}
+                          >
+                            <Upload className="h-4 w-4 mr-2" />
+                            Update Back
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="mt-2 w-full"
+                            onClick={() => handleRemoveIdImage('back')}
+                            disabled={idImageToRemove === 'back'}
+                          >
+                            {idImageToRemove === 'back' ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <X className="h-4 w-4 mr-2" />
+                            )}
+                            Remove Back
+                          </Button>
+                        </div>
+                      ) : (
+                        <label
+                          htmlFor="driver-id-back-upload"
+                          className="flex flex-col items-center justify-center w-full h-48 border-2 border-dashed rounded-lg cursor-pointer hover:bg-muted/50 transition-colors"
+                        >
+                          {isUploadingBack ? (
+                            <>
+                              <Loader2 className="h-8 w-8 text-emerald-600 animate-spin mb-2" />
+                              <span className="text-sm text-muted-foreground">Uploading...</span>
+                            </>
+                          ) : (
+                            <>
+                              <ImageIcon className="h-8 w-8 text-muted-foreground mb-2" />
+                              <span className="text-sm text-muted-foreground">Click to upload</span>
+                              <span className="text-xs text-muted-foreground mt-1">JPEG, PNG (max 10MB)</span>
+                            </>
+                          )}
+                        </label>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">Save the machinery first to enable driver ID document upload.</p>
+                )}
+              </CardContent>
+            </Card>
+
             <DialogFooter className="pt-4">
               <Button type="button" variant="outline" onClick={closeForm} disabled={isLoading}>
                 Cancel
@@ -704,10 +988,132 @@ export function MachineryForm() {
                 {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 {isEditing ? 'Update Machinery' : 'Add Machinery'}
               </Button>
+              {isEditing && (
+                <Button type="button" variant="outline" onClick={closeForm} disabled={isLoading}>
+                  Done
+                </Button>
+              )}
             </DialogFooter>
-          </form>
-        </Form>
-      </DialogContent>
-    </Dialog>
-  );
+           </form>
+         </Form>
+
+         {/* Hidden file inputs for driver ID image upload */}
+         <input
+           key={pendingIdImageFile ? 'driver-front-has-file' : 'driver-front-no-file'}
+           type="file"
+           accept="image/jpeg,image/png"
+           className="hidden"
+           id="driver-id-front-upload"
+           onChange={(e) => handleIdImageSelect(e, 'front')}
+         />
+         <input
+           key={pendingIdImageFile ? 'driver-back-has-file' : 'driver-back-no-file'}
+           type="file"
+           accept="image/jpeg,image/png"
+           className="hidden"
+           id="driver-id-back-upload"
+           onChange={(e) => handleIdImageSelect(e, 'back')}
+         />
+
+         {/* Driver ID Image Upload Dialog */}
+         <Dialog open={showIdImageDialog} onOpenChange={(open) => {
+           setShowIdImageDialog(open);
+           if (!open) {
+             setPendingIdImageFile(null);
+             setPreviewRotation(0);
+           }
+         }}>
+           <DialogContent className="sm:max-w-[500px]">
+             <DialogHeader>
+               <DialogTitle>Upload Driver ID Image - {idImageSide === 'front' ? 'Front' : 'Back'}</DialogTitle>
+               <DialogDescription>
+                 Upload a JPEG or PNG image of the driver's ID {idImageSide} side (max 10MB). Adjust rotation if needed.
+               </DialogDescription>
+             </DialogHeader>
+             <div className="space-y-4 py-4">
+               {!pendingIdImageFile ? (
+                 <label
+                   htmlFor={`driver-id-${idImageSide}-upload`}
+                   className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed rounded-lg cursor-pointer hover:bg-muted/50 transition-colors"
+                 >
+                   <Upload className="h-8 w-8 text-muted-foreground mb-2" />
+                   <span className="text-sm text-muted-foreground">Click to select image</span>
+                   <span className="text-xs text-muted-foreground mt-1">JPEG, PNG (max 10MB)</span>
+                 </label>
+               ) : (
+                 <div className="flex flex-col items-center gap-3">
+                   <div className="relative w-full h-48 rounded-lg border bg-muted overflow-hidden flex items-center justify-center">
+                     <img
+                       src={URL.createObjectURL(pendingIdImageFile)}
+                       alt="Preview"
+                       className="max-w-full max-h-full object-contain transition-transform duration-200"
+                       style={{ transform: `rotate(${previewRotation}deg)` }}
+                     />
+                   </div>
+                   <div className="flex items-center gap-2">
+                     <Button
+                       variant="outline"
+                       size="sm"
+                       onClick={() => rotatePreview('left')}
+                       disabled={idImageSide === 'front' ? isUploadingFront : isUploadingBack}
+                     >
+                       <RotateCcw className="h-4 w-4 mr-1" />
+                       Rotate Left
+                     </Button>
+                     <span className="text-xs text-muted-foreground w-12 text-center">{previewRotation}°</span>
+                     <Button
+                       variant="outline"
+                       size="sm"
+                       onClick={() => rotatePreview('right')}
+                       disabled={idImageSide === 'front' ? isUploadingFront : isUploadingBack}
+                     >
+                       <RotateCw className="h-4 w-4 mr-1" />
+                       Rotate Right
+                     </Button>
+                   </div>
+                   <label
+                     htmlFor={`driver-id-${idImageSide}-upload`}
+                     className="text-xs text-emerald-600 cursor-pointer hover:underline"
+                   >
+                     Choose a different image
+                   </label>
+                 </div>
+               )}
+             </div>
+             <DialogFooter className="gap-2">
+               <Button variant="outline" onClick={() => { setShowIdImageDialog(false); setPendingIdImageFile(null); setPreviewRotation(0); }}>
+                 Cancel
+               </Button>
+               <Button
+                 onClick={uploadPendingIdImage}
+                 disabled={!pendingIdImageFile || (idImageSide === 'front' ? isUploadingFront : isUploadingBack)}
+                 className="bg-emerald-600 hover:bg-emerald-700 text-white gap-1.5"
+               >
+                 {(idImageSide === 'front' ? isUploadingFront : isUploadingBack) ? (
+                   <Loader2 className="h-4 w-4 animate-spin" />
+                 ) : (
+                   <Upload className="h-4 w-4" />
+                 )}
+                 Upload Image
+               </Button>
+             </DialogFooter>
+           </DialogContent>
+         </Dialog>
+
+         {/* Full Image Preview Dialog */}
+         <Dialog open={showImagePreview} onOpenChange={setShowImagePreview}>
+           <DialogContent className="max-w-[90vw] max-h-[90vh] p-0 border-none bg-transparent shadow-none">
+           <DialogTitle className="sr-only">{previewImageAlt} Preview</DialogTitle>
+           <div className="relative flex items-center justify-center w-full h-full">
+             <img
+               src={previewImageSrc}
+               alt={previewImageAlt}
+               className="max-w-full max-h-full rounded-lg"
+             />
+           </div>
+         </DialogContent>
+         </Dialog>
+       </DialogContent>
+     </Dialog>
+   );
 }

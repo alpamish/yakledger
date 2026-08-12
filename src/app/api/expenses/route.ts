@@ -99,6 +99,7 @@ export async function GET(request: NextRequest) {
     const paidTo = searchParams.get("paidTo") || undefined;
     const paidById = searchParams.get("paidById") || undefined;
     const paidToId = searchParams.get("paidToId") || undefined;
+    const tagsParam = searchParams.get("tags") || undefined;
 
     // Parse sorting params
     const sortBy = searchParams.get("sortBy") || "createdAt";
@@ -165,6 +166,16 @@ export async function GET(request: NextRequest) {
 
     if (paidToId) {
       where.paidToId = paidToId;
+    }
+
+    if (tagsParam) {
+      const tagValues = tagsParam.split(",").map((t) => t.trim()).filter(Boolean);
+      if (tagValues.length > 0) {
+        where.OR = [
+          ...(where.OR ?? []),
+          ...tagValues.map((t) => ({ tags: { contains: t } })),
+        ];
+      }
     }
 
     // Validate sort field

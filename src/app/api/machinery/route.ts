@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
-import { requirePermission } from "@/lib/permissions";
+import { requireAnyPermission, requirePermission } from "@/lib/permissions";
 import { Prisma } from "@prisma/client";
 import { buildAccessScope, withScope } from "@/lib/access-control";
 
@@ -19,6 +19,9 @@ const createMachinerySchema = z.object({
   plateNumber: z.string().optional().nullable(),
   model: z.string().optional().nullable(),
   driverName: z.string().optional().nullable(),
+  driverFatherName: z.string().optional().nullable(),
+  driverPhoneNumber: z.string().optional().nullable(),
+  driverNationalId: z.string().optional().nullable(),
   status: z.enum(MACHINERY_STATUS_VALUES).default("OPERATIONAL"),
   assignedContractorId: z.string().min(1, "Contractor is required"),
   fuelType: z.enum(FUEL_TYPE_VALUES).default("DIESEL"),
@@ -35,7 +38,7 @@ const createMachinerySchema = z.object({
 // GET /api/machinery - List machinery with filtering, pagination, sorting
 export async function GET(request: NextRequest) {
   try {
-    const result = await requirePermission(request, "machinery:view");
+    const result = await requireAnyPermission(request, ["machinery:view", "content:machinery"]);
     if ("status" in result) return result;
     const user = result.user;
 
@@ -158,6 +161,9 @@ export async function POST(request: NextRequest) {
           plateNumber: data.plateNumber ?? null,
           model: data.model ?? null,
           driverName: data.driverName ?? null,
+          driverFatherName: data.driverFatherName ?? null,
+          driverPhoneNumber: data.driverPhoneNumber ?? null,
+          driverNationalId: data.driverNationalId ?? null,
           status: data.status,
           assignedContractorId: data.assignedContractorId,
           fuelType: data.fuelType,

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
-import { requirePermission } from "@/lib/permissions";
+import { requireAnyPermission, requirePermission } from "@/lib/permissions";
 import { buildAccessScope, withScope } from "@/lib/access-control";
 
 const createRateSchema = z.object({
@@ -18,7 +18,7 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const result = await requirePermission(request, "machinery:view");
+  const result = await requireAnyPermission(request, ["machinery:view", "content:machinery-rates"]);
   if ("status" in result) return result;
   const user = result.user;
 

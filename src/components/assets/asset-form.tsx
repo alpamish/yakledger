@@ -152,7 +152,7 @@ export function AssetForm({ defaultValues, onSubmit, isSubmitting }: AssetFormPr
             name="name"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Asset Name</FormLabel>
+                <FormLabel>Asset Name *</FormLabel>
                 <FormControl>
                   <Input placeholder="Enter asset name" {...field} />
                 </FormControl>
@@ -166,7 +166,7 @@ export function AssetForm({ defaultValues, onSubmit, isSubmitting }: AssetFormPr
             name="category"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Category</FormLabel>
+                <FormLabel>Category *</FormLabel>
                 <Select onValueChange={field.onChange} value={field.value}>
                   <FormControl>
                     <SelectTrigger>
@@ -191,7 +191,7 @@ export function AssetForm({ defaultValues, onSubmit, isSubmitting }: AssetFormPr
             name="purchaseDate"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Purchase Date</FormLabel>
+                <FormLabel>Purchase Date *</FormLabel>
                 <FormControl>
                   <Input type="date" {...field} />
                 </FormControl>
@@ -205,7 +205,7 @@ export function AssetForm({ defaultValues, onSubmit, isSubmitting }: AssetFormPr
             name="status"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Status</FormLabel>
+                <FormLabel>Status *</FormLabel>
                 <Select onValueChange={field.onChange} value={field.value}>
                   <FormControl>
                     <SelectTrigger>

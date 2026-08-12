@@ -177,8 +177,9 @@ export function EmployeeForm() {
         await createEmployee(data as EmployeeFormData);
         toast.success('Employee created successfully');
       }
-    } catch {
-      toast.error(isEditing ? 'Failed to update employee' : 'Failed to create employee');
+    } catch (error) {
+      const fallback = isEditing ? 'Failed to update employee' : 'Failed to create employee';
+      toast.error(error instanceof Error && error.message ? error.message : fallback);
     }
   }
 

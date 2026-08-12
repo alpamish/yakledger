@@ -27,8 +27,9 @@ export function AssetFormPage() {
         await createAsset(data as AssetFormData);
         toast.success('Asset created successfully');
       }
-    } catch {
-      toast.error(isEditing ? 'Failed to update asset' : 'Failed to create asset');
+    } catch (error) {
+      const fallback = isEditing ? 'Failed to update asset' : 'Failed to create asset';
+      toast.error(error instanceof Error && error.message ? error.message : fallback);
     }
   };
 

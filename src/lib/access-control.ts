@@ -1,5 +1,12 @@
 import { db } from "./db";
-import type { AuthUser } from "./permissions";
+import { checkUserPermission, type AuthUser } from "./permissions";
+
+const ENTITY_CONTENT_PERMISSION: Record<string, string> = {
+  machinery: "content:machinery",
+  employee: "content:employees",
+  contractor: "content:contractors",
+  machineryRate: "content:machinery-rates",
+};
 
 export const APPROVAL_STATUSES = ["PENDING", "APPROVED", "REJECTED"] as const;
 export type ApprovalStatus = (typeof APPROVAL_STATUSES)[number];
@@ -58,6 +65,11 @@ export async function buildAccessScope(
   entity: string
 ): Promise<Record<string, unknown>> {
   if (isAdmin(user)) return {};
+
+  const contentPermission = ENTITY_CONTENT_PERMISSION[entity];
+  if (contentPermission && (await checkUserPermission(user.id, user.role, contentPermission))) {
+    return {};
+  }
 
   const grants = await db.recordAccess.findMany({
     where: { entity, userId: user.id },

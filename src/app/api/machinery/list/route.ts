@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { requirePermission } from "@/lib/permissions";
+import { requireAnyPermission } from "@/lib/permissions";
 import { buildAccessScope, withScope } from "@/lib/access-control";
 
 // GET /api/machinery/list - Simple machinery list for dropdowns
 export async function GET(request: NextRequest) {
-  const result = await requirePermission(request, "machinery:view");
+  const result = await requireAnyPermission(request, ["machinery:view", "content:machinery"]);
   if ("status" in result) return result;
   const user = result.user;
   try {

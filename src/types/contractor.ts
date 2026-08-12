@@ -48,6 +48,8 @@ export interface Contractor {
   email?: string | null;
   address?: string | null;
   nationalId?: string | null;
+  idImageFront?: string | null;
+  idImageBack?: string | null;
   contractorType: ContractorType;
   status: ContractorStatus;
   notes?: string | null;
@@ -165,6 +167,11 @@ export interface Machinery {
   plateNumber?: string | null;
   model?: string | null;
   driverName?: string | null;
+  driverFatherName?: string | null;
+  driverPhoneNumber?: string | null;
+  driverNationalId?: string | null;
+  driverIdImageFront?: string | null;
+  driverIdImageBack?: string | null;
   status: MachineryStatus;
   assignedContractorId: string;
   fuelType: FuelType;
@@ -233,6 +240,8 @@ export interface ContractorFormData {
   email?: string;
   address?: string;
   nationalId?: string;
+  idImageFront?: string | null;
+  idImageBack?: string | null;
   contractorType: ContractorType;
   status?: ContractorStatus;
   notes?: string;
@@ -397,6 +406,9 @@ export interface MachineryFormData {
   plateNumber?: string;
   model?: string;
   driverName?: string;
+  driverFatherName?: string;
+  driverPhoneNumber?: string;
+  driverNationalId?: string;
   status?: MachineryStatus;
   assignedContractorId: string;
   fuelType?: FuelType;
@@ -408,6 +420,8 @@ export interface MachineryFormData {
   workHoursPerDay?: number;
   contractStartDate?: string;
   contractEndDate?: string;
+  driverIdImageFront?: string | null;
+  driverIdImageBack?: string | null;
 }
 
 export interface ContractorFilters {

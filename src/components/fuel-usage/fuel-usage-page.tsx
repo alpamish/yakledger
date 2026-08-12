@@ -75,6 +75,7 @@ import { format } from 'date-fns';
 import { formatShamsi, gregorianToShamsi, shamsiToGregorian } from '@/lib/shamsi';
 import { toast } from 'sonner';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useExpenseStore } from '@/hooks/use-expense-store';
 
 function formatCurrency(amount: number): string {
   return new Intl.NumberFormat('en-US', {
@@ -117,6 +118,7 @@ function DateModeToggle({ value, onChange }: { value: DateMode; onChange: (v: Da
 
 export function FuelUsagePage() {
   const { canView, canCreate, canEdit, canDelete } = usePermissions();
+  const isAdmin = useExpenseStore((s) => s.user)?.role === "ADMIN";
 
   const [fuelUsages, setFuelUsages] = useState<FuelUsage[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -808,17 +810,19 @@ export function FuelUsagePage() {
                             </TableCell>
                             <TableCell className="text-right">
                               <div className="flex items-center justify-end gap-1">
-                                {canEdit('fuelUsage') && (
+                                {canEdit('fuelUsage') && (isAdmin || f.approvalStatus !== 'APPROVED') && (
                                   <Button variant="ghost" size="icon" onClick={() => handleEdit(f)}>
                                     <Pencil className="h-4 w-4" />
                                   </Button>
                                 )}
-                                <RecordAccessDialog
-                                  entity="fuelUsage"
-                                  entityId={f.id}
-                                  entityLabel="fuel usage"
-                                />
-                                {canDelete('fuelUsage') && (
+                                {isAdmin && (
+                                  <RecordAccessDialog
+                                    entity="fuelUsage"
+                                    entityId={f.id}
+                                    entityLabel="fuel usage"
+                                  />
+                                )}
+                                {canDelete('fuelUsage') && (isAdmin || f.approvalStatus !== 'APPROVED') && (
                                   <Button variant="ghost" size="icon" onClick={() => handleDelete(f)}>
                                     <Trash2 className="h-4 w-4 text-red-500" />
                                   </Button>

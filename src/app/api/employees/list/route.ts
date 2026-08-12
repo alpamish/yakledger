@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { requirePermission } from "@/lib/permissions";
+import { requireAnyPermission } from "@/lib/permissions";
 
 // GET /api/employees/list - Simple employee list for dropdowns/selects
 export async function GET(request: NextRequest) {
-  const result = await requirePermission(request, "employees:view");
+  const result = await requireAnyPermission(request, ["employees:view", "content:employees"]);
   if ("status" in result) return result;
   try {
     const { searchParams } = new URL(request.url);

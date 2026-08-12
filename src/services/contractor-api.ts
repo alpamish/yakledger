@@ -494,11 +494,11 @@ export const machineryApi = {
     return request<ApiResponse<PaginatedResponse<MachineryWorkHours>>>(`/machinery/work-hours-summary${qs ? `?${qs}` : ""}`);
   },
 
-  getList: async (
+   getList: async (
     status?: string
-  ): Promise<ApiResponse<(Pick<Machinery, "id" | "machineryName" | "machineryType" | "plateNumber" | "driverName" | "status" | "assignedContractorId" | "model" | "fuelType" | "hourlyConsumptionRate" | "hourlyRate" | "dailyRate" | "monthlyRate" | "contractDaysPerMonth" | "workHoursPerDay" | "contractStartDate" | "contractEndDate"> & { assignedContractor?: { contractorName: string; contractorType: string; fatherName: string; nationalId: string | null; phoneNumber: string; address: string | null } | null })[]>> => {
+  ): Promise<ApiResponse<(Pick<Machinery, "id" | "machineryName" | "machineryType" | "plateNumber" | "driverName" | "driverFatherName" | "driverPhoneNumber" | "driverNationalId" | "status" | "assignedContractorId" | "model" | "fuelType" | "hourlyConsumptionRate" | "hourlyRate" | "dailyRate" | "monthlyRate" | "contractDaysPerMonth" | "workHoursPerDay" | "contractStartDate" | "contractEndDate" | "driverIdImageFront" | "driverIdImageBack"> & { assignedContractor?: { contractorName: string; contractorType: string; fatherName: string; nationalId: string | null; phoneNumber: string; address: string | null } | null })[]>> => {
     const qs = status ? `?status=${status}` : "";
-    return request<ApiResponse<(Pick<Machinery, "id" | "machineryName" | "machineryType" | "plateNumber" | "driverName" | "status" | "assignedContractorId" | "model" | "fuelType" | "hourlyConsumptionRate" | "hourlyRate" | "dailyRate" | "monthlyRate" | "contractDaysPerMonth" | "workHoursPerDay" | "contractStartDate" | "contractEndDate"> & { assignedContractor?: { contractorName: string; contractorType: string; fatherName: string; nationalId: string | null; phoneNumber: string; address: string | null } | null })[]>>(
+    return request<ApiResponse<(Pick<Machinery, "id" | "machineryName" | "machineryType" | "plateNumber" | "driverName" | "driverFatherName" | "driverPhoneNumber" | "driverNationalId" | "status" | "assignedContractorId" | "model" | "fuelType" | "hourlyConsumptionRate" | "hourlyRate" | "dailyRate" | "monthlyRate" | "contractDaysPerMonth" | "workHoursPerDay" | "contractStartDate" | "contractEndDate" | "driverIdImageFront" | "driverIdImageBack"> & { assignedContractor?: { contractorName: string; contractorType: string; fatherName: string; nationalId: string | null; phoneNumber: string; address: string | null } | null })[]>>(
       `/machinery/list${qs}`
     );
   },
@@ -525,5 +525,36 @@ export const machineryApi = {
     return request<ApiResponse<void>>(`/machinery/${machineryId}/rates/${rateId}`, {
       method: "DELETE",
     });
+  },
+
+  uploadDriverIdImage: async (
+    machineryId: string,
+    formData: FormData
+  ): Promise<ApiResponse<{ front?: string; back?: string }>> => {
+    const token = getToken();
+    const response = await fetch(`${API_BASE}/machinery/upload`, {
+      method: "POST",
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      body: formData,
+    });
+
+    if (response.status === 401) {
+      throw new ApiError("Unauthorized", 401);
+    }
+
+    if (!response.ok) {
+      let message = `Request failed with status ${response.status}`;
+      try {
+        const body = await response.json();
+        if (body.error || body.message) {
+          message = body.error || body.message;
+        }
+      } catch {
+        // ignore
+      }
+      throw new ApiError(message, response.status);
+    }
+
+    return (await response.json()) as ApiResponse<{ front?: string; back?: string }>;
   },
 };

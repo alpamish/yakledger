@@ -203,8 +203,9 @@ export function FuelUsageForm({ open, onOpenChange, editingFuelUsage, onSuccess 
           notes: '',
         });
       }
-    } catch {
-      toast.error(isEditing ? 'Failed to update fuel usage' : 'Failed to create fuel usage');
+    } catch (error) {
+      const fallback = isEditing ? 'Failed to update fuel usage' : 'Failed to create fuel usage';
+      toast.error(error instanceof Error && error.message ? error.message : fallback);
     } finally {
       setIsSubmitting(false);
     }

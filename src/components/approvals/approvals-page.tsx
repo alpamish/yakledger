@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import { CheckCircle2, XCircle, Loader2, Inbox } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   Table,
@@ -62,6 +63,8 @@ export function ApprovalsPage() {
   const [counts, setCounts] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   const [actingId, setActingId] = useState<string | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkApproving, setBulkApproving] = useState(false);
 
   const canApproveAny = canApprove('expenses') || canApprove('timesheets') || canApprove('fuelUsage') || canApprove('cashAdvance') || canApprove('employees') || canApprove('assets');
 
@@ -107,6 +110,46 @@ export function ApprovalsPage() {
       toast.error(action === 'approve' ? 'Failed to approve record' : 'Failed to reject record');
     } finally {
       setActingId(null);
+    }
+  };
+
+  const toggleSelect = (item: ApprovalItem) => {
+    const key = `${item.entity}:${item.id}`;
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    setSelected((prev) => {
+      const keys = items.map((i) => `${i.entity}:${i.id}`);
+      const allSelected = keys.length > 0 && keys.every((k) => prev.has(k));
+      if (allSelected) return new Set();
+      return new Set(keys);
+    });
+  };
+
+  const handleBulkApprove = async () => {
+    const bulkItems = Array.from(selected).map((key) => {
+      const idx = key.indexOf(':');
+      return { entity: key.slice(0, idx), id: key.slice(idx + 1) };
+    });
+    if (bulkItems.length === 0) return;
+
+    setBulkApproving(true);
+    try {
+      const res = await approvalsApi.approveMany(bulkItems);
+      const { approved, skipped } = res.data ?? { approved: 0, skipped: 0 };
+      toast.success(`${approved} approved${skipped > 0 ? `, ${skipped} skipped` : ''}`);
+      setSelected(new Set());
+      load();
+    } catch {
+      toast.error('Failed to approve selected records');
+    } finally {
+      setBulkApproving(false);
     }
   };
 
@@ -156,6 +199,18 @@ export function ApprovalsPage() {
             <SelectItem value="REJECTED">Rejected</SelectItem>
           </SelectContent>
         </Select>
+        {status === 'PENDING' && (
+          <Button
+            variant="default"
+            size="sm"
+            className="bg-emerald-600 hover:bg-emerald-700"
+            onClick={handleBulkApprove}
+            disabled={selected.size === 0 || bulkApproving}
+          >
+            {bulkApproving ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <CheckCircle2 className="h-3.5 w-3.5 mr-1" />}
+            Approve Selected ({selected.size})
+          </Button>
+        )}
       </div>
 
       <Card>
@@ -182,6 +237,14 @@ export function ApprovalsPage() {
               <Table>
                 <TableHeader>
                   <TableRow>
+                    {status === 'PENDING' && (
+                      <TableHead className="w-10">
+                        <Checkbox
+                          checked={items.length > 0 && items.every((i) => selected.has(`${i.entity}:${i.id}`))}
+                          onCheckedChange={toggleSelectAll}
+                        />
+                      </TableHead>
+                    )}
                     <TableHead>Type</TableHead>
                     <TableHead>Details</TableHead>
                     <TableHead>Amount</TableHead>
@@ -194,6 +257,14 @@ export function ApprovalsPage() {
                 <TableBody>
                   {items.map((item) => (
                     <TableRow key={`${item.entity}:${item.id}`}>
+                      {status === 'PENDING' && (
+                        <TableCell>
+                          <Checkbox
+                            checked={selected.has(`${item.entity}:${item.id}`)}
+                            onCheckedChange={() => toggleSelect(item)}
+                          />
+                        </TableCell>
+                      )}
                       <TableCell>
                         <Badge
                           variant="outline"

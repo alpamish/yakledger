@@ -187,6 +187,11 @@ export const useContractorStore = create<ContractorStore>((set, get) => ({
       set({ isLoading: false, isFormOpen: false, editingContractor: null });
       await get().fetchContractors();
       await get().fetchContractorList(); // Refresh dropdown list
+      // Refresh selected contractor profile if it matches the updated contractor
+      const selected = get().selectedContractor;
+      if (selected?.id === id) {
+        await get().fetchContractorProfile(id);
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to update contractor";
       set({ isLoading: false, error: message });

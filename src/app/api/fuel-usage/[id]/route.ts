@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
-import { requirePermission } from "@/lib/permissions";
+import { requirePermission, isAdminUser } from "@/lib/permissions";
 import { buildAccessScope, withScope, resolveApprovalStatusOnEdit, APPROVED } from "@/lib/access-control";
 
 const FUEL_TYPE_VALUES = [
@@ -56,6 +56,13 @@ export async function PUT(
       return NextResponse.json(
         { success: false, error: "Fuel usage record not found" },
         { status: 404 }
+      );
+    }
+
+    if (existing.approvalStatus === APPROVED && !isAdminUser(user)) {
+      return NextResponse.json(
+        { success: false, error: "Approved fuel usage can only be modified by an admin" },
+        { status: 403 }
       );
     }
 
@@ -173,13 +180,20 @@ export async function DELETE(
     // Get fuel usage info before deletion for audit log and linked transaction
     const fuelUsage = await db.fuelUsage.findFirst({
       where: withScope({ id }, await buildAccessScope(user, "fuelUsage")),
-      select: { fuelType: true, quantity: true, totalCost: true, fuelTransactionId: true },
+      select: { fuelType: true, quantity: true, totalCost: true, fuelTransactionId: true, approvalStatus: true },
     });
 
     if (!fuelUsage) {
       return NextResponse.json(
         { success: false, error: "Fuel usage record not found" },
         { status: 404 }
+      );
+    }
+
+    if (fuelUsage.approvalStatus === APPROVED && !isAdminUser(user)) {
+      return NextResponse.json(
+        { success: false, error: "Approved fuel usage can only be deleted by an admin" },
+        { status: 403 }
       );
     }
 

@@ -226,8 +226,9 @@ export function ContractorForm() {
         await createContractor(data as any);
         toast.success('Contractor created successfully');
       }
-    } catch {
-      toast.error(isEditing ? 'Failed to update contractor' : 'Failed to create contractor');
+    } catch (error) {
+      const fallback = isEditing ? 'Failed to update contractor' : 'Failed to create contractor';
+      toast.error(error instanceof Error && error.message ? error.message : fallback);
     }
   }
 

@@ -59,6 +59,12 @@ const PERMISSIONS = [
   { name: "users:edit", label: "Edit Users", module: "users" },
   { name: "users:delete", label: "Delete Users", module: "users" },
   { name: "users:managePermissions", label: "Manage User Permissions", module: "users" },
+
+  { name: "content:machinery", label: "Use Machinery Reference List", module: "content" },
+  { name: "content:employees", label: "Use Employees Reference List", module: "content" },
+  { name: "content:contractors", label: "Use Contractors Reference List", module: "content" },
+  { name: "content:machinery-rates", label: "Use Machinery Rates Reference", module: "content" },
+  { name: "content:fuel-containers", label: "Use Fuel Containers Reference", module: "content" },
 ];
 
 const ROLE_PERMISSIONS: Record<string, string[]> = {

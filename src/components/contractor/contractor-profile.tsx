@@ -34,6 +34,14 @@ import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import {
   Table,
   TableBody,
   TableCell,
@@ -66,9 +74,15 @@ import {
   Calculator,
   TrendingUp,
   TrendingDown,
+  Upload,
+  ImageIcon,
+  X,
+  RotateCw,
+  RotateCcw,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
+import { rotateCanvas } from '@/lib/image-utils';
 
 function formatCurrency(amount: number): string {
   return new Intl.NumberFormat('en-US', {
@@ -109,6 +123,7 @@ export function ContractorProfile({ contractorId }: { contractorId?: string }) {
   const fetchContractorProfile = useContractorStore((s) => s.fetchContractorProfile);
   const clearSelectedContractor = useContractorStore((s) => s.clearSelectedContractor);
   const openForm = useContractorStore((s) => s.openForm);
+  const updateContractor = useContractorStore((s) => s.updateContractor);
   const { canEdit, hasPermission } = usePermissions();
 
   // Search states for tab filtering
@@ -126,6 +141,18 @@ export function ContractorProfile({ contractorId }: { contractorId?: string }) {
   // Financial summary filter state
   const [finDateFrom, setFinDateFrom] = useState('');
   const [finDateTo, setFinDateTo] = useState('');
+
+  // ID image upload state
+  const [isUploadingIdImage, setIsUploadingIdImage] = useState(false);
+  const [isUploadingIdImageBack, setIsUploadingIdImageBack] = useState(false);
+  const [showIdImageDialog, setShowIdImageDialog] = useState(false);
+  const [idImageSide, setIdImageSide] = useState<'front' | 'back'>('front');
+  const [pendingIdImageFile, setPendingIdImageFile] = useState<File | null>(null);
+  const [previewRotation, setPreviewRotation] = useState(0);
+  const [idImageToRemove, setIdImageToRemove] = useState<'front' | 'back' | null>(null);
+  const [showImagePreview, setShowImagePreview] = useState(false);
+  const [previewImageSrc, setPreviewImageSrc] = useState<string>('');
+  const [previewImageAlt, setPreviewImageAlt] = useState<string>('');
 
   const handleDownloadPDF = useCallback(async () => {
     if (!selectedContractor?.id) return;
@@ -530,7 +557,116 @@ export function ContractorProfile({ contractorId }: { contractorId?: string }) {
     } finally {
       setIsFarsiPdfGenerating(false);
     }
-  }, [selectedContractor, finDateFrom, finDateTo, finTotalHours, finTotalOvertime, timesheetRevenue, finTabTotalExpenses, finTabExpenseList, finTotalFuelCost, finTotalFuelQty, netFinancial, netWithoutFuel, rateTierRows, monthlyRateEntries]);
+   }, [selectedContractor, finDateFrom, finDateTo, finTotalHours, finTotalOvertime, timesheetRevenue, finTabTotalExpenses, finTabExpenseList, finTotalFuelCost, finTotalFuelQty, netFinancial, netWithoutFuel, rateTierRows, monthlyRateEntries]);
+
+  const handleIdImageSelect = (e: React.ChangeEvent<HTMLInputElement>, side: 'front' | 'back') => {
+    const file = e.target.files?.[0];
+    if (!file || !c.id) return;
+
+    setPendingIdImageFile(file);
+    setIdImageSide(side);
+    setPreviewRotation(0);
+    setShowIdImageDialog(true);
+  };
+
+  const rotatePreview = (direction: 'left' | 'right') => {
+    setPreviewRotation((prev) => {
+      const delta = direction === 'left' ? -90 : 90;
+      return (prev + delta + 360) % 360;
+    });
+  };
+
+  const uploadPendingIdImage = async () => {
+    if (!pendingIdImageFile || !c.id) return;
+
+    const side = idImageSide;
+    const fileToUpload = await rotateCanvas(pendingIdImageFile, previewRotation);
+
+    if (side === 'front') {
+      setIsUploadingIdImage(true);
+    } else {
+      setIsUploadingIdImageBack(true);
+    }
+
+    try {
+      const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
+      const formData = new FormData();
+      formData.append(side, fileToUpload);
+      formData.append('contractorId', c.id);
+
+      const response = await fetch('/api/contractors/upload', {
+        method: 'POST',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        body: formData,
+      });
+
+      const result = await response.json();
+      console.log('Upload response:', result);
+
+      if (result.success && result.data?.[side]) {
+        const imagePath = side === 'front' ? result.data.front : result.data.back;
+        console.log('Updating contractor with:', side === 'front' ? 'idImageFront' : 'idImageBack', imagePath);
+        try {
+          if (side === 'front') {
+            await updateContractor(c.id, { idImageFront: imagePath });
+            toast.success('Front ID image uploaded successfully');
+          } else {
+            await updateContractor(c.id, { idImageBack: imagePath });
+            toast.success('Back ID image uploaded successfully');
+          }
+        } catch (updateError) {
+          console.error('Update contractor error:', updateError);
+          toast.error('Failed to save image path to contractor');
+        }
+      } else {
+        toast.error(result.error || 'Failed to upload image');
+      }
+    } catch (error) {
+      console.error('Upload error:', error);
+      toast.error('Failed to upload image');
+    } finally {
+      if (side === 'front') {
+        setIsUploadingIdImage(false);
+      } else {
+        setIsUploadingIdImageBack(false);
+      }
+      setShowIdImageDialog(false);
+      setPendingIdImageFile(null);
+      setPreviewRotation(0);
+    }
+  };
+
+  const handleRemoveIdImage = async (side: 'front' | 'back') => {
+    if (!c.id) return;
+    setIdImageToRemove(side);
+    try {
+      const updates = side === 'front'
+        ? { idImageFront: null }
+        : { idImageBack: null };
+      await updateContractor(c.id, updates);
+      toast.success(`${side === 'front' ? 'Front' : 'Back'} ID image removed`);
+    } catch (error) {
+      console.error('Remove error:', error);
+      toast.error('Failed to remove image');
+    } finally {
+      setIdImageToRemove(null);
+    }
+  };
+
+  const openImagePreview = (src: string, alt: string) => {
+    setPreviewImageSrc(src);
+    setPreviewImageAlt(alt);
+    setShowImagePreview(true);
+  };
+
+  const downloadPreviewImage = () => {
+    const link = document.createElement('a');
+    link.href = previewImageSrc;
+    link.download = previewImageAlt.toLowerCase().replace(/\s+/g, '-') + '.jpg';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
 
   return (
     <div className="space-y-6">
@@ -730,6 +866,263 @@ export function ContractorProfile({ contractorId }: { contractorId?: string }) {
               </CardContent>
             </Card>
           )}
+
+          {/* ID Document Card */}
+          {canEdit('contractors') && (
+            <Card className="mt-6">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <ImageIcon className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
+                  Contractor ID Documents
+                </CardTitle>
+                <CardDescription>Upload front and back of contractor ID</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {/* Front Image */}
+                  <div className="flex flex-col items-center gap-3">
+                    <p className="text-sm font-medium">Front Side</p>
+                    {c.idImageFront ? (
+                      <div className="relative w-full">
+                        <img
+                          src={c.idImageFront}
+                          alt="ID Front"
+                          className="w-full h-48 rounded-lg border object-contain bg-muted cursor-pointer hover:opacity-90 transition-opacity"
+                          onClick={(e) => { e.stopPropagation(); openImagePreview(c.idImageFront!, 'Front ID'); }}
+                          title="Click to preview full image"
+                        />
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="mt-2 w-full"
+                          onClick={() => { setIdImageSide('front'); setShowIdImageDialog(true); }}
+                        >
+                          <Upload className="h-4 w-4 mr-2" />
+                          Update Front
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="mt-2 w-full"
+                          onClick={() => handleRemoveIdImage('front')}
+                          disabled={idImageToRemove === 'front'}
+                        >
+                          {idImageToRemove === 'front' ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <X className="h-4 w-4 mr-2" />
+                          )}
+                          Remove Front
+                        </Button>
+                      </div>
+                    ) : (
+                      <label
+                        htmlFor="contractor-id-image-front-upload"
+                        className="flex flex-col items-center justify-center w-full h-48 border-2 border-dashed rounded-lg cursor-pointer hover:bg-muted/50 transition-colors"
+                      >
+                        {isUploadingIdImage ? (
+                          <>
+                            <Loader2 className="h-8 w-8 text-emerald-600 animate-spin mb-2" />
+                            <span className="text-sm text-muted-foreground">Uploading...</span>
+                          </>
+                        ) : (
+                          <>
+                            <ImageIcon className="h-8 w-8 text-muted-foreground mb-2" />
+                            <span className="text-sm text-muted-foreground">Click to upload</span>
+                            <span className="text-xs text-muted-foreground mt-1">JPEG, PNG</span>
+                          </>
+                        )}
+                      </label>
+                    )}
+                  </div>
+
+                  {/* Back Image */}
+                  <div className="flex flex-col items-center gap-3">
+                    <p className="text-sm font-medium">Back Side</p>
+                    {c.idImageBack ? (
+                      <div className="relative w-full">
+                        <img
+                          src={c.idImageBack}
+                          alt="ID Back"
+                          className="w-full h-48 rounded-lg border object-contain bg-muted cursor-pointer hover:opacity-90 transition-opacity"
+                          onClick={(e) => { e.stopPropagation(); openImagePreview(c.idImageBack!, 'Back ID'); }}
+                          title="Click to preview full image"
+                        />
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="mt-2 w-full"
+                          onClick={() => { setIdImageSide('back'); setShowIdImageDialog(true); }}
+                        >
+                          <Upload className="h-4 w-4 mr-2" />
+                          Update Back
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="mt-2 w-full"
+                          onClick={() => handleRemoveIdImage('back')}
+                          disabled={idImageToRemove === 'back'}
+                        >
+                          {idImageToRemove === 'back' ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <X className="h-4 w-4 mr-2" />
+                          )}
+                          Remove Back
+                        </Button>
+                      </div>
+                    ) : (
+                      <label
+                        htmlFor="contractor-id-image-back-upload"
+                        className="flex flex-col items-center justify-center w-full h-48 border-2 border-dashed rounded-lg cursor-pointer hover:bg-muted/50 transition-colors"
+                      >
+                        {isUploadingIdImageBack ? (
+                          <>
+                            <Loader2 className="h-8 w-8 text-emerald-600 animate-spin mb-2" />
+                            <span className="text-sm text-muted-foreground">Uploading...</span>
+                          </>
+                        ) : (
+                          <>
+                            <ImageIcon className="h-8 w-8 text-muted-foreground mb-2" />
+                            <span className="text-sm text-muted-foreground">Click to upload</span>
+                            <span className="text-xs text-muted-foreground mt-1">JPEG, PNG</span>
+                          </>
+                        )}
+                      </label>
+                    )}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Hidden file inputs for ID image upload */}
+          <input
+            key={pendingIdImageFile ? 'front-has-file' : 'front-no-file'}
+            type="file"
+            accept="image/jpeg,image/png"
+            className="hidden"
+            id="contractor-id-image-front-upload"
+            onChange={(e) => handleIdImageSelect(e, 'front')}
+          />
+          <input
+            key={pendingIdImageFile ? 'back-has-file' : 'back-no-file'}
+            type="file"
+            accept="image/jpeg,image/png"
+            className="hidden"
+            id="contractor-id-image-back-upload"
+            onChange={(e) => handleIdImageSelect(e, 'back')}
+          />
+
+          {/* ID Image Upload Dialog */}
+          <Dialog open={showIdImageDialog} onOpenChange={(open) => {
+            setShowIdImageDialog(open);
+            if (!open) {
+              setPendingIdImageFile(null);
+              setPreviewRotation(0);
+            }
+          }}>
+            <DialogContent className="sm:max-w-[500px]">
+              <DialogHeader>
+                <DialogTitle>Upload ID Image - {idImageSide === 'front' ? 'Front' : 'Back'}</DialogTitle>
+                <DialogDescription>
+                  Upload a JPEG or PNG image of the contractor's ID {idImageSide} side (max 10MB). Adjust rotation if needed.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-4 py-4">
+                {!pendingIdImageFile ? (
+                  <label
+                    htmlFor={`contractor-id-image-${idImageSide}-upload`}
+                    className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed rounded-lg cursor-pointer hover:bg-muted/50 transition-colors"
+                  >
+                    <Upload className="h-8 w-8 text-muted-foreground mb-2" />
+                    <span className="text-sm text-muted-foreground">Click to select image</span>
+                    <span className="text-xs text-muted-foreground mt-1">JPEG, PNG (max 10MB)</span>
+                  </label>
+                ) : (
+                  <div className="flex flex-col items-center gap-3">
+                    <div className="relative w-full h-48 rounded-lg border bg-muted overflow-hidden flex items-center justify-center">
+                      <img
+                        src={URL.createObjectURL(pendingIdImageFile)}
+                        alt="Preview"
+                        className="max-w-full max-h-full object-contain transition-transform duration-200"
+                        style={{ transform: `rotate(${previewRotation}deg)` }}
+                      />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => rotatePreview('left')}
+                        disabled={(idImageSide === 'front' ? isUploadingIdImage : isUploadingIdImageBack)}
+                      >
+                        <RotateCcw className="h-4 w-4 mr-1" />
+                        Rotate Left
+                      </Button>
+                      <span className="text-xs text-muted-foreground w-12 text-center">{previewRotation}°</span>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => rotatePreview('right')}
+                        disabled={(idImageSide === 'front' ? isUploadingIdImage : isUploadingIdImageBack)}
+                      >
+                        <RotateCw className="h-4 w-4 mr-1" />
+                        Rotate Right
+                      </Button>
+                    </div>
+                    <label
+                      htmlFor={`contractor-id-image-${idImageSide}-upload`}
+                      className="text-xs text-emerald-600 cursor-pointer hover:underline"
+                    >
+                      Choose a different image
+                    </label>
+                  </div>
+                )}
+              </div>
+              <DialogFooter className="gap-2">
+                <Button variant="outline" onClick={() => { setShowIdImageDialog(false); setPendingIdImageFile(null); setPreviewRotation(0); }}>
+                  Cancel
+                </Button>
+                <Button
+                  onClick={uploadPendingIdImage}
+                  disabled={!pendingIdImageFile || (idImageSide === 'front' ? isUploadingIdImage : isUploadingIdImageBack)}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white gap-1.5"
+                >
+                  {(idImageSide === 'front' ? isUploadingIdImage : isUploadingIdImageBack) ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Upload className="h-4 w-4" />
+                  )}
+                  Upload Image
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+          {/* Full Image Preview Dialog */}
+          <Dialog open={showImagePreview} onOpenChange={setShowImagePreview}>
+            <DialogContent className="max-w-[90vw] max-h-[90vh] p-0 border-none bg-transparent shadow-none">
+              <DialogTitle className="sr-only">{previewImageAlt} Preview</DialogTitle>
+              <div className="relative flex items-center justify-center w-full h-full">
+                <img
+                  src={previewImageSrc}
+                  alt={previewImageAlt}
+                  className="max-w-full max-h-[80vh] rounded-lg border object-contain"
+                />
+              </div>
+              <DialogFooter className="absolute bottom-0 left-0 right-0 flex justify-end gap-2 p-4 bg-background/95 backdrop-blur">
+                <Button variant="outline" size="sm" onClick={() => setShowImagePreview(false)}>
+                  <X className="h-4 w-4 mr-2" />
+                  Close
+                </Button>
+                <Button size="sm" onClick={downloadPreviewImage} className="bg-emerald-600 hover:bg-emerald-700 text-white">
+                  <Download className="h-4 w-4 mr-2" />
+                  Download
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         </TabsContent>
 
         {/* ─── Expenses Tab ────────────────────────────────────── */}

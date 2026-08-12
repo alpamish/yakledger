@@ -250,8 +250,9 @@ export function TimesheetForm({ open, onOpenChange, editingTimesheet, onSuccess 
       }
       onSuccess();
       onOpenChange(false);
-    } catch {
-      toast.error(isEditing ? 'Failed to update timesheet' : 'Failed to create timesheet');
+    } catch (error) {
+      const fallback = isEditing ? 'Failed to update timesheet' : 'Failed to create timesheet';
+      toast.error(error instanceof Error && error.message ? error.message : fallback);
     } finally {
       setIsSubmitting(false);
     }

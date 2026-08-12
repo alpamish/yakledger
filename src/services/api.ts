@@ -248,6 +248,7 @@ export const expensesApi = {
       if (params.paidTo) searchParams.set("paidTo", params.paidTo);
       if (params.paidById) searchParams.set("paidById", params.paidById);
       if (params.paidToId) searchParams.set("paidToId", params.paidToId);
+      if (params.tags) searchParams.set("tags", params.tags);
       if (params.page) searchParams.set("page", String(params.page));
       if (params.pageSize) searchParams.set("pageSize", String(params.pageSize));
       if (params.sortBy) searchParams.set("sortBy", params.sortBy);
@@ -465,6 +466,13 @@ export const approvalsApi = {
     return mutate<ApiResponse<unknown>>(`/approvals/${entity}/${id}`, {
       method: "POST",
       body: JSON.stringify({ action: "approve", note }),
+    }, "/approvals");
+  },
+
+  approveMany: async (items: { entity: string; id: string }[]): Promise<ApiResponse<{ approved: number; skipped: number; errors: string[] }>> => {
+    return mutate<ApiResponse<{ approved: number; skipped: number; errors: string[] }>>(`/approvals/bulk`, {
+      method: "POST",
+      body: JSON.stringify({ items }),
     }, "/approvals");
   },
 
