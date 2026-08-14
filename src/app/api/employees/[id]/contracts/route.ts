@@ -74,6 +74,7 @@ export async function POST(
           department: d.department,
           project: d.project,
           status: d.status,
+          fileUrl: d.fileUrl,
           notes: d.notes,
           createdById: user.id,
         },

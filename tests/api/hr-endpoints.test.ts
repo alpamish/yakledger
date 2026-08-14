@@ -145,7 +145,7 @@ describe("HR sub-resource ADMIN access (unrestricted)", () => {
       buildRequest(`/api/employees/${adminEmpId}/contracts`, {
         token: tokens.adminToken,
         method: "POST",
-        body: { contractNumber: "K-100", startDate: "2026-01-01" },
+        body: { contractNumber: "K-100", startDate: "2026-01-01", fileUrl: "/uploads/contract.pdf" },
       }),
       ctx(adminEmpId)
     );

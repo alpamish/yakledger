@@ -19,6 +19,7 @@ export const contractSchema = z.object({
   department: z.string().optional(),
   project: z.string().optional(),
   status: z.string().default("ACTIVE"),
+  fileUrl: z.string().optional(),
   notes: z.string().optional(),
 });
 

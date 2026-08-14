@@ -214,6 +214,7 @@ model EmployeeContract {
   department    String?
   project       String?
   status        String   @default("ACTIVE")
+  fileUrl       String?
   notes         String?
   createdById   String?
   createdBy     User?    @relation(fields: [createdById], references: [id])

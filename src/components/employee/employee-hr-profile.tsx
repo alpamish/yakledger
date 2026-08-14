@@ -41,9 +41,32 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { LoadingSpinner } from "@/components/common/loading-spinner";
 import { EmptyState } from "@/components/common/empty-state";
-import { FileText } from "lucide-react";
+import {
+  FileText,
+  User,
+  Mail,
+  Phone,
+  MapPin,
+  Building2,
+  Briefcase,
+  Calendar,
+  Clock,
+  Wallet,
+  Users,
+  IdCard,
+  Hash,
+  Upload,
+  Download,
+} from "lucide-react";
 
 function fmtDate(d?: string | null) {
   if (!d) return "—";
@@ -217,11 +240,76 @@ export function EmployeeHrProfile({ employee }: { employee: Employee }) {
   );
 }
 
-function InfoItem({ label, value }: { label: string; value?: string | null }) {
+function initials(name: string) {
+  return name
+    .split(" ")
+    .map((n) => n[0])
+    .filter(Boolean)
+    .slice(0, 2)
+    .join("")
+    .toUpperCase();
+}
+
+function tenure(hireDate?: string | Date | null) {
+  if (!hireDate) return null;
+  const start = new Date(hireDate);
+  const now = new Date();
+  const months =
+    now.getMonth() -
+    start.getMonth() +
+    (now.getFullYear() - start.getFullYear()) * 12;
+  if (months < 0) return null;
+  if (months < 12) return `${months} mo`;
+  const y = Math.floor(months / 12);
+  const m = months % 12;
+  return m > 0 ? `${y} yr ${m} mo` : `${y} yr`;
+}
+
+function paidHours(start?: string | null, end?: string | null, breakMins?: number | null) {
+  if (!start || !end) return null;
+  const [sh, sm] = start.split(":").map(Number);
+  const [eh, em] = end.split(":").map(Number);
+  const totalMinutes = eh * 60 + em - (sh * 60 + sm) - (breakMins ?? 0);
+  if (totalMinutes <= 0) return null;
+  return `${(totalMinutes / 60).toFixed(1)}h`;
+}
+
+function DetailItem({
+  icon: Icon,
+  label,
+  value,
+}: {
+  icon: React.ElementType;
+  label: string;
+  value?: string | null;
+}) {
   return (
-    <div className="flex flex-col">
-      <span className="text-xs text-muted-foreground">{label}</span>
-      <span className="text-sm font-medium">{value || "—"}</span>
+    <div className="flex items-start gap-3">
+      <Icon className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
+      <div className="min-w-0">
+        <div className="text-xs text-muted-foreground">{label}</div>
+        <div className="text-sm font-medium truncate">{value || "—"}</div>
+      </div>
+    </div>
+  );
+}
+
+function SectionCard({
+  title,
+  icon: Icon,
+  children,
+}: {
+  title: string;
+  icon: React.ElementType;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="rounded-lg border p-4 space-y-3">
+      <div className="flex items-center gap-2 text-sm font-semibold">
+        <Icon className="h-4 w-4 text-primary" />
+        {title}
+      </div>
+      <div className="space-y-3">{children}</div>
     </div>
   );
 }
@@ -235,27 +323,87 @@ function OverviewTab({
   salary?: any;
   canViewSalary: boolean;
 }) {
+  const schedule = `${employee.workStartTime ?? "07:00"} – ${employee.workEndTime ?? "18:00"} (${employee.breakMinutes ?? 0}m break)`;
+  const dailyPaid = paidHours(
+    employee.workStartTime,
+    employee.workEndTime,
+    employee.breakMinutes
+  );
+  const empTenure = tenure(employee.hireDate);
+
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Employment Overview</CardTitle>
+        <div className="flex flex-col sm:flex-row sm:items-start gap-4">
+          <div className="h-20 w-20 rounded-full bg-primary/10 flex items-center justify-center text-2xl font-bold text-primary shrink-0">
+            {initials(employee.fullName)}
+          </div>
+          <div className="space-y-1 min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <CardTitle className="text-2xl">{employee.fullName}</CardTitle>
+              <Badge
+                variant={employee.status === "ACTIVE" ? "default" : "secondary"}
+              >
+                {employee.status}
+              </Badge>
+            </div>
+            <CardDescription className="text-base">
+              {employee.jobTitle || "—"} · {employee.department || "—"}
+            </CardDescription>
+            <div className="flex flex-wrap gap-x-4 text-xs text-muted-foreground pt-1">
+              {employee.employeeNumber && (
+                <span className="flex items-center gap-1">
+                  <Hash className="h-3 w-3" /> {employee.employeeNumber}
+                </span>
+              )}
+              {empTenure && (
+                <span className="flex items-center gap-1">
+                  <Calendar className="h-3 w-3" /> {empTenure}
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
       </CardHeader>
-      <CardContent className="grid grid-cols-2 gap-4 md:grid-cols-3">
-        <InfoItem label="Father Name" value={employee.fatherName} />
-        <InfoItem label="Grandfather" value={employee.grandfatherName} />
-        <InfoItem label="Phone" value={employee.phoneNumber} />
-        <InfoItem label="Email" value={employee.email} />
-        <InfoItem label="National ID" value={employee.nationalId} />
-        <InfoItem label="Department" value={employee.department} />
-        <InfoItem label="Employment Type" value={employee.employmentType} />
-        <InfoItem label="Hire Date" value={fmtDate(employee.hireDate)} />
-        <InfoItem label="Work Location" value={employee.workLocation} />
-        {canViewSalary && (
-          <InfoItem
-            label="Current Salary"
-            value={salary ? formatMinor(salary.amountMinor, salary.currency) : "—"}
-          />
-        )}
+      <CardContent className="space-y-4">
+        <div className="grid gap-4 md:grid-cols-2">
+          <SectionCard title="Personal" icon={User}>
+            <DetailItem icon={User} label="Father Name" value={employee.fatherName} />
+            <DetailItem icon={Users} label="Grandfather" value={employee.grandfatherName} />
+            <DetailItem icon={Phone} label="Phone" value={employee.phoneNumber} />
+            <DetailItem icon={Mail} label="Email" value={employee.email} />
+            <DetailItem icon={IdCard} label="National ID" value={employee.nationalId} />
+          </SectionCard>
+
+          <SectionCard title="Employment" icon={Briefcase}>
+            <DetailItem icon={Building2} label="Department" value={employee.department} />
+            <DetailItem icon={Briefcase} label="Employment Type" value={employee.employmentType} />
+            <DetailItem icon={Calendar} label="Hire Date" value={fmtDate(employee.hireDate)} />
+            <DetailItem icon={MapPin} label="Work Location" value={employee.workLocation} />
+          </SectionCard>
+
+          <SectionCard title="Schedule" icon={Clock}>
+            <DetailItem icon={Clock} label="Daily Hours" value={schedule} />
+            <DetailItem icon={Clock} label="Paid Hours / Day" value={dailyPaid} />
+          </SectionCard>
+
+          {canViewSalary && (
+            <SectionCard title="Compensation" icon={Wallet}>
+              <DetailItem
+                icon={Wallet}
+                label="Current Salary"
+                value={
+                  salary ? formatMinor(salary.amountMinor, salary.currency) : "—"
+                }
+              />
+              <DetailItem
+                icon={Calendar}
+                label="Effective Since"
+                value={fmtDate(salary?.effectiveFrom)}
+              />
+            </SectionCard>
+          )}
+        </div>
       </CardContent>
     </Card>
   );
@@ -379,6 +527,14 @@ function SalaryTab({
   );
 }
 
+const CONTRACT_TYPES = [
+  { value: "FIXED_TERM", label: "Fixed Term" },
+  { value: "PERMANENT", label: "Permanent" },
+  { value: "PART_TIME", label: "Part Time" },
+  { value: "INTERN", label: "Intern" },
+  { value: "OTHER", label: "Other" },
+];
+
 function ContractsTab({
   rows,
   canManage,
@@ -391,11 +547,19 @@ function ContractsTab({
   employeeId: string;
 }) {
   const [open, setOpen] = useState(false);
-  const [form, setForm] = useState<any>({});
+  const [form, setForm] = useState<any>({ contractType: "FIXED_TERM", status: "ACTIVE" });
+  const [file, setFile] = useState<File | null>(null);
+  const [fileKey, setFileKey] = useState(0);
   const [saving, setSaving] = useState(false);
 
   function set(k: string, v: string) {
     setForm((f: any) => ({ ...f, [k]: v }));
+  }
+
+  function reset() {
+    setForm({ contractType: "FIXED_TERM", status: "ACTIVE" });
+    setFile(null);
+    setFileKey((k) => k + 1);
   }
 
   async function save() {
@@ -403,20 +567,37 @@ function ContractsTab({
       toast.error("Contract number and start date are required");
       return;
     }
+    if (!file) {
+      toast.error("Please upload the contract file");
+      return;
+    }
     setSaving(true);
     try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const up = await fetch(`/api/employees/${employeeId}/contracts/upload`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${getToken()}` },
+        body: fd,
+      });
+      const upBody = await up.json();
+      if (!upBody.success) throw new Error(upBody.error || "Upload failed");
+
       await employeesApi.createContract(employeeId, {
         contractNumber: form.contractNumber,
+        contractType: form.contractType || "FIXED_TERM",
         startDate: form.startDate,
         endDate: form.endDate || null,
         position: form.position,
         department: form.department,
         salaryMinor: form.salaryMinor ? parseFloat(form.salaryMinor) : 0,
+        status: form.status || "ACTIVE",
+        fileUrl: upBody.data.fileUrl,
         notes: form.notes,
       });
       toast.success("Contract created");
       setOpen(false);
-      setForm({});
+      reset();
       onChanged();
     } catch (e: any) {
       toast.error(e?.message || "Failed");
@@ -429,7 +610,12 @@ function ContractsTab({
     <Card>
       <CardHeader className="flex flex-row items-center justify-between">
         <CardTitle>Contracts</CardTitle>
-        {canManage && <Button onClick={() => setOpen(true)}>Add Contract</Button>}
+        {canManage && (
+          <Button onClick={() => setOpen(true)}>
+            <Upload className="h-4 w-4 mr-1" />
+            Add Contract
+          </Button>
+        )}
       </CardHeader>
       <CardContent>
         {rows.length === 0 ? (
@@ -444,6 +630,7 @@ function ContractsTab({
                 <TableHead>End</TableHead>
                 <TableHead>Salary</TableHead>
                 <TableHead>Status</TableHead>
+                <TableHead>File</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -459,6 +646,21 @@ function ContractsTab({
                       {c.status}
                     </Badge>
                   </TableCell>
+                  <TableCell>
+                    {c.fileUrl ? (
+                      <a
+                        href={c.fileUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center text-xs text-primary hover:underline"
+                      >
+                        <Download className="h-3 w-3 mr-1" />
+                        View
+                      </a>
+                    ) : (
+                      "—"
+                    )}
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>
@@ -466,22 +668,45 @@ function ContractsTab({
         )}
       </CardContent>
 
-      <Dialog open={open} onOpenChange={setOpen}>
+      <Dialog
+        open={open}
+        onOpenChange={(o) => {
+          if (!o) reset();
+          setOpen(o);
+        }}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Add Contract</DialogTitle>
           </DialogHeader>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <Label>Contract Number</Label>
-              <Input value={form.contractNumber || ""} onChange={(e) => set("contractNumber", e.target.value)} />
+              <Label>Contract Number *</Label>
+              <Input
+                value={form.contractNumber || ""}
+                onChange={(e) => set("contractNumber", e.target.value)}
+              />
             </div>
             <div>
               <Label>Type</Label>
-              <Input value={form.contractType || "FIXED_TERM"} onChange={(e) => set("contractType", e.target.value)} />
+              <Select
+                value={form.contractType || "FIXED_TERM"}
+                onValueChange={(v) => set("contractType", v)}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {CONTRACT_TYPES.map((t) => (
+                    <SelectItem key={t.value} value={t.value}>
+                      {t.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div>
-              <Label>Start Date</Label>
+              <Label>Start Date *</Label>
               <Input type="date" value={form.startDate || ""} onChange={(e) => set("startDate", e.target.value)} />
             </div>
             <div>
@@ -493,8 +718,42 @@ function ContractsTab({
               <Input value={form.position || ""} onChange={(e) => set("position", e.target.value)} />
             </div>
             <div>
+              <Label>Department</Label>
+              <Input value={form.department || ""} onChange={(e) => set("department", e.target.value)} />
+            </div>
+            <div>
               <Label>Salary</Label>
               <Input type="number" value={form.salaryMinor || ""} onChange={(e) => set("salaryMinor", e.target.value)} />
+            </div>
+            <div>
+              <Label>Status</Label>
+              <Select
+                value={form.status || "ACTIVE"}
+                onValueChange={(v) => set("status", v)}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ACTIVE">Active</SelectItem>
+                  <SelectItem value="EXPIRED">Expired</SelectItem>
+                  <SelectItem value="TERMINATED">Terminated</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="col-span-2">
+              <Label>Contract File *</Label>
+              <Input
+                key={fileKey}
+                type="file"
+                accept=".pdf,.jpg,.jpeg,.png,.webp,.gif"
+                onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+              />
+              {file && (
+                <div className="text-xs text-muted-foreground mt-1">
+                  {file.name} ({(file.size / 1024).toFixed(1)} KB)
+                </div>
+              )}
             </div>
           </div>
           <div>
@@ -506,7 +765,7 @@ function ContractsTab({
               Cancel
             </Button>
             <Button onClick={save} disabled={saving}>
-              {saving ? "Saving..." : "Save"}
+              {saving ? "Uploading..." : "Save"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -514,6 +773,15 @@ function ContractsTab({
     </Card>
   );
 }
+
+const DOCUMENT_TYPES = [
+  { value: "ID_CARD", label: "ID Card / Tazkira" },
+  { value: "PASSPORT", label: "Passport" },
+  { value: "DRIVERS_LICENSE", label: "Driver's License" },
+  { value: "WORK_PERMIT", label: "Work Permit" },
+  { value: "EDUCATION_CERTIFICATE", label: "Education Certificate" },
+  { value: "OTHER", label: "Other" },
+];
 
 function DocumentsTab({
   rows,
@@ -528,9 +796,18 @@ function DocumentsTab({
 }) {
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState<any>({});
+  const [file, setFile] = useState<File | null>(null);
+  const [fileKey, setFileKey] = useState(0);
   const [saving, setSaving] = useState(false);
+
   function set(k: string, v: string) {
     setForm((f: any) => ({ ...f, [k]: v }));
+  }
+
+  function reset() {
+    setForm({});
+    setFile(null);
+    setFileKey((k) => k + 1);
   }
 
   async function save() {
@@ -538,18 +815,33 @@ function DocumentsTab({
       toast.error("Document type is required");
       return;
     }
+    if (!file) {
+      toast.error("Please select a file to upload");
+      return;
+    }
     setSaving(true);
     try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const up = await fetch(`/api/employees/${employeeId}/documents/upload`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${getToken()}` },
+        body: fd,
+      });
+      const upBody = await up.json();
+      if (!upBody.success) throw new Error(upBody.error || "Upload failed");
+
       await employeesApi.createDocument(employeeId, {
         documentType: form.documentType,
         documentNumber: form.documentNumber,
         issueDate: form.issueDate || null,
         expiryDate: form.expiryDate || null,
+        fileUrl: upBody.data.fileUrl,
         notes: form.notes,
       });
       toast.success("Document added");
       setOpen(false);
-      setForm({});
+      reset();
       onChanged();
     } catch (e: any) {
       toast.error(e?.message || "Failed");
@@ -562,11 +854,20 @@ function DocumentsTab({
     <Card>
       <CardHeader className="flex flex-row items-center justify-between">
         <CardTitle>Documents</CardTitle>
-        {canManage && <Button onClick={() => setOpen(true)}>Add Document</Button>}
+        {canManage && (
+          <Button onClick={() => setOpen(true)}>
+            <Upload className="h-4 w-4 mr-1" />
+            Upload Document
+          </Button>
+        )}
       </CardHeader>
       <CardContent>
         {rows.length === 0 ? (
-          <EmptyState icon={FileText} title="No documents" description="No documents uploaded." />
+          <EmptyState
+            icon={FileText}
+            title="No documents"
+            description="No documents uploaded."
+          />
         ) : (
           <Table>
             <TableHeader>
@@ -575,6 +876,7 @@ function DocumentsTab({
                 <TableHead>Number</TableHead>
                 <TableHead>Issued</TableHead>
                 <TableHead>Expires</TableHead>
+                <TableHead>File</TableHead>
                 <TableHead>Notes</TableHead>
               </TableRow>
             </TableHeader>
@@ -586,9 +888,30 @@ function DocumentsTab({
                   <TableCell>{fmtDate(d.issueDate)}</TableCell>
                   <TableCell>
                     {d.expiryDate ? (
-                      <span className={new Date(d.expiryDate) < new Date() ? "text-red-500 font-medium" : ""}>
+                      <span
+                        className={
+                          new Date(d.expiryDate) < new Date()
+                            ? "text-red-500 font-medium"
+                            : ""
+                        }
+                      >
                         {fmtDate(d.expiryDate)}
                       </span>
+                    ) : (
+                      "—"
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    {d.fileUrl ? (
+                      <a
+                        href={d.fileUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center text-xs text-primary hover:underline"
+                      >
+                        <Download className="h-3 w-3 mr-1" />
+                        View
+                      </a>
                     ) : (
                       "—"
                     )}
@@ -601,39 +924,87 @@ function DocumentsTab({
         )}
       </CardContent>
 
-      <Dialog open={open} onOpenChange={setOpen}>
+      <Dialog
+        open={open}
+        onOpenChange={(o) => {
+          if (!o) reset();
+          setOpen(o);
+        }}
+      >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Add Document</DialogTitle>
+            <DialogTitle>Upload Document</DialogTitle>
           </DialogHeader>
           <div className="grid grid-cols-2 gap-3">
-            <div>
-              <Label>Document Type</Label>
-              <Input value={form.documentType || ""} onChange={(e) => set("documentType", e.target.value)} placeholder="Tazkira, Passport, Contract..." />
+            <div className="col-span-2">
+              <Label>Document Type *</Label>
+              <Select
+                value={form.documentType || ""}
+                onValueChange={(v) => set("documentType", v)}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select document type" />
+                </SelectTrigger>
+                <SelectContent>
+                  {DOCUMENT_TYPES.map((t) => (
+                    <SelectItem key={t.value} value={t.value}>
+                      {t.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div>
               <Label>Document Number</Label>
-              <Input value={form.documentNumber || ""} onChange={(e) => set("documentNumber", e.target.value)} />
+              <Input
+                value={form.documentNumber || ""}
+                onChange={(e) => set("documentNumber", e.target.value)}
+              />
             </div>
             <div>
               <Label>Issue Date</Label>
-              <Input type="date" value={form.issueDate || ""} onChange={(e) => set("issueDate", e.target.value)} />
+              <Input
+                type="date"
+                value={form.issueDate || ""}
+                onChange={(e) => set("issueDate", e.target.value)}
+              />
             </div>
             <div>
               <Label>Expiry Date</Label>
-              <Input type="date" value={form.expiryDate || ""} onChange={(e) => set("expiryDate", e.target.value)} />
+              <Input
+                type="date"
+                value={form.expiryDate || ""}
+                onChange={(e) => set("expiryDate", e.target.value)}
+              />
+            </div>
+            <div className="col-span-2">
+              <Label>File *</Label>
+              <Input
+                key={fileKey}
+                type="file"
+                accept=".pdf,.jpg,.jpeg,.png,.webp,.gif"
+                onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+              />
+              {file && (
+                <div className="text-xs text-muted-foreground mt-1">
+                  {file.name} ({(file.size / 1024).toFixed(1)} KB)
+                </div>
+              )}
             </div>
           </div>
           <div>
             <Label>Notes</Label>
-            <Textarea value={form.notes || ""} onChange={(e) => set("notes", e.target.value)} />
+            <Textarea
+              value={form.notes || ""}
+              onChange={(e) => set("notes", e.target.value)}
+            />
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setOpen(false)}>
               Cancel
             </Button>
             <Button onClick={save} disabled={saving}>
-              {saving ? "Saving..." : "Save"}
+              {saving ? "Uploading..." : "Upload"}
             </Button>
           </DialogFooter>
         </DialogContent>
