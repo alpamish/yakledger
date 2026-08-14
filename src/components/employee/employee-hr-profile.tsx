@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { usePermissions } from "@/hooks/use-permissions";
 import { employeesApi } from "@/services/employee-api";
+import { getToken } from "@/services/api";
 import { formatMinor } from "@/lib/money";
 import type { Employee } from "@/types/employee";
 import { toast } from "sonner";
@@ -61,6 +62,7 @@ export function EmployeeHrProfile({ employee }: { employee: Employee }) {
   const canManageDocuments = hasPermission("employees:documents:manage");
   const canManageLeave = hasPermission("employees:leave:manage");
   const canViewPayroll = hasPermission("employees:payroll:view");
+  const canManagePayroll = hasPermission("employees:payroll:manage");
 
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<any>({});
@@ -188,7 +190,12 @@ export function EmployeeHrProfile({ employee }: { employee: Employee }) {
 
             {canViewPayroll && (
               <TabsContent value="payroll">
-                <PayrollTab rows={data.payroll ?? []} />
+                <PayrollTab
+                  rows={data.payroll ?? []}
+                  employeeId={employee.id}
+                  canManage={canManagePayroll}
+                  onChanged={load}
+                />
               </TabsContent>
             )}
 
@@ -799,11 +806,71 @@ function LeaveTab({
   );
 }
 
-function PayrollTab({ rows }: { rows: any[] }) {
+function PayrollTab({
+  rows,
+  employeeId,
+  canManage,
+  onChanged,
+}: {
+  rows: any[];
+  employeeId: string;
+  canManage: boolean;
+  onChanged: () => void;
+}) {
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  async function handleExport() {
+    try {
+      const res = await fetch("/api/payroll/export", {
+        headers: { Authorization: `Bearer ${getToken()}` },
+      });
+      if (!res.ok) throw new Error("Export failed");
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "payroll-export.csv";
+      a.click();
+      window.URL.revokeObjectURL(url);
+      toast.success("Payroll CSV downloaded");
+    } catch (e: any) {
+      toast.error(e?.message || "Export failed");
+    }
+  }
+
+  async function handleRevert(p: any) {
+    if (typeof window !== "undefined" && !window.confirm("Revert this approved payroll back to draft?")) {
+      return;
+    }
+    setBusyId(p.id);
+    try {
+      const res = await fetch(`/api/employees/${employeeId}/payroll`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
+        body: JSON.stringify({
+          action: "revert",
+          payrollId: p.id,
+          reason: "Manual correction",
+        }),
+      });
+      const body = await res.json();
+      if (!body.success) throw new Error(body.error || "Revert failed");
+      toast.success("Payroll reverted to draft");
+      onChanged();
+    } catch (e: any) {
+      toast.error(e?.message || "Revert failed");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   return (
     <Card>
-      <CardHeader>
+      <CardHeader className="flex flex-row items-center justify-between">
         <CardTitle>Payroll History</CardTitle>
+        <Button variant="outline" size="sm" onClick={handleExport}>
+          Export CSV
+        </Button>
       </CardHeader>
       <CardContent>
         {rows.length === 0 ? (
@@ -819,6 +886,7 @@ function PayrollTab({ rows }: { rows: any[] }) {
                 <TableHead>Net Payable</TableHead>
                 <TableHead>Remaining Debt</TableHead>
                 <TableHead>Payment</TableHead>
+                {canManage && <TableHead>Actions</TableHead>}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -854,6 +922,20 @@ function PayrollTab({ rows }: { rows: any[] }) {
                           : p.status}
                       </Badge>
                     </TableCell>
+                    {canManage && (
+                      <TableCell>
+                        {p.status === "APPROVED" && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={busyId === p.id}
+                            onClick={() => handleRevert(p)}
+                          >
+                            {busyId === p.id ? "Reverting..." : "Revert"}
+                          </Button>
+                        )}
+                      </TableCell>
+                    )}
                   </TableRow>
                 );
               })}
