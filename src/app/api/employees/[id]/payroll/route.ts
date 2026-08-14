@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requirePermission } from "@/lib/permissions";
 import { db } from "@/lib/db";
-import { approvePayroll } from "@/services/hr.service";
+import { approvePayroll, revertPayroll } from "@/services/hr.service";
 
 export async function GET(
   request: NextRequest,
@@ -36,15 +36,20 @@ export async function POST(
 
   try {
     const body = await request.json().catch(() => ({}));
-    const { payrollId, action, paymentMethod } = body as {
+    const { payrollId, action, paymentMethod, reason } = body as {
       payrollId?: string;
       action?: string;
       paymentMethod?: string;
+      reason?: string;
     };
     if (action === "approve" && payrollId) {
       const updated = await approvePayroll(payrollId, user.id, {
         paymentMethod,
       });
+      return NextResponse.json({ success: true, data: updated });
+    }
+    if (action === "revert" && payrollId) {
+      const updated = await revertPayroll(payrollId, user.id, reason);
       return NextResponse.json({ success: true, data: updated });
     }
     return NextResponse.json(

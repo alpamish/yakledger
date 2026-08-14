@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import {
   generatePayroll,
   approvePayroll,
+  revertPayroll,
   computeAttendanceHours,
 } from "@/services/hr.service";
 import { toMinor } from "@/lib/money";
@@ -239,5 +240,63 @@ describe("Attendance schedule & overtime", () => {
     expect(line.overtimeHours).toBe(2.5);
     expect(line.overtimePayMinor).toBe(26041);
     expect(line.grossPayMinor).toBe(toMinor(25000) + 26041);
+  });
+});
+
+describe("Payroll correction (revert)", () => {
+  let user: any;
+  let emp: any;
+
+  beforeEach(async () => {
+    user = await makeUser("MANAGER", `rev-mgr-${Date.now()}-${Math.random()}@t.co`);
+    emp = await makeEmployee(user.id);
+    await addSalary(emp.id, 25000);
+  });
+
+  it("revert returns an approved payroll to DRAFT and removes settlement", async () => {
+    const payroll = await generatePayroll({
+      employeeId: emp.id,
+      periodStart: new Date("2026-06-01"),
+      periodEnd: new Date("2026-06-30"),
+      createdById: user.id,
+    });
+    const approved = await approvePayroll(payroll.id, user.id);
+    expect(approved.status).toBe("APPROVED");
+
+    // A salary payment was created and linked to the payroll.
+    const paidBefore = await db.cashTransaction.count({
+      where: { payrollId: payroll.id, type: "SALARY_PAYMENT" },
+    });
+    expect(paidBefore).toBe(1);
+
+    const reverted = await revertPayroll(payroll.id, user.id, "wrong amount");
+    expect(reverted.status).toBe("DRAFT");
+    expect(reverted.revertedAt).toBeTruthy();
+    expect(reverted.reversalReason).toBe("wrong amount");
+
+    // Settlement removed; can be regenerated and re-approved.
+    const paidAfter = await db.cashTransaction.count({
+      where: { payrollId: payroll.id, type: "SALARY_PAYMENT" },
+    });
+    expect(paidAfter).toBe(0);
+
+    const regen = await generatePayroll({
+      employeeId: emp.id,
+      periodStart: new Date("2026-06-01"),
+      periodEnd: new Date("2026-06-30"),
+      createdById: user.id,
+    });
+    const reApproved = await approvePayroll(regen.id, user.id);
+    expect(reApproved.status).toBe("APPROVED");
+  });
+
+  it("cannot revert a draft payroll", async () => {
+    const payroll = await generatePayroll({
+      employeeId: emp.id,
+      periodStart: new Date("2026-06-01"),
+      periodEnd: new Date("2026-06-30"),
+      createdById: user.id,
+    });
+    await expect(revertPayroll(payroll.id, user.id)).rejects.toThrow();
   });
 });

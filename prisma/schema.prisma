@@ -337,6 +337,9 @@ model Payroll {
   approvedById  String?
   approvedBy    User?    @relation("PayrollApprover", fields: [approvedById], references: [id])
   approvedAt    DateTime?
+  revertedById  String?
+  revertedAt    DateTime?
+  reversalReason String?
   createdById   String?
   createdBy     User?    @relation("PayrollCreator", fields: [createdById], references: [id])
   createdAt   DateTime @default(now())
@@ -678,10 +681,11 @@ model CashTransaction {
   note            String?
   referenceNumber String?
   createdBy       String
-  approvalStatus  String    @default("PENDING")
+  approvalStatus  String   @default("PENDING")
   approvedById    String?
   approvedAt      DateTime?
   approvalNote    String?
+  payrollId       String?
   createdAt       DateTime  @default(now())
   approver        User?     @relation("CashTransactionApprover", fields: [approvedById], references: [id])
   creator         User      @relation(fields: [createdBy], references: [id])
@@ -694,6 +698,7 @@ model CashTransaction {
   @@index([createdAt])
   @@index([approvalStatus])
   @@index([approvalStatus, createdAt])
+  @@index([payrollId])
 }
 
 model Transfer {

@@ -487,6 +487,9 @@ model Payroll {
   approvedById  String?
   approvedBy    User?    @relation("PayrollApprover", fields: [approvedById], references: [id])
   approvedAt    DateTime?
+  revertedById  String?
+  revertedAt    DateTime?
+  reversalReason String?
   createdById   String?
   createdBy     User?    @relation("PayrollCreator", fields: [createdById], references: [id])
   createdAt   DateTime @default(now())
@@ -849,6 +852,7 @@ model CashTransaction {
    approvedById    String?
    approvedAt      DateTime?
    approvalNote    String?
+   payrollId       String?
    approver        User?              @relation("CashTransactionApprover", fields: [approvedById], references: [id], onDelete: SetNull)
    payrollAllocations PayrollAdvanceAllocation[]
 
@@ -860,6 +864,7 @@ model CashTransaction {
   @@index([createdAt])
   @@index([approvalStatus])
   @@index([approvalStatus, createdAt])
+  @@index([payrollId])
 }
 
 model Transfer {

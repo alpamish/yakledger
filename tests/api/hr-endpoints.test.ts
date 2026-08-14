@@ -289,5 +289,18 @@ describe("Payroll generate + approve via API", () => {
     expect(approve.status).toBe(200);
     const approvedBody = await json(approve);
     expect(approvedBody.data.status).toBe("APPROVED");
+
+    // Revert the approved payroll back to DRAFT.
+    const revert = await EmployeePayrollRoute.POST(
+      buildRequest(`/api/employees/${adminEmpId}/payroll`, {
+        token: tokens.adminToken,
+        method: "POST",
+        body: { action: "revert", payrollId: payroll.id, reason: "correction" },
+      }),
+      ctx(adminEmpId)
+    );
+    expect(revert.status).toBe(200);
+    const revertBody = await json(revert);
+    expect(revertBody.data.status).toBe("DRAFT");
   });
 });

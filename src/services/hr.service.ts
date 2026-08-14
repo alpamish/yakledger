@@ -578,6 +578,7 @@ export async function approvePayroll(
           approvalStatus: "APPROVED",
           approvedById,
           approvedAt: new Date(),
+          payrollId: payrollId2,
         },
       });
     }
@@ -623,6 +624,66 @@ export async function approvePayroll(
 
   return db.payroll.findUnique({
     where: { id: payrollId2 },
+    include: { lines: true },
+  });
+}
+
+/**
+ * Revert an approved payroll back to DRAFT so it can be corrected and
+ * re-approved. Removes the settlement (salary payment + advance allocations)
+ * and recomputes the employee wallet balance.
+ */
+export async function revertPayroll(
+  payrollId: string,
+  userId: string,
+  reason?: string
+) {
+  const payroll = await db.payroll.findUnique({
+    where: { id: payrollId },
+    include: { lines: true },
+  });
+  if (!payroll) throw new Error("Payroll not found");
+  if (payroll.status !== "APPROVED") {
+    throw new Error("Only an approved payroll can be reverted");
+  }
+  if (payroll.revertedAt) {
+    throw new Error("Payroll has already been reverted");
+  }
+
+  const employeeId = payroll.employeeId;
+
+  await db.$transaction(async (tx) => {
+    // Remove the salary payment(s) created at approval.
+    await tx.cashTransaction.deleteMany({ where: { payrollId: payroll.id } });
+    // Free the advances allocated to this payroll so they can be re-allocated
+    // when the corrected payroll is generated.
+    await tx.payrollAdvanceAllocation.deleteMany({ where: { payrollId: payroll.id } });
+    await tx.payroll.update({
+      where: { id: payroll.id },
+      data: {
+        status: "DRAFT",
+        approvedById: null,
+        approvedAt: null,
+        revertedById: userId,
+        revertedAt: new Date(),
+        reversalReason: reason ?? null,
+      },
+    });
+    await tx.employeeAuditEvent.create({
+      data: {
+        employeeId,
+        action: "PAYROLL_REVERTED",
+        newValue: payroll.id,
+        reason: reason ?? null,
+        performedById: userId,
+      },
+    });
+  });
+
+  await walletService.recomputeBalance(employeeId);
+
+  return db.payroll.findUnique({
+    where: { id: payroll.id },
     include: { lines: true },
   });
 }
