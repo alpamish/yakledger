@@ -416,7 +416,7 @@ export const attendanceApi = {
     return request<ApiResponse<{ data: AttendanceRecord[]; total: number }>>(`/attendance${qs ? `?${qs}` : ""}`);
   },
 
-  create: async (data: { employeeId: string; date: string; status: string; notes?: string; overtimeHours?: number }): Promise<ApiResponse<AttendanceRecord>> => {
+  create: async (data: { employeeId: string; date: string; status: string; notes?: string; overtimeHours?: number; checkInTime?: string; checkOutTime?: string }): Promise<ApiResponse<AttendanceRecord>> => {
     return mutate<ApiResponse<AttendanceRecord>>("/attendance", {
       method: "POST",
       body: JSON.stringify(data),
@@ -454,10 +454,12 @@ export const attendanceApi = {
 // ─── Approvals API ─────────────────────────────────────────────────────────
 
 export const approvalsApi = {
-  getAll: async (params?: { status?: ApprovalStatus; entity?: string }): Promise<ApiResponse<ApprovalsResponse>> => {
+  getAll: async (params?: { status?: ApprovalStatus; entity?: string; page?: number; pageSize?: number }): Promise<ApiResponse<ApprovalsResponse>> => {
     const searchParams = new URLSearchParams();
     if (params?.status) searchParams.set("status", params.status);
     if (params?.entity) searchParams.set("entity", params.entity);
+    if (params?.page) searchParams.set("page", String(params.page));
+    if (params?.pageSize) searchParams.set("pageSize", String(params.pageSize));
     const qs = searchParams.toString();
     return request<ApiResponse<ApprovalsResponse>>(`/approvals${qs ? `?${qs}` : ""}`);
   },

@@ -41,6 +41,16 @@ model User {
   transferApprovals          Transfer[]          @relation("TransferApprover")
   transfers                  Transfer[]
   userPermissions            UserPermission[]
+  salaryHistories            SalaryHistory[]
+  employeeContracts          EmployeeContract[]
+  positionHistories          EmployeePositionHistory[]
+  uploadedDocuments          EmployeeDocument[]
+  employeeLeavesCreated      EmployeeLeave[]      @relation("EmployeeLeaveCreator")
+  employeeLeavesApproved     EmployeeLeave[]      @relation("EmployeeLeaveApprover")
+  projectAssignmentsCreated  EmployeeProjectAssignment[]
+  payrollsCreated            Payroll[]            @relation("PayrollCreator")
+  payrollsApproved           Payroll[]            @relation("PayrollApprover")
+  employeeAuditEvents        EmployeeAuditEvent[]
 }
 
 model RecordAccess {
@@ -94,10 +104,13 @@ model UserPermission {
 
 model Employee {
   id                    String               @id @default(cuid())
+  employeeNumber        String?              @unique
   fullName              String
   fatherName            String
+  grandfatherName       String?
   gender                String               @default("male")
   dateOfBirth           DateTime?
+  nationality           String?
   phoneNumber           String
   email                 String?
   address               String?
@@ -105,11 +118,31 @@ model Employee {
   jobTitle              String
   department            String
   employmentType        String               @default("FULL_TIME")
+  // Legacy mutable salary kept for backward compatibility.
+  // Canonical salary is now derived from SalaryHistory (amountMinor, currency).
   salary                Float                @default(0)
+  // Canonical current salary in minor currency units (e.g. AFN * 100).
+  baseSalaryMinor       Int                  @default(0)
+  currency              String               @default("AFN")
   workHoursPerDay       Int                  @default(9)
   overtimeRate          Float                @default(1.25)
+  workStartTime         String               @default("07:00")
+  workEndTime           String               @default("18:00")
+  breakMinutes          Int                  @default(60)
   hireDate              DateTime
   status                String               @default("ACTIVE")
+  employeeCategory      String?
+  contractStartDate     DateTime?
+  contractEndDate       DateTime?
+  probationEndDate      DateTime?
+  terminationDate       DateTime?
+  terminationReason     String?
+  workLocation          String?
+  // supervisor self-relation
+  supervisorId          String?
+  supervisor            Employee?            @relation("EmployeeSupervisor", fields: [supervisorId], references: [id])
+  supervisees           Employee[]           @relation("EmployeeSupervisor")
+  // Legacy field kept for compatibility; use terminationDate going forward.
   quitingDate           DateTime?
   idImageFront          String?
   idImageBack           String?
@@ -124,17 +157,261 @@ model Employee {
   cashTransactions      CashTransaction[]
   creator               User                 @relation(fields: [createdBy], references: [id], onDelete: Cascade)
   cashAccount           EmployeeCashAccount?
-  expensesPaidTo        Expense[]            @relation("ExpensePaidTo")
   expensesPaidBy        Expense[]            @relation("ExpensePaidBy")
+  expensesPaidTo        Expense[]            @relation("ExpensePaidTo")
   transfersTo           Transfer[]           @relation("TransferTo")
   transfersFrom         Transfer[]           @relation("TransferFrom")
+  salaryHistory         SalaryHistory[]
+  contracts             EmployeeContract[]
+  positionHistory       EmployeePositionHistory[]
+  documents             EmployeeDocument[]
+  leaves                EmployeeLeave[]
+  assignments           EmployeeProjectAssignment[]
+  payrolls              Payroll[]
+  payrollLines          PayrollLine[]
+  auditEvents           EmployeeAuditEvent[]
 
   @@index([phoneNumber])
   @@index([email])
   @@index([nationalId])
   @@index([department])
   @@index([status])
+  @@index([employeeNumber])
+  @@index([supervisorId])
   @@index([createdBy])
+}
+
+// --- HR: Salary history (immutable historical salary records) ---
+model SalaryHistory {
+  id            String   @id @default(cuid())
+  employeeId    String
+  employee      Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  amountMinor   Int
+  currency      String   @default("AFN")
+  effectiveFrom DateTime
+  reason        String?
+  notes         String?
+  createdById   String?
+  createdBy     User?    @relation(fields: [createdById], references: [id])
+  createdAt     DateTime @default(now())
+
+  @@unique([employeeId, effectiveFrom])
+  @@index([employeeId, effectiveFrom])
+}
+
+// --- HR: Contracts (multiple per employee) ---
+model EmployeeContract {
+  id            String   @id @default(cuid())
+  employeeId    String
+  employee      Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  contractNumber String  @unique
+  contractType  String   @default("FIXED_TERM")
+  startDate     DateTime
+  endDate       DateTime?
+  salaryMinor   Int      @default(0)
+  currency      String   @default("AFN")
+  position      String?
+  department    String?
+  project       String?
+  status        String   @default("ACTIVE")
+  notes         String?
+  createdById   String?
+  createdBy     User?    @relation(fields: [createdById], references: [id])
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([employeeId, startDate])
+  @@index([contractNumber])
+  @@index([status])
+}
+
+// --- HR: Position / department history ---
+model EmployeePositionHistory {
+  id             String   @id @default(cuid())
+  employeeId     String
+  employee       Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  position       String
+  department     String?
+  project        String?
+  supervisorId   String?
+  effectiveFrom  DateTime
+  effectiveTo    DateTime?
+  reason         String?
+  createdById    String?
+  createdBy      User?    @relation(fields: [createdById], references: [id])
+  createdAt      DateTime @default(now())
+
+  @@index([employeeId, effectiveFrom])
+}
+
+// --- HR: Documents ---
+model EmployeeDocument {
+  id            String   @id @default(cuid())
+  employeeId    String
+  employee      Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  documentType  String
+  documentNumber String?
+  issueDate     DateTime?
+  expiryDate    DateTime?
+  fileUrl       String?
+  notes         String?
+  uploadedById  String?
+  uploadedBy    User?    @relation(fields: [uploadedById], references: [id])
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([employeeId])
+  @@index([documentType])
+  @@index([expiryDate])
+}
+
+// --- HR: Leave types (configurable) ---
+model EmployeeLeaveType {
+  id           String  @id @default(cuid())
+  name         String  @unique
+  description  String?
+  isPaid       Boolean @default(true)
+  defaultDays  Int?
+  isActive     Boolean @default(true)
+  createdById  String?
+  createdAt    DateTime @default(now())
+  leaves       EmployeeLeave[]
+
+  @@index([isActive])
+}
+
+// --- HR: Leave requests ---
+model EmployeeLeave {
+  id            String   @id @default(cuid())
+  employeeId    String
+  employee      Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  leaveTypeId   String?
+  leaveType     EmployeeLeaveType? @relation(fields: [leaveTypeId], references: [id])
+  startDate     DateTime
+  endDate       DateTime
+  days          Float    @default(0)
+  reason        String?
+  status        String   @default("PENDING")
+  approvedById  String?
+  approvedBy    User?    @relation("EmployeeLeaveApprover", fields: [approvedById], references: [id])
+  approvedAt    DateTime?
+  approvalNote  String?
+  createdById   String?
+  createdBy     User?    @relation("EmployeeLeaveCreator", fields: [createdById], references: [id])
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([employeeId, startDate])
+  @@index([status])
+  @@index([leaveTypeId])
+}
+
+// --- HR: Project assignments (multi, historical) ---
+model EmployeeProjectAssignment {
+  id          String   @id @default(cuid())
+  employeeId  String
+  employee    Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  project     String
+  position    String?
+  startDate   DateTime
+  endDate     DateTime?
+  notes       String?
+  createdById String?
+  createdBy   User?     @relation(fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+
+  @@index([employeeId, startDate])
+  @@index([project])
+}
+
+// --- HR: Payroll (immutable snapshot once approved) ---
+model Payroll {
+  id            String   @id @default(cuid())
+  employeeId    String
+  employee      Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  periodStart   DateTime
+  periodEnd     DateTime
+  currency      String   @default("AFN")
+  status        String   @default("DRAFT")
+  notes         String?
+  approvedById  String?
+  approvedBy    User?    @relation("PayrollApprover", fields: [approvedById], references: [id])
+  approvedAt    DateTime?
+  createdById   String?
+  createdBy     User?    @relation("PayrollCreator", fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  lines       PayrollLine[]
+  allocations PayrollAdvanceAllocation[]
+
+  @@unique([employeeId, periodStart, periodEnd])
+  @@index([employeeId, periodStart])
+  @@index([status])
+}
+
+model PayrollLine {
+  id                  String   @id @default(cuid())
+  payrollId           String
+  payroll             Payroll  @relation(fields: [payrollId], references: [id], onDelete: Cascade)
+  employeeId          String
+  employee            Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  baseSalaryMinor     Int      @default(0)
+  currency            String   @default("AFN")
+  attendanceDays      Float    @default(0)
+  overtimeHours       Float    @default(0)
+  overtimePayMinor    Int      @default(0)
+  allowancesMinor     Int      @default(0)
+  bonusesMinor        Int      @default(0)
+  deductionsMinor     Int      @default(0)
+  grossPayMinor       Int      @default(0)
+  amountAlreadyReceivedMinor Int @default(0)
+  previousDebtMinor   Int      @default(0)
+  advancesDeductedMinor Int     @default(0)
+  netPayableMinor     Int      @default(0)
+  remainingEmployeeDebtMinor Int @default(0)
+  paymentStatus       String   @default("UNPAID")
+  paymentMethod       String?
+  netPayMinor         Int      @default(0)
+  salarySnapshotDate  DateTime?
+  createdAt           DateTime @default(now())
+
+  @@index([payrollId])
+  @@index([employeeId])
+}
+
+// Allocation of an employee cash advance/transaction to a specific payroll,
+// so the same received amount is never deducted from earnings twice.
+model PayrollAdvanceAllocation {
+  id                 String    @id @default(cuid())
+  payrollId          String
+  payroll            Payroll   @relation(fields: [payrollId], references: [id], onDelete: Cascade)
+  cashTransactionId  String
+  cashTransaction    CashTransaction @relation(fields: [cashTransactionId], references: [id], onDelete: Cascade)
+  amountMinor        Int
+  createdAt          DateTime  @default(now())
+
+  @@unique([payrollId, cashTransactionId])
+  @@index([payrollId])
+  @@index([cashTransactionId])
+}
+
+// --- HR: Audit trail for important employee changes ---
+model EmployeeAuditEvent {
+  id            String   @id @default(cuid())
+  employeeId    String
+  employee      Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  action        String
+  field         String?
+  previousValue String?
+  newValue      String?
+  effectiveDate DateTime?
+  reason        String?
+  performedById String?
+  performedBy   User?    @relation(fields: [performedById], references: [id])
+  createdAt     DateTime @default(now())
+
+  @@index([employeeId, createdAt])
+  @@index([action])
 }
 
 model Expense {
@@ -184,6 +461,7 @@ model Expense {
   @@index([paidTo])
   @@index([category, expenseDate])
   @@index([approvalStatus])
+  @@index([approvalStatus, createdAt])
 }
 
 model Contractor {
@@ -254,6 +532,7 @@ model Timesheet {
   @@index([approvedBy])
   @@index([createdBy])
   @@index([approvalStatus])
+  @@index([approvalStatus, createdAt])
 }
 
 model FuelUsage {
@@ -291,6 +570,7 @@ model FuelUsage {
   @@index([fuelTransactionId])
   @@index([createdBy])
   @@index([approvalStatus])
+  @@index([approvalStatus, createdAt])
 }
 
   model Machinery {
@@ -359,6 +639,9 @@ model Attendance {
   status         String
   notes          String?
   overtimeHours  Float     @default(0)
+  checkInTime    DateTime?
+  checkOutTime   DateTime?
+  workedHours    Float     @default(0)
   createdBy      String
   createdAt      DateTime  @default(now())
   approvalStatus String    @default("PENDING")
@@ -375,6 +658,7 @@ model Attendance {
   @@index([status])
   @@index([createdBy])
   @@index([approvalStatus])
+  @@index([approvalStatus, createdAt])
 }
 
 model EmployeeCashAccount {
@@ -402,12 +686,14 @@ model CashTransaction {
   approver        User?     @relation("CashTransactionApprover", fields: [approvedById], references: [id])
   creator         User      @relation(fields: [createdBy], references: [id])
   employee        Employee  @relation(fields: [employeeId], references: [id])
+  payrollAllocations PayrollAdvanceAllocation[]
 
   @@index([employeeId])
   @@index([type])
   @@index([createdBy])
   @@index([createdAt])
   @@index([approvalStatus])
+  @@index([approvalStatus, createdAt])
 }
 
 model Transfer {
@@ -432,6 +718,7 @@ model Transfer {
   @@index([toEmployeeId])
   @@index([createdBy])
   @@index([approvalStatus])
+  @@index([approvalStatus, createdAt])
 }
 
 model AppSettings {
@@ -598,4 +885,5 @@ model AssetLog {
   @@index([approvedById])
   @@index([createdBy])
   @@index([approvalStatus])
+  @@index([approvalStatus, createdAt])
 }

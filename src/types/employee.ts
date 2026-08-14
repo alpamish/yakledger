@@ -81,6 +81,24 @@ export interface Employee {
   totalOvertimeHours?: number;
   overtimePay?: number;
   netBalance?: number;
+  // Schedule
+  workStartTime?: string | null;
+  workEndTime?: string | null;
+  breakMinutes?: number | null;
+  // Extended HR fields
+  employeeNumber?: string | null;
+  grandfatherName?: string | null;
+  nationality?: string | null;
+  employeeCategory?: string | null;
+  contractStartDate?: string | null;
+  contractEndDate?: string | null;
+  probationEndDate?: string | null;
+  terminationDate?: string | null;
+  terminationReason?: string | null;
+  workLocation?: string | null;
+  supervisorId?: string | null;
+  currency?: string;
+  baseSalaryMinor?: number;
 }
 
 export interface ExpenseBrief {
@@ -106,6 +124,9 @@ export interface EmployeeFormData {
   salary: number;
   workHoursPerDay: number;
   overtimeRate: number;
+  workStartTime?: string | null;
+  workEndTime?: string | null;
+  breakMinutes?: number | null;
   hireDate: string;
   status: EmployeeStatus;
   quitingDate?: string;
@@ -279,6 +300,9 @@ export interface AttendanceRecord {
   status: AttendanceStatus;
   notes: string | null;
   overtimeHours: number;
+  checkInTime?: string | null;
+  checkOutTime?: string | null;
+  workedHours?: number;
   approvalStatus?: import("@/types/expense").ApprovalStatus;
   approvalNote?: string | null;
   createdAt: string;

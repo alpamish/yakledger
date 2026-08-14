@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
-import { requirePermission } from "@/lib/permissions";
+import { requirePermission, checkUserPermission } from "@/lib/permissions";
 import { buildAccessScope, withScope, APPROVED } from "@/lib/access-control";
+import { sanitizeSalaryFields } from "@/services/hr.service";
 
 const DEPARTMENT_VALUES = [
   "ADMINISTRATION", "FINANCE", "OPERATIONS", "ENGINEERING",
@@ -32,6 +33,9 @@ const updateEmployeeSchema = z.object({
   salary: z.number().min(0).optional(),
   workHoursPerDay: z.number().int().min(1).optional(),
   overtimeRate: z.number().min(1).optional(),
+  workStartTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Use HH:MM").optional(),
+  workEndTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Use HH:MM").optional(),
+  breakMinutes: z.coerce.number().int().min(0).max(1440).optional(),
   hireDate: z.string().min(1).optional(),
   status: z.enum(EMPLOYEE_STATUS_VALUES).optional(),
   quitingDate: z.string().optional().nullable(),
@@ -121,7 +125,13 @@ export async function GET(
     const hourlySalary = workHoursPerDay > 0 ? (employee.salary / 30) / workHoursPerDay : (employee.salary / 30) / 9;
     const overtimePay = totalOvertimeHours * hourlySalary * overtimeRate;
 
-    const responseData = {
+    const canViewSalary = await checkUserPermission(
+      user.id,
+      user.role,
+      "employees:salary:view"
+    );
+
+    let responseData: Record<string, any> = {
       ...employee,
       totalExpensesPaidBy: totalExpensesPaidBy._sum.amount ?? 0,
       totalExpensesPaidTo: totalExpensesPaidTo._sum.amount ?? 0,
@@ -130,6 +140,12 @@ export async function GET(
       totalOvertimeHours,
       overtimePay,
     };
+
+    if (!canViewSalary) {
+      responseData = sanitizeSalaryFields(responseData, false);
+      delete responseData.totalSalaryPaid;
+      delete responseData.overtimePay;
+    }
 
     return NextResponse.json({
       success: true,
@@ -273,6 +289,41 @@ export async function DELETE(
       return NextResponse.json(
         { success: false, error: "Employee not found" },
         { status: 404 }
+      );
+    }
+
+    // Data-integrity guard: never hard-delete an employee that has financial
+    // or payroll history. Use status change (resign/terminate) instead.
+    const financialLinks = await db.employee.findFirst({
+      where: { id },
+      select: {
+        _count: {
+          select: {
+            expensesPaidBy: true,
+            expensesPaidTo: true,
+            cashTransactions: true,
+            payrolls: true,
+            attendanceRecords: true,
+          },
+        },
+      },
+    });
+    const links = financialLinks?._count;
+    const hasHistory =
+      !!links &&
+      (links.expensesPaidBy > 0 ||
+        links.expensesPaidTo > 0 ||
+        links.cashTransactions > 0 ||
+        links.payrolls > 0 ||
+        links.attendanceRecords > 0);
+    if (hasHistory) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            "Cannot delete employee with financial, attendance, or payroll history. Change their status (terminate/resign) instead.",
+        },
+        { status: 409 }
       );
     }
 

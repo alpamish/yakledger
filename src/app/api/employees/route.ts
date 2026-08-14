@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
-import { requirePermission } from "@/lib/permissions";
+import { requirePermission, checkUserPermission } from "@/lib/permissions";
 import { Prisma } from "@prisma/client";
 import { buildAccessScope, withScope } from "@/lib/access-control";
+import { sanitizeSalaryFields } from "@/services/hr.service";
 
 const DEPARTMENT_VALUES = [
   "ADMINISTRATION", "FINANCE", "OPERATIONS", "ENGINEERING",
@@ -33,6 +34,9 @@ const createEmployeeSchema = z.object({
   salary: z.number().min(0).default(0),
   workHoursPerDay: z.number().int().min(1).default(9),
   overtimeRate: z.number().min(1).default(1.25),
+  workStartTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Use HH:MM").default("07:00"),
+  workEndTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Use HH:MM").default("18:00"),
+  breakMinutes: z.coerce.number().int().min(0).max(1440).default(60),
   hireDate: z.string().min(1, "Hire date is required"),
   status: z.enum(EMPLOYEE_STATUS_VALUES).default("ACTIVE"),
   idImageFront: z.string().optional().nullable(),
@@ -107,6 +111,11 @@ export async function GET(request: NextRequest) {
     const order = sortOrder === "asc" ? "asc" : "desc";
 
     const scopedWhere = withScope(where, await buildAccessScope(user, "employee"));
+    const canViewSalary = await checkUserPermission(
+      user.id,
+      user.role,
+      "employees:salary:view"
+    );
 
     const [employees, total] = await Promise.all([
       db.employee.findMany({
@@ -127,11 +136,14 @@ export async function GET(request: NextRequest) {
     ]);
 
     const totalPages = Math.ceil(total / pageSize);
+    const safeEmployees = employees.map((e) =>
+      sanitizeSalaryFields(e, canViewSalary)
+    );
 
     return NextResponse.json({
       success: true,
       data: {
-        data: employees,
+        data: safeEmployees,
         total,
         page,
         pageSize,
@@ -182,6 +194,11 @@ export async function POST(request: NextRequest) {
           department: data.department,
           employmentType: data.employmentType,
           salary: data.salary,
+          workHoursPerDay: data.workHoursPerDay,
+          overtimeRate: data.overtimeRate,
+          workStartTime: data.workStartTime,
+          workEndTime: data.workEndTime,
+          breakMinutes: data.breakMinutes,
           hireDate: new Date(data.hireDate),
           status: data.status,
           idImageFront: data.idImageFront ?? null,

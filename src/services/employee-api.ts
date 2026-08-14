@@ -160,4 +160,76 @@ export const employeesApi = {
       }
     );
   },
+
+  // ─── HR sub-resources ───────────────────────────────────────────────────
+  getSalaryHistory: async (
+    id: string
+  ): Promise<ApiResponse<{ history: any[]; current: any }>> =>
+    request(`/employees/${id}/salary-history`),
+
+  createSalaryChange: async (
+    id: string,
+    data: { amount: number; effectiveFrom: string; reason?: string; notes?: string; currency?: string }
+  ): Promise<ApiResponse<any>> =>
+    request(`/employees/${id}/salary-history`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+
+  getContracts: async (id: string): Promise<ApiResponse<any[]>> =>
+    request(`/employees/${id}/contracts`),
+
+  createContract: async (id: string, data: any): Promise<ApiResponse<any>> =>
+    request(`/employees/${id}/contracts`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+
+  getDocuments: async (id: string): Promise<ApiResponse<any[]>> =>
+    request(`/employees/${id}/documents`),
+
+  createDocument: async (id: string, data: any): Promise<ApiResponse<any>> =>
+    request(`/employees/${id}/documents`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+
+  getLeaves: async (id: string): Promise<ApiResponse<any[]>> =>
+    request(`/employees/${id}/leave`),
+
+  createLeave: async (id: string, data: any): Promise<ApiResponse<any>> =>
+    request(`/employees/${id}/leave`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+
+  approveLeave: async (
+    id: string,
+    leaveId: string,
+    status: "APPROVED" | "REJECTED",
+    note?: string
+  ): Promise<ApiResponse<any>> =>
+    request(`/employees/${id}/leave/${leaveId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ status, approvalNote: note }),
+    }),
+
+  getAssignments: async (id: string): Promise<ApiResponse<any[]>> =>
+    request(`/employees/${id}/assignments`),
+
+  createAssignment: async (id: string, data: any): Promise<ApiResponse<any>> =>
+    request(`/employees/${id}/assignments`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+
+  getPayroll: async (id: string): Promise<ApiResponse<any[]>> =>
+    request(`/employees/${id}/payroll`),
+
+  getAlerts: async (): Promise<ApiResponse<any>> => request(`/employees/alerts`),
+
+  getAuditEvents: async (id: string): Promise<ApiResponse<any[]>> =>
+    request(`/employees/${id}/audit`),
+
+  getLeaveTypes: async (): Promise<ApiResponse<any[]>> => request(`/leave-types`),
 };

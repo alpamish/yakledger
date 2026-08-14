@@ -39,9 +39,19 @@ async function recalculateBalance(employeeId: string) {
     where: { employeeId, type: "RETURN", approvalStatus: APPROVED },
   });
 
-  const expensesAgg = await db.expense.aggregate({
+  const salaryPaymentsAgg = await db.cashTransaction.aggregate({
     _sum: { amount: true },
-    where: { paidById: employeeId, approvalStatus: APPROVED },
+    where: { employeeId, type: "SALARY_PAYMENT", approvalStatus: APPROVED },
+  });
+
+  const adjustmentsAgg = await db.cashTransaction.aggregate({
+    _sum: { amount: true },
+    where: { employeeId, type: "ADJUSTMENT", approvalStatus: APPROVED },
+  });
+
+  const deductionsAgg = await db.cashTransaction.aggregate({
+    _sum: { amount: true },
+    where: { employeeId, type: "DEBIT", approvalStatus: APPROVED },
   });
 
   const transfersFromAgg = await db.transfer.aggregate({
@@ -53,17 +63,37 @@ async function recalculateBalance(employeeId: string) {
     where: { toEmployeeId: employeeId, approvalStatus: APPROVED },
   });
 
+  // Approved payroll earnings are stored in minor units.
+  const payrollGrossAgg = await db.payrollLine.aggregate({
+    _sum: { grossPayMinor: true },
+    where: { employeeId, payroll: { status: "APPROVED" } },
+  });
+
   const totalAdvances = advancesAgg._sum.amount ?? 0;
   const totalReturns = returnsAgg._sum.amount ?? 0;
-  const totalExpenses = expensesAgg._sum.amount ?? 0;
+  const totalSalaryPayments = salaryPaymentsAgg._sum.amount ?? 0;
+  const totalAdjustments = adjustmentsAgg._sum.amount ?? 0;
+  const totalDeductions = deductionsAgg._sum.amount ?? 0;
   const totalTransfersOut = transfersFromAgg._sum.amount ?? 0;
   const totalTransfersIn = transfersToAgg._sum.amount ?? 0;
+  const totalEarned = (payrollGrossAgg._sum.grossPayMinor ?? 0) / 100;
 
-  const balance = totalAdvances - totalExpenses - totalReturns + totalTransfersIn - totalTransfersOut;
+  // Net received by employee (cash given to them) minus what they earned via
+  // approved payroll. Positive => employee owes the company.
+  const balance =
+    totalAdvances +
+    totalSalaryPayments +
+    totalAdjustments -
+    totalReturns -
+    totalDeductions -
+    totalEarned +
+    totalTransfersIn -
+    totalTransfersOut;
 
-  await db.employeeCashAccount.update({
+  await db.employeeCashAccount.upsert({
     where: { employeeId },
-    data: { currentBalance: balance },
+    create: { employeeId, currentBalance: balance },
+    update: { currentBalance: balance },
   });
 
   return balance;
@@ -97,11 +127,7 @@ export const walletService = {
     });
 
     if (approvalStatus === APPROVED) {
-      const newBalance = account.currentBalance + amount;
-      await db.employeeCashAccount.update({
-        where: { id: account.id },
-        data: { currentBalance: newBalance },
-      });
+      await recalculateBalance(employeeId);
     }
 
     await createAuditLog(user.id, txn.id, "CREATE", `Cash advance of ${amount} to employee ${employeeId}`);
@@ -136,11 +162,7 @@ export const walletService = {
     });
 
     if (approvalStatus === APPROVED) {
-      const newBalance = account.currentBalance - amount;
-      await db.employeeCashAccount.update({
-        where: { id: account.id },
-        data: { currentBalance: newBalance },
-      });
+      await recalculateBalance(employeeId);
     }
 
     await createAuditLog(user.id, txn.id, "CREATE", `Cash return of ${amount} from employee ${employeeId}`);
@@ -171,11 +193,7 @@ export const walletService = {
     });
 
     if (approvalStatus === APPROVED) {
-      const newBalance = account.currentBalance + amount;
-      await db.employeeCashAccount.update({
-        where: { id: account.id },
-        data: { currentBalance: newBalance },
-      });
+      await recalculateBalance(employeeId);
     }
 
     await createAuditLog(user.id, txn.id, "CREATE", `Adjustment of ${amount} to employee ${employeeId} wallet`);
@@ -218,15 +236,8 @@ export const walletService = {
     });
 
     if (approvalStatus === APPROVED) {
-      await db.employeeCashAccount.update({
-        where: { id: fromAccount.id },
-        data: { currentBalance: { decrement: amount } },
-      });
-
-      await db.employeeCashAccount.update({
-        where: { id: toAccount.id },
-        data: { currentBalance: { increment: amount } },
-      });
+      await recalculateBalance(fromEmployeeId);
+      await recalculateBalance(toEmployeeId);
     }
 
     await createAuditLog(user.id, transfer.id, "CREATE", `Transfer of ${amount} from ${fromEmployeeId} to ${toEmployeeId}`);
@@ -234,24 +245,71 @@ export const walletService = {
     return transfer;
   },
 
+  async createSalaryPayment(
+    employeeId: string,
+    amountMinor: number,
+    userId: string,
+    opts?: { note?: string; referenceNumber?: string; method?: string; payrollId?: string }
+  ) {
+    if (amountMinor <= 0) return null;
+    const account = await getOrCreateAccount(employeeId);
+    const amount = amountMinor / 100;
+
+    const txn = await db.cashTransaction.create({
+      data: {
+        employeeId,
+        type: "SALARY_PAYMENT",
+        amount,
+        note: opts?.note ?? (opts?.payrollId ? `Salary payment ${opts.payrollId}` : "Salary payment"),
+        referenceNumber: opts?.referenceNumber ?? null,
+        createdBy: userId,
+        approvalStatus: APPROVED,
+        approvedById: userId,
+        approvedAt: new Date(),
+      },
+    });
+
+    await recalculateBalance(employeeId);
+    void account;
+    return txn;
+  },
+
   async deductFromWallet(employeeId: string, amount: number, userId: string) {
     if (amount <= 0) return;
-    const account = await getOrCreateAccount(employeeId);
-    const newBalance = account.currentBalance - amount;
-    await db.employeeCashAccount.update({
-      where: { id: account.id },
-      data: { currentBalance: newBalance },
+    await getOrCreateAccount(employeeId);
+    await db.cashTransaction.create({
+      data: {
+        employeeId,
+        type: "DEBIT",
+        amount,
+        note: "Wallet deduction",
+        createdBy: userId,
+        approvalStatus: APPROVED,
+        approvedById: userId,
+        approvedAt: new Date(),
+      },
     });
+    await recalculateBalance(employeeId);
   },
 
   async addBackToWallet(employeeId: string, amount: number, userId: string) {
     if (amount <= 0) return;
-    const account = await getOrCreateAccount(employeeId);
-    const newBalance = account.currentBalance + amount;
-    await db.employeeCashAccount.update({
-      where: { id: account.id },
-      data: { currentBalance: newBalance },
+    // Add-back reverses a deduction: record a negative DEBIT so the ledger
+    // and derived balance both increase by `amount`.
+    await getOrCreateAccount(employeeId);
+    await db.cashTransaction.create({
+      data: {
+        employeeId,
+        type: "DEBIT",
+        amount: -amount,
+        note: "Wallet add-back",
+        createdBy: userId,
+        approvalStatus: APPROVED,
+        approvedById: userId,
+        approvedAt: new Date(),
+      },
     });
+    await recalculateBalance(employeeId);
   },
 
   async getAccount(employeeId: string) {
@@ -259,6 +317,10 @@ export const walletService = {
       where: { employeeId },
       include: { employee: { select: { id: true, fullName: true, jobTitle: true, department: true } } },
     });
+  },
+
+  async recomputeBalance(employeeId: string) {
+    return recalculateBalance(employeeId);
   },
 
   async getLedger(employeeId: string): Promise<LedgerEntry[]> {

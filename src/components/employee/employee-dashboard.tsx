@@ -2,6 +2,7 @@
 
 import * as React from 'react';
 import { useEmployeeStore } from '@/hooks/use-employee-store';
+import { employeesApi } from '@/services/employee-api';
 import {
   DEPARTMENT_LABELS,
   DEPARTMENT_COLORS,
@@ -25,6 +26,7 @@ import {
   DollarSign,
   TrendingUp,
   Calendar,
+  AlertTriangle,
 } from 'lucide-react';
 import {
   BarChart,
@@ -132,6 +134,7 @@ interface EmployeeDashboardProps {
 export function EmployeeDashboard({ onViewProfile }: EmployeeDashboardProps) {
   const { dashboardStats, fetchDashboard, isLoading } = useEmployeeStore();
   const [hasFetched, setHasFetched] = React.useState(false);
+  const [alerts, setAlerts] = React.useState<any>(null);
 
   React.useEffect(() => {
     if (!hasFetched) {
@@ -139,6 +142,13 @@ export function EmployeeDashboard({ onViewProfile }: EmployeeDashboardProps) {
       setHasFetched(true);
     }
   }, [fetchDashboard, hasFetched]);
+
+  React.useEffect(() => {
+    employeesApi
+      .getAlerts()
+      .then((r) => setAlerts(r.data))
+      .catch(() => setAlerts(null));
+  }, []);
 
   if (isLoading && !dashboardStats) {
     return (
@@ -216,6 +226,35 @@ export function EmployeeDashboard({ onViewProfile }: EmployeeDashboardProps) {
           icon={DollarSign}
         />
       </div>
+
+      {/* HR Alerts */}
+      {alerts && alerts.alerts && alerts.alerts.length > 0 && (
+        <Card className="border-amber-500/30 bg-amber-500/5">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <AlertTriangle className="h-5 w-5 text-amber-500" />
+              HR Alerts ({alerts.alerts.length})
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ul className="space-y-2">
+              {alerts.alerts.map((a: any, i: number) => (
+                <li
+                  key={i}
+                  className="flex items-center gap-2 text-sm"
+                >
+                  <Badge
+                    variant={a.severity === "warning" ? "destructive" : "secondary"}
+                  >
+                    {a.type.replace(/_/g, " ")}
+                  </Badge>
+                  <span>{a.message}</span>
+                </li>
+              ))}
+            </ul>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Charts Section */}
       <div className="grid gap-4 lg:grid-cols-7">

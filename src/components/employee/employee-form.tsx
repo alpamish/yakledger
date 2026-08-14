@@ -62,6 +62,9 @@ const employeeFormSchema = z.object({
   salary: z.coerce.number().min(0, 'Salary must be positive'),
   workHoursPerDay: z.coerce.number().int().min(1).default(9),
   overtimeRate: z.coerce.number().min(1).default(1.25),
+  workStartTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Use HH:MM').default('07:00'),
+  workEndTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Use HH:MM').default('18:00'),
+  breakMinutes: z.coerce.number().int().min(0).max(1440).default(60),
   hireDate: z.string().min(1, 'Hire date is required'),
   status: z.enum(EMPLOYEE_STATUSES, { message: 'Status is required' }),
   idImage: z.string().optional().nullable(),
@@ -98,6 +101,9 @@ export function EmployeeForm() {
       salary: 0,
       workHoursPerDay: 9,
       overtimeRate: 1.25,
+      workStartTime: '07:00',
+      workEndTime: '18:00',
+      breakMinutes: 60,
       hireDate: format(new Date(), 'yyyy-MM-dd'),
       status: 'ACTIVE',
       idImage: null,
@@ -126,6 +132,9 @@ export function EmployeeForm() {
           salary: editingEmployee.salary,
           workHoursPerDay: editingEmployee.workHoursPerDay ?? 9,
           overtimeRate: editingEmployee.overtimeRate ?? 1.25,
+          workStartTime: editingEmployee.workStartTime ?? '07:00',
+          workEndTime: editingEmployee.workEndTime ?? '18:00',
+          breakMinutes: editingEmployee.breakMinutes ?? 60,
           hireDate: editingEmployee.hireDate
             ? format(new Date(editingEmployee.hireDate), 'yyyy-MM-dd')
             : format(new Date(), 'yyyy-MM-dd'),
@@ -146,11 +155,14 @@ export function EmployeeForm() {
           jobTitle: '',
           department: undefined,
           employmentType: undefined,
-          salary: 0,
-          workHoursPerDay: 9,
-          overtimeRate: 1.25,
-          hireDate: format(new Date(), 'yyyy-MM-dd'),
-          status: 'ACTIVE',
+      salary: 0,
+      workHoursPerDay: 9,
+      overtimeRate: 1.25,
+      workStartTime: '07:00',
+      workEndTime: '18:00',
+      breakMinutes: 60,
+      hireDate: format(new Date(), 'yyyy-MM-dd'),
+      status: 'ACTIVE',
           emergencyContactName: '',
           emergencyContactPhone: '',
         });
@@ -360,6 +372,37 @@ export function EmployeeForm() {
                   <FormLabel>Overtime Rate (×)</FormLabel>
                   <FormControl>
                     <Input type="number" min="1" step="0.05" {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )} />
+            </div>
+
+            {/* Row 7b: Work schedule */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <FormField control={form.control} name="workStartTime" render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Work Start</FormLabel>
+                  <FormControl>
+                    <Input type="time" {...field} value={field.value ?? '07:00'} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )} />
+              <FormField control={form.control} name="workEndTime" render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Work End</FormLabel>
+                  <FormControl>
+                    <Input type="time" {...field} value={field.value ?? '18:00'} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )} />
+              <FormField control={form.control} name="breakMinutes" render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Break (min)</FormLabel>
+                  <FormControl>
+                    <Input type="number" min="0" step="5" {...field} value={field.value ?? 60} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>

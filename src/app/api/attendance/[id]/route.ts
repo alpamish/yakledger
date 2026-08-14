@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/permissions";
 import { buildAccessScope, withScope, resolveApprovalStatusOnEdit, APPROVED } from "@/lib/access-control";
+import { computeAttendanceHours } from "@/services/hr.service";
 
 const ATTENDANCE_STATUSES = ["PRESENT", "ABSENT", "HALF_DAY", "LEAVE", "HOLIDAY"] as const;
 const VALID_STATUSES = new Set(ATTENDANCE_STATUSES);
@@ -18,7 +19,7 @@ export async function PUT(
 
     const { id } = await params;
     const body = await request.json();
-    const { status, notes, overtimeHours } = body;
+    const { status, notes, overtimeHours, checkInTime, checkOutTime } = body;
 
     if (status && !VALID_STATUSES.has(status)) {
       return NextResponse.json(
@@ -39,7 +40,7 @@ export async function PUT(
 
     const existing = await db.attendance.findFirst({
       where: withScope({ id }, await buildAccessScope(user, "attendance")),
-      select: { approvalStatus: true },
+      select: { approvalStatus: true, employeeId: true },
     });
     if (!existing) {
       return NextResponse.json(
@@ -48,10 +49,22 @@ export async function PUT(
       );
     }
 
+    const explicitOt =
+      overtimeHours !== undefined && overtimeHours !== null ? Number(overtimeHours) : null;
+    const { workedHours, overtimeHours: computedOt } = await computeAttendanceHours(
+      existing.employeeId,
+      checkInTime ?? null,
+      checkOutTime ?? null,
+      explicitOt
+    );
+
     const updateData: Record<string, unknown> = {};
     if (status) updateData.status = status;
     if (notes !== undefined) updateData.notes = notes;
-    if (overtimeHours !== undefined && overtimeHours !== null) updateData.overtimeHours = Number(overtimeHours);
+    updateData.overtimeHours = computedOt;
+    updateData.workedHours = workedHours;
+    if (checkInTime !== undefined) updateData.checkInTime = checkInTime ? new Date(checkInTime) : null;
+    if (checkOutTime !== undefined) updateData.checkOutTime = checkOutTime ? new Date(checkOutTime) : null;
 
     const approvalStatus = resolveApprovalStatusOnEdit(user, existing.approvalStatus);
     updateData.approvalStatus = approvalStatus;

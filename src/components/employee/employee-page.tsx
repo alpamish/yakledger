@@ -8,7 +8,7 @@ import { useEmployeeStore } from '@/hooks/use-employee-store';
 import { EmployeeDashboard } from '@/components/employee/employee-dashboard';
 import { EmployeeTable } from '@/components/employee/employee-table';
 import { EmployeeForm } from '@/components/employee/employee-form';
-import { EmployeeProfile } from '@/components/employee/employee-profile';
+import { EmployeeHrProfile } from '@/components/employee/employee-hr-profile';
 import { EmployeeFinancialSummary } from '@/components/employee/employee-financial-summary';
 import { AttendancePanel } from '@/components/attendance/attendance-panel';
 import { ConfirmDialog } from '@/components/common/confirm-dialog';
@@ -172,7 +172,7 @@ export function EmployeePage() {
 
         {selectedEmployee && (
           <TabsContent value="profile" className="mt-6">
-            <EmployeeProfile />
+            <EmployeeHrProfile employee={selectedEmployee} />
           </TabsContent>
         )}
         <TabsContent value="attendance" className="mt-6">

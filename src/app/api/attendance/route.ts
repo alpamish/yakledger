@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/permissions";
 import { buildAccessScope, withScope, resolveApprovalStatusOnCreate, resolveApprovalStatusOnEdit, APPROVED } from "@/lib/access-control";
+import { computeAttendanceHours } from "@/services/hr.service";
 
 const ATTENDANCE_STATUSES = ["PRESENT", "ABSENT", "HALF_DAY", "LEAVE", "HOLIDAY"] as const;
 
@@ -77,7 +78,7 @@ export async function POST(request: NextRequest) {
     const user = result.user;
 
     const body = await request.json();
-    const { employeeId, date, status, notes, overtimeHours } = body;
+    const { employeeId, date, status, notes, overtimeHours, checkInTime, checkOutTime } = body;
 
     if (!employeeId || !date || !status) {
       return NextResponse.json(
@@ -93,13 +94,21 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const ot = overtimeHours !== undefined && overtimeHours !== null ? Number(overtimeHours) : 0;
-    if (isNaN(ot) || ot < 0) {
+    const explicitOt =
+      overtimeHours !== undefined && overtimeHours !== null ? Number(overtimeHours) : null;
+    if (explicitOt !== null && (isNaN(explicitOt) || explicitOt < 0)) {
       return NextResponse.json(
         { success: false, error: "overtimeHours must be a non-negative number" },
         { status: 400 }
       );
     }
+
+    const { workedHours, overtimeHours: computedOt } = await computeAttendanceHours(
+      employeeId,
+      checkInTime ?? null,
+      checkOutTime ?? null,
+      explicitOt
+    );
 
     // Upsert: create or update if record exists for same employee + date
     const existing = await db.attendance.findUnique({
@@ -125,7 +134,10 @@ export async function POST(request: NextRequest) {
         data: {
           status,
           notes: notes ?? null,
-          overtimeHours: ot,
+          overtimeHours: computedOt,
+          workedHours,
+          checkInTime: checkInTime ? new Date(checkInTime) : null,
+          checkOutTime: checkOutTime ? new Date(checkOutTime) : null,
           approvalStatus,
           approvedById: approvalStatus === APPROVED ? user.id : null,
           approvedAt: approvalStatus === APPROVED ? new Date() : null,
@@ -139,7 +151,10 @@ export async function POST(request: NextRequest) {
           date: new Date(date),
           status,
           notes: notes ?? null,
-          overtimeHours: ot,
+          overtimeHours: computedOt,
+          workedHours,
+          checkInTime: checkInTime ? new Date(checkInTime) : null,
+          checkOutTime: checkOutTime ? new Date(checkOutTime) : null,
           createdBy: user.id,
           approvalStatus,
           approvedById: approvalStatus === APPROVED ? user.id : null,

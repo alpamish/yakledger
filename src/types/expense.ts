@@ -92,6 +92,9 @@ export interface ApprovalsResponse {
   items: ApprovalItem[];
   counts: Record<string, number>;
   total: number;
+  totalPages: number;
+  page: number;
+  pageSize: number;
 }
 
 export interface RecordAccessGrant {
@@ -311,13 +314,14 @@ export interface EmployeeListItem {
 
 // ─── Cash Advance / Wallet Types ─────────────────────────────────────────────
 
-export const CASH_TRANSACTION_TYPES = ["ADVANCE", "RETURN", "ADJUSTMENT"] as const;
+export const CASH_TRANSACTION_TYPES = ["ADVANCE", "RETURN", "ADJUSTMENT", "SALARY_PAYMENT"] as const;
 export type CashTransactionType = (typeof CASH_TRANSACTION_TYPES)[number];
 
 export const CASH_TRANSACTION_TYPE_LABELS: Record<CashTransactionType, string> = {
   ADVANCE: "Cash Advance",
   RETURN: "Cash Return",
   ADJUSTMENT: "Adjustment",
+  SALARY_PAYMENT: "Salary Payment",
 };
 
 export interface EmployeeCashAccount {
@@ -387,7 +391,7 @@ export interface TransferFormData {
 export interface LedgerEntry {
   id: string;
   date: string;
-  type: "ADVANCE" | "RETURN" | "ADJUSTMENT" | "EXPENSE" | "TRANSFER";
+  type: "ADVANCE" | "RETURN" | "ADJUSTMENT" | "SALARY_PAYMENT" | "EXPENSE" | "TRANSFER";
   description: string;
   amount: number;
   runningBalance: number;
@@ -397,6 +401,7 @@ export const CASH_TXN_TYPE_COLORS: Record<CashTransactionType, string> = {
   ADVANCE: "#f59e0b",
   RETURN: "#10b981",
   ADJUSTMENT: "#6366f1",
+  SALARY_PAYMENT: "#0ea5e9",
 };
 
 export const CATEGORY_LABELS: Record<Category, string> = {

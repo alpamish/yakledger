@@ -75,6 +75,8 @@ export function AttendancePanel() {
   const [quickDateTo, setQuickDateTo] = React.useState('');
   const [quickStatus, setQuickStatus] = React.useState<AttendanceStatus>('PRESENT');
   const [quickOvertime, setQuickOvertime] = React.useState(0);
+  const [quickCheckIn, setQuickCheckIn] = React.useState('07:00');
+  const [quickCheckOut, setQuickCheckOut] = React.useState('18:00');
 
   // Local employee selection
   const [localEmployeeId, setLocalEmployeeId] = React.useState<string | null>(null);
@@ -252,6 +254,8 @@ export function AttendancePanel() {
           employeeId: targetEmployeeId,
           date: dateStr,
           status: quickStatus,
+          checkInTime: quickStatus === 'PRESENT' ? `${dateStr}T${quickCheckIn}:00` : undefined,
+          checkOutTime: quickStatus === 'PRESENT' ? `${dateStr}T${quickCheckOut}:00` : undefined,
         });
         if (res.success) {
           const newRecord = res.data as AttendanceRecord;
@@ -285,6 +289,8 @@ export function AttendancePanel() {
       date: d,
       status: quickStatus,
       overtimeHours: quickStatus === 'PRESENT' ? quickOvertime : 0,
+      checkInTime: quickStatus === 'PRESENT' ? `${d}T${quickCheckIn}:00` : undefined,
+      checkOutTime: quickStatus === 'PRESENT' ? `${d}T${quickCheckOut}:00` : undefined,
     }));
 
     try {
@@ -472,6 +478,26 @@ export function AttendancePanel() {
                   disabled={quickStatus !== 'PRESENT'}
                   className="h-8 w-20 text-xs"
                   placeholder="0"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground">In</label>
+                <Input
+                  type="time"
+                  value={quickCheckIn}
+                  onChange={(e) => setQuickCheckIn(e.target.value)}
+                  disabled={quickStatus !== 'PRESENT'}
+                  className="h-8 w-24 text-xs"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground">Out</label>
+                <Input
+                  type="time"
+                  value={quickCheckOut}
+                  onChange={(e) => setQuickCheckOut(e.target.value)}
+                  disabled={quickStatus !== 'PRESENT'}
+                  className="h-8 w-24 text-xs"
                 />
               </div>
               <Button
