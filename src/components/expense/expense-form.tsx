@@ -700,6 +700,12 @@ export function ExpenseForm() {
                   )}
                 />
               )}
+              {paidByMode === 'employee' && form.watch('paidById') && (
+                <p className="text-xs text-muted-foreground">
+                  When an employee pays on the company's behalf, the approved amount is
+                  reimbursed automatically in the employee's next payroll.
+                </p>
+              )}
             </div>
 
             {/* Row 6: Tags */}

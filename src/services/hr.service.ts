@@ -333,7 +333,7 @@ export async function generatePayroll(params: {
           advancesDeductedMinor: fig.amountAlreadyReceivedMinor,
           netPayableMinor: fig.netPayableMinor,
           remainingEmployeeDebtMinor: fig.remainingEmployeeDebtMinor,
-          netPayMinor: fig.netPayableMinor,
+          netPayMinor: Math.max(fig.netPayableMinor, 0),
           paymentStatus: "UNPAID",
           salarySnapshotDate: salary.effectiveFrom,
         },
@@ -458,13 +458,30 @@ export async function computePayrollFigures(
       (returnedAgg._sum.amount ?? 0) * 100
   );
 
-  const previousDebtMinor = receivedMinor - priorEarnedMinor;
+  // Approved employee-paid company expenses (DEBIT) are money the company
+  // owes the employee, so they reduce the employee's net debt.
+  const deductionsAgg = await db.cashTransaction.aggregate({
+    _sum: { amount: true },
+    where: {
+      employeeId,
+      type: "DEBIT",
+      approvalStatus: "APPROVED",
+      createdAt: { lte: periodEnd },
+    },
+  });
+  const totalDeductionsMinor = Math.round((deductionsAgg._sum.amount ?? 0) * 100);
+
+  const previousDebtMinor =
+    receivedMinor - priorEarnedMinor - totalDeductionsMinor;
   const amountAlreadyReceivedMinor = Math.max(
     0,
     Math.min(grossPayMinor, previousDebtMinor)
   );
   const netPayableMinor = grossPayMinor - previousDebtMinor;
-  const remainingEmployeeDebtMinor = previousDebtMinor - grossPayMinor;
+  const remainingEmployeeDebtMinor = Math.max(
+    previousDebtMinor - grossPayMinor,
+    0
+  );
 
   return {
     priorEarnedMinor,
@@ -558,6 +575,10 @@ export async function approvePayroll(
   const payrollId2 = payroll.id;
   const employeeId = payroll.employeeId;
 
+  // Figures were recomputed above at approval time (the ledger may have
+  // changed since the draft was generated). Only a positive net is paid out.
+  const netPayMinor = Math.max(fig.netPayableMinor, 0);
+
   await db.$transaction(async (tx) => {
     await allocateAdvances(
       tx,
@@ -567,12 +588,12 @@ export async function approvePayroll(
       fig.amountAlreadyReceivedMinor
     );
 
-    if (fig.netPayableMinor > 0) {
+    if (netPayMinor > 0) {
       await tx.cashTransaction.create({
         data: {
           employeeId,
           type: "SALARY_PAYMENT",
-          amount: fig.netPayableMinor / 100,
+          amount: netPayMinor / 100,
           note: `Salary payment ${payroll.periodStart.toISOString().slice(0, 10)}–${payroll.periodEnd.toISOString().slice(0, 10)}`,
           createdBy: approvedById,
           approvalStatus: "APPROVED",
@@ -599,10 +620,10 @@ export async function approvePayroll(
               advancesDeductedMinor: fig.amountAlreadyReceivedMinor,
               netPayableMinor: fig.netPayableMinor,
               remainingEmployeeDebtMinor: fig.remainingEmployeeDebtMinor,
-              netPayMinor: fig.netPayableMinor,
-              paymentStatus: fig.netPayableMinor > 0 ? "PAID" : "UNPAID",
+              netPayMinor,
+              paymentStatus: netPayMinor > 0 ? "PAID" : "UNPAID",
               paymentMethod:
-                fig.netPayableMinor > 0 ? opts?.paymentMethod ?? "CASH" : null,
+                netPayMinor > 0 ? opts?.paymentMethod ?? "CASH" : null,
             },
           },
         },
