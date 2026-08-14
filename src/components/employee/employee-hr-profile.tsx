@@ -50,6 +50,8 @@ import {
 } from "@/components/ui/select";
 import { LoadingSpinner } from "@/components/common/loading-spinner";
 import { EmptyState } from "@/components/common/empty-state";
+import { PayrollActions } from "@/components/payroll/payroll-actions";
+import { PayrollGenerateDialog } from "@/components/payroll/payroll-generate-dialog";
 import {
   FileText,
   User,
@@ -1188,7 +1190,7 @@ function PayrollTab({
   canManage: boolean;
   onChanged: () => void;
 }) {
-  const [busyId, setBusyId] = useState<string | null>(null);
+  const [generateOpen, setGenerateOpen] = useState(false);
 
   async function handleExport() {
     try {
@@ -1209,39 +1211,24 @@ function PayrollTab({
     }
   }
 
-  async function handleRevert(p: any) {
-    if (typeof window !== "undefined" && !window.confirm("Revert this approved payroll back to draft?")) {
-      return;
-    }
-    setBusyId(p.id);
-    try {
-      const res = await fetch(`/api/employees/${employeeId}/payroll`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
-        body: JSON.stringify({
-          action: "revert",
-          payrollId: p.id,
-          reason: "Manual correction",
-        }),
-      });
-      const body = await res.json();
-      if (!body.success) throw new Error(body.error || "Revert failed");
-      toast.success("Payroll reverted to draft");
-      onChanged();
-    } catch (e: any) {
-      toast.error(e?.message || "Revert failed");
-    } finally {
-      setBusyId(null);
-    }
-  }
-
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between">
         <CardTitle>Payroll History</CardTitle>
-        <Button variant="outline" size="sm" onClick={handleExport}>
-          Export CSV
-        </Button>
+        <div className="flex items-center gap-2">
+          {canManage && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setGenerateOpen(true)}
+            >
+              Generate Payroll
+            </Button>
+          )}
+          <Button variant="outline" size="sm" onClick={handleExport}>
+            Export CSV
+          </Button>
+        </div>
       </CardHeader>
       <CardContent>
         {rows.length === 0 ? (
@@ -1295,16 +1282,12 @@ function PayrollTab({
                     </TableCell>
                     {canManage && (
                       <TableCell>
-                        {p.status === "APPROVED" && (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            disabled={busyId === p.id}
-                            onClick={() => handleRevert(p)}
-                          >
-                            {busyId === p.id ? "Reverting..." : "Revert"}
-                          </Button>
-                        )}
+                        <PayrollActions
+                          payrollId={p.id}
+                          employeeId={employeeId}
+                          status={p.status}
+                          onChanged={onChanged}
+                        />
                       </TableCell>
                     )}
                   </TableRow>
@@ -1314,6 +1297,13 @@ function PayrollTab({
           </Table>
         )}
       </CardContent>
+      <PayrollGenerateDialog
+        open={generateOpen}
+        onOpenChange={setGenerateOpen}
+        employeeIds={[employeeId]}
+        scopeLabel="this employee"
+        onGenerated={onChanged}
+      />
     </Card>
   );
 }
