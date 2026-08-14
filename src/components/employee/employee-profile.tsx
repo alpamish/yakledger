@@ -474,28 +474,38 @@ export function EmployeeProfile() {
       <Card>
         <CardContent className="p-6">
           <div className="flex flex-col sm:flex-row items-center gap-6">
-            <div className="relative h-20 w-20 shrink-0">
+            <div className="relative h-24 w-24 shrink-0">
               {emp.idImageFront ? (
-                <img 
-                  src={emp.idImageFront} 
-                  alt="ID Image" 
-                  className="h-20 w-20 rounded-full object-cover border-2 border-emerald-500"
+                <img
+                  src={emp.idImageFront}
+                  alt="ID Image"
+                  className="h-24 w-24 rounded-full object-cover border-4 border-background shadow-sm ring-2 ring-emerald-500/20"
                 />
               ) : (
-                <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-full bg-emerald-600/10 text-emerald-700 dark:text-emerald-400 text-2xl font-bold">
+                <div className="flex h-24 w-24 items-center justify-center rounded-full bg-emerald-600/10 text-emerald-700 dark:text-emerald-400 text-3xl font-bold border-4 border-background shadow-sm ring-2 ring-emerald-500/20">
                   {initials}
                 </div>
               )}
             </div>
-            <div className="text-center sm:text-left flex-1">
-              <h3 className="text-xl font-bold">{emp.fullName}</h3>
-              <p className="text-muted-foreground">{emp.jobTitle}</p>
-              <div className="mt-2 flex flex-wrap items-center justify-center sm:justify-start gap-2">
-                <Badge variant="outline" className="border-0" style={{ backgroundColor: `${deptColor}18`, color: deptColor }}>
-                  {DEPARTMENT_LABELS[emp.department as Department] ?? emp.department}
-                </Badge>
-                <Badge variant="outline" className="border-0" style={{ backgroundColor: `${statusColor}18`, color: statusColor }}>
+            <div className="text-center sm:text-left flex-1 space-y-2">
+              <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2">
+                <CardTitle className="text-2xl">{emp.fullName}</CardTitle>
+                <Badge
+                  variant="outline"
+                  className="border-0"
+                  style={{ backgroundColor: `${statusColor}18`, color: statusColor }}
+                >
                   {EMPLOYEE_STATUS_LABELS[emp.status as EmployeeStatus] ?? emp.status}
+                </Badge>
+              </div>
+              <p className="text-muted-foreground">{emp.jobTitle}</p>
+              <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2">
+                <Badge
+                  variant="outline"
+                  className="border-0"
+                  style={{ backgroundColor: `${deptColor}18`, color: deptColor }}
+                >
+                  {DEPARTMENT_LABELS[emp.department as Department] ?? emp.department}
                 </Badge>
                 <Badge variant="outline" className="border-0">
                   {EMPLOYMENT_TYPE_LABELS[emp.employmentType as EmploymentType] ?? emp.employmentType}
@@ -504,7 +514,7 @@ export function EmployeeProfile() {
             </div>
             <div className="text-center sm:text-right">
               <p className="text-sm text-muted-foreground">Base Salary</p>
-              <p className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">
+              <p className="text-3xl font-bold text-emerald-600 dark:text-emerald-400">
                 {formatCurrency(emp.salary)}
               </p>
             </div>
