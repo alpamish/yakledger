@@ -188,6 +188,17 @@ model User {
   cashTransactionApprovals CashTransaction[] @relation("CashTransactionApprover")
   transferApprovals      Transfer[]       @relation("TransferApprover")
   attendanceApprovals    Attendance[]     @relation("AttendanceApprover")
+
+  salaryHistories            SalaryHistory[]
+  employeeContracts          EmployeeContract[]
+  positionHistories          EmployeePositionHistory[]
+  uploadedDocuments          EmployeeDocument[]
+  employeeLeavesCreated      EmployeeLeave[]      @relation("EmployeeLeaveCreator")
+  employeeLeavesApproved     EmployeeLeave[]      @relation("EmployeeLeaveApprover")
+  projectAssignmentsCreated  EmployeeProjectAssignment[]
+  payrollsCreated            Payroll[]            @relation("PayrollCreator")
+  payrollsApproved           Payroll[]            @relation("PayrollApprover")
+  employeeAuditEvents        EmployeeAuditEvent[]
 }
 
 model RecordAccess {
@@ -217,16 +228,6 @@ model Permission {
 
   rolePermissions RolePermission[]
   userPermissions UserPermission[]
-  salaryHistories            SalaryHistory[]
-  employeeContracts          EmployeeContract[]
-  positionHistories          EmployeePositionHistory[]
-  uploadedDocuments          EmployeeDocument[]
-  employeeLeavesCreated      EmployeeLeave[]      @relation("EmployeeLeaveCreator")
-  employeeLeavesApproved     EmployeeLeave[]      @relation("EmployeeLeaveApprover")
-  projectAssignmentsCreated  EmployeeProjectAssignment[]
-  payrollsCreated            Payroll[]            @relation("PayrollCreator")
-  payrollsApproved           Payroll[]            @relation("PayrollApprover")
-  employeeAuditEvents        EmployeeAuditEvent[]
 }
 
 model RolePermission {

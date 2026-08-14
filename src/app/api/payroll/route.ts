@@ -51,6 +51,30 @@ export async function GET(request: NextRequest) {
       db.payroll.count({ where }),
     ]);
 
+    const summary = rows.reduce(
+      (acc, p) => {
+        for (const l of p.lines ?? []) {
+          acc.totalGrossMinor += l.grossPayMinor ?? 0;
+          acc.totalAlreadyReceivedMinor += l.amountAlreadyReceivedMinor ?? 0;
+          acc.totalPreviousDebtMinor += l.previousDebtMinor ?? 0;
+          acc.totalNetPayableMinor += l.netPayableMinor ?? 0;
+          acc.totalRemainingDebtMinor += l.remainingEmployeeDebtMinor ?? 0;
+          if (l.paymentStatus === "PAID") acc.paidLines += 1;
+          else if (l.paymentStatus === "UNPAID") acc.unpaidLines += 1;
+        }
+        return acc;
+      },
+      {
+        totalGrossMinor: 0,
+        totalAlreadyReceivedMinor: 0,
+        totalPreviousDebtMinor: 0,
+        totalNetPayableMinor: 0,
+        totalRemainingDebtMinor: 0,
+        paidLines: 0,
+        unpaidLines: 0,
+      }
+    );
+
     return NextResponse.json({
       success: true,
       data: {
@@ -59,6 +83,7 @@ export async function GET(request: NextRequest) {
         page,
         pageSize,
         totalPages: Math.ceil(total / pageSize),
+        summary,
       },
     });
   } catch (e) {

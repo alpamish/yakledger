@@ -11,6 +11,7 @@ import * as EmployeePayrollRoute from "@/app/api/employees/[id]/payroll/route";
 import * as AlertsRoute from "@/app/api/employees/alerts/route";
 import * as LeaveTypesRoute from "@/app/api/leave-types/route";
 import * as PayrollRoute from "@/app/api/payroll/route";
+import * as PayrollExportRoute from "@/app/api/payroll/export/route";
 import { generatePayroll } from "@/services/hr.service";
 
 let tokens: SeedResult;
@@ -302,5 +303,46 @@ describe("Payroll generate + approve via API", () => {
     expect(revert.status).toBe(200);
     const revertBody = await json(revert);
     expect(revertBody.data.status).toBe("DRAFT");
+  });
+});
+
+describe("Payroll reporting (summary + CSV export)", () => {
+  it("GET /api/payroll returns an aggregated summary", async () => {
+    await db.employee.update({
+      where: { id: adminEmpId },
+      data: { baseSalaryMinor: 2500000 },
+    });
+    await PayrollRoute.POST(
+      buildRequest(`/api/payroll`, {
+        token: tokens.adminToken,
+        method: "POST",
+        body: { periodStart: "2026-07-01", periodEnd: "2026-07-31", employeeIds: [adminEmpId] },
+      })
+    );
+
+    const list = await PayrollRoute.GET(
+      buildRequest(`/api/payroll`, { token: tokens.adminToken })
+    );
+    expect(list.status).toBe(200);
+    const body = await json(list);
+    expect(body.data.summary).toBeDefined();
+    expect(body.data.summary.totalGrossMinor).toBeGreaterThanOrEqual(2500000);
+  });
+
+  it("GET /api/payroll/export returns CSV", async () => {
+    const res = await PayrollExportRoute.GET(
+      buildRequest(`/api/payroll/export`, { token: tokens.adminToken })
+    );
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    expect(text.startsWith("Employee No,Employee,Department")).toBe(true);
+    expect(text).toContain("Gross (AFN)");
+  });
+
+  it("USER cannot export payroll (403)", async () => {
+    const res = await PayrollExportRoute.GET(
+      buildRequest(`/api/payroll/export`, { token: tokens.userToken })
+    );
+    expect(res.status).toBe(403);
   });
 });
