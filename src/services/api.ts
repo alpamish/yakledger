@@ -373,6 +373,18 @@ export const cashAdvanceApi = {
     }, "/employee-wallet");
   },
 
+  transferToWallet: async (data: {
+    employeeId: string;
+    walletId: string;
+    amount: number;
+    note?: string;
+  }): Promise<ApiResponse<CashTransaction>> => {
+    return mutate<ApiResponse<CashTransaction>>("/employee-wallet/transfer-to-wallet", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }, "/employee-wallet");
+  },
+
   getEmployeeWallets: async (): Promise<ApiResponse<EmployeeCashAccount[]>> => {
     return request<ApiResponse<EmployeeCashAccount[]>>("/employee-wallet");
   },

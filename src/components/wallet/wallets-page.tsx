@@ -40,7 +40,8 @@ import {
 import { LoadingSpinner } from "@/components/common/loading-spinner";
 import { EmptyState } from "@/components/common/empty-state";
 import { usePermissions } from "@/hooks/use-permissions";
-import { Plus, Wallet, ArrowLeftRight, Pencil, Power, PiggyBank, Eye } from "lucide-react";
+import { TransferToWalletDialog } from "@/components/cash-advance/transfer-to-wallet-dialog";
+import { Plus, Wallet, ArrowLeftRight, ArrowDownToLine, Pencil, Power, PiggyBank, Eye } from "lucide-react";
 
 function fmt(amount: number, currency = "AFN") {
   return formatMinor(Math.round(amount * 100), currency);
@@ -51,7 +52,7 @@ function fmtDate(d?: string | null) {
   return new Date(d).toISOString().slice(0, 10);
 }
 
-type DialogState = "create" | "edit" | "fund" | "adjust" | "transfer" | "ledger" | null;
+type DialogState = "create" | "edit" | "fund" | "adjust" | "transfer" | "ledger" | "receive" | null;
 
 export function WalletsPage() {
   const { hasPermission } = usePermissions();
@@ -213,6 +214,14 @@ export function WalletsPage() {
                           <Button
                             size="sm"
                             variant="ghost"
+                            title="Receive from employee"
+                            onClick={() => openDialog("receive", w)}
+                          >
+                            <ArrowDownToLine className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
                             className="text-red-500"
                             title={w.isActive ? "Deactivate" : "Activate"}
                             onClick={async () => {
@@ -292,6 +301,16 @@ export function WalletsPage() {
         open={dialog === "ledger"}
         onOpenChange={(o) => setDialog(o ? "ledger" : null)}
         wallet={selected}
+      />
+      <TransferToWalletDialog
+        open={dialog === "receive"}
+        onOpenChange={(o) => setDialog(o ? "receive" : null)}
+        walletId={selected?.id}
+        walletName={selected?.name}
+        onSuccess={() => {
+          setDialog(null);
+          load();
+        }}
       />
     </div>
   );

@@ -189,6 +189,27 @@ export const companyWalletService = {
     }
   },
 
+  /**
+   * Credit a wallet with cash transferred in from an employee wallet. Call
+   * inside a transaction so it can be paired with the employee's RETURN ledger
+   * entry atomically. Validates the wallet exists and is active.
+   */
+  async creditFromEmployee(
+    tx: Tx,
+    walletId: string,
+    amount: number,
+    createdBy: string,
+    note?: string
+  ) {
+    if (amount <= 0) throw new Error("Amount must be positive");
+    const wallet = await tx.wallet.findUnique({ where: { id: walletId } });
+    if (!wallet) throw new Error("Selected wallet not found");
+    if (!wallet.isActive) {
+      throw new Error(`Wallet "${wallet.name}" is inactive`);
+    }
+    return apply(tx, walletId, "TRANSFER_IN", amount, createdBy, note ?? "Transfer in from employee");
+  },
+
   async recomputeBalance(id: string) {
     return db.$transaction(async (tx) => {
       const agg = await tx.walletTransaction.aggregate({

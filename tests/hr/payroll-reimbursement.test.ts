@@ -98,6 +98,9 @@ describe("Payroll reimbursements (approved employee-paid expenses)", () => {
     user = await makeUser("MANAGER", `reimb-mgr-${Date.now()}-${Math.random()}@t.co`);
     emp = await makeEmployee(user.id);
     await addSalary(emp.id);
+    // Real flows create the account before ledger activity (via
+    // getOrCreateAccount); seed here so approve's recompute updates it.
+    await db.employeeCashAccount.create({ data: { employeeId: emp.id } });
   });
 
   it("settles an approved employee-paid expense through net payable", async () => {

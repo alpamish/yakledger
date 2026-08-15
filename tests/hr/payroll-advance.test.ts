@@ -72,6 +72,10 @@ describe("Payroll advance / debt allocation", () => {
     user = await makeUser("MANAGER", `adv-mgr-${Date.now()}-${Math.random()}@t.co`);
     emp = await makeEmployee(user.id);
     await addSalary(emp.id, 25000);
+    // The real advance flow (walletService.createAdvance) creates the account
+    // before any ledger activity; the tests bypass services, so seed it here
+    // so approve's recompute can update the derived balance.
+    await db.employeeCashAccount.create({ data: { employeeId: emp.id } });
   });
 
   afterEach(async () => {
@@ -180,6 +184,24 @@ describe("Payroll advance / debt allocation", () => {
     });
     // Only 10,000 advance exists; must not exceed that across both payrolls
     expect(totalAlloc._sum.amountMinor).toBe(toMinor(10000));
+  });
+
+  it("does not create an employee wallet when approving payroll for an employee with no cash activity", async () => {
+    const clean = await makeEmployee(user.id, { fullName: "Clean Emp" });
+    await addSalary(clean.id, 25000);
+
+    const payroll = await generatePayroll({
+      employeeId: clean.id,
+      periodStart: new Date("2026-06-01"),
+      periodEnd: new Date("2026-06-30"),
+      createdById: user.id,
+    });
+    await approvePayroll(payroll.id, user.id);
+
+    const account = await db.employeeCashAccount.findUnique({
+      where: { employeeId: clean.id },
+    });
+    expect(account).toBeNull();
   });
 });
 

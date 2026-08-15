@@ -1,5 +1,6 @@
 import { db } from "@/lib/db";
 import { Prisma } from "@prisma/client";
+import { companyWalletService } from "@/services/company-wallet.service";
 import type { LedgerEntry } from "@/types/expense";
 import {
   resolveApprovalStatusOnCreate,
@@ -28,43 +29,43 @@ async function getOrCreateAccount(employeeId: string) {
   return account;
 }
 
-async function recalculateBalance(employeeId: string) {
-  const advancesAgg = await db.cashTransaction.aggregate({
+async function recalculateBalance(employeeId: string, client: Prisma.TransactionClient | typeof db = db) {
+  const advancesAgg = await client.cashTransaction.aggregate({
     _sum: { amount: true },
     where: { employeeId, type: "ADVANCE", approvalStatus: APPROVED },
   });
 
-  const returnsAgg = await db.cashTransaction.aggregate({
+  const returnsAgg = await client.cashTransaction.aggregate({
     _sum: { amount: true },
     where: { employeeId, type: "RETURN", approvalStatus: APPROVED },
   });
 
-  const salaryPaymentsAgg = await db.cashTransaction.aggregate({
+  const salaryPaymentsAgg = await client.cashTransaction.aggregate({
     _sum: { amount: true },
     where: { employeeId, type: "SALARY_PAYMENT", approvalStatus: APPROVED },
   });
 
-  const adjustmentsAgg = await db.cashTransaction.aggregate({
+  const adjustmentsAgg = await client.cashTransaction.aggregate({
     _sum: { amount: true },
     where: { employeeId, type: "ADJUSTMENT", approvalStatus: APPROVED },
   });
 
-  const deductionsAgg = await db.cashTransaction.aggregate({
+  const deductionsAgg = await client.cashTransaction.aggregate({
     _sum: { amount: true },
     where: { employeeId, type: "DEBIT", approvalStatus: APPROVED },
   });
 
-  const transfersFromAgg = await db.transfer.aggregate({
+  const transfersFromAgg = await client.transfer.aggregate({
     _sum: { amount: true },
     where: { fromEmployeeId: employeeId, approvalStatus: APPROVED },
   });
-  const transfersToAgg = await db.transfer.aggregate({
+  const transfersToAgg = await client.transfer.aggregate({
     _sum: { amount: true },
     where: { toEmployeeId: employeeId, approvalStatus: APPROVED },
   });
 
   // Approved payroll earnings are stored in minor units.
-  const payrollGrossAgg = await db.payrollLine.aggregate({
+  const payrollGrossAgg = await client.payrollLine.aggregate({
     _sum: { grossPayMinor: true },
     where: { employeeId, payroll: { status: "APPROVED" } },
   });
@@ -90,10 +91,15 @@ async function recalculateBalance(employeeId: string) {
     totalTransfersIn -
     totalTransfersOut;
 
-  await db.employeeCashAccount.upsert({
+  // Only update an existing account. Payroll approval/revert recomputes must
+  // never create a wallet for an employee who has had no cash activity.
+  const account = await client.employeeCashAccount.findUnique({
     where: { employeeId },
-    create: { employeeId, currentBalance: balance },
-    update: { currentBalance: balance },
+  });
+  if (!account) return balance;
+  await client.employeeCashAccount.update({
+    where: { employeeId },
+    data: { currentBalance: balance },
   });
 
   return balance;
@@ -444,5 +450,70 @@ export const walletService = {
 
   async reverseLastDeduction(employeeId: string, amount: number, userId: string) {
     return this.addBackToWallet(employeeId, amount, userId);
+  },
+
+  /**
+   * Transfer cash held by an employee (their wallet balance) into a company
+   * wallet. Records an approved RETURN on the employee ledger and credits the
+   * company wallet with a TRANSFER_IN, atomically.
+   */
+  async transferToCompanyWallet(
+    employeeId: string,
+    walletId: string,
+    amount: number,
+    user: Actor,
+    note?: string,
+  ) {
+    if (amount <= 0) throw new Error("Amount must be positive");
+
+    const txn = await db.$transaction(async (tx) => {
+      const account = await tx.employeeCashAccount.findUnique({
+        where: { employeeId },
+      });
+      if (!account) {
+        throw new Error("Employee does not have a wallet");
+      }
+      if (account.currentBalance < amount) {
+        throw new Error("Insufficient employee wallet balance");
+      }
+
+      const wallet = await tx.wallet.findUnique({ where: { id: walletId } });
+      if (!wallet) throw new Error("Selected wallet not found");
+
+      const returned = await tx.cashTransaction.create({
+        data: {
+          employeeId,
+          type: "RETURN",
+          amount,
+          note: note ?? `Transferred to wallet ${wallet.name}`,
+          walletId,
+          createdBy: user.id,
+          approvalStatus: APPROVED,
+          approvedById: user.id,
+          approvedAt: new Date(),
+        },
+      });
+
+      await companyWalletService.creditFromEmployee(
+        tx,
+        walletId,
+        amount,
+        user.id,
+        `Transfer in from employee (${note ?? "wallet return"})`
+      );
+
+      await recalculateBalance(employeeId, tx);
+
+      return returned;
+    });
+
+    await createAuditLog(
+      user.id,
+      txn.id,
+      "CREATE",
+      `Cash of ${amount} transferred from employee ${employeeId} to wallet ${walletId}`
+    );
+
+    return txn;
   },
 };

@@ -11,6 +11,8 @@ import {
   ArrowUpRight, ArrowDownLeft, Search, X, Filter, ChevronLeft, ChevronRight, Slash,
 } from 'lucide-react';
 import { useDebounce } from '@/hooks/use-debounce';
+import { usePermissions } from '@/hooks/use-permissions';
+import { TransferToWalletDialog } from './transfer-to-wallet-dialog';
 import type { EmployeeCashAccount, LedgerEntry } from '@/types/expense';
 
 interface Props {
@@ -23,6 +25,10 @@ export function EmployeeWalletDetail({ employeeId, onBack }: Props) {
   const [ledger, setLedger] = React.useState<LedgerEntry[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
+  const [transferOpen, setTransferOpen] = React.useState(false);
+
+  const { hasPermission } = usePermissions();
+  const canTransferToWallet = hasPermission('wallets:manage');
 
   const searchInputRef = React.useRef<HTMLInputElement>(null);
   const [searchInput, setSearchInput] = React.useState('');
@@ -219,12 +225,17 @@ export function EmployeeWalletDetail({ employeeId, onBack }: Props) {
         <Button variant="ghost" size="icon" onClick={onBack} className="h-8 w-8">
           <ArrowLeft className="h-4 w-4" />
         </Button>
-        <div>
+        <div className="flex-1">
           <h2 className="text-lg font-semibold">{employee?.fullName ?? 'Unknown Employee'}</h2>
           <p className="text-sm text-muted-foreground">
             {employee?.jobTitle}{employee?.jobTitle && employee?.department ? ' · ' : ''}{employee?.department}
           </p>
         </div>
+        {canTransferToWallet && (
+          <Button size="sm" variant="secondary" onClick={() => setTransferOpen(true)}>
+            Transfer to Wallet
+          </Button>
+        )}
       </div>
 
       {/* Summary Stat Cards */}
@@ -534,6 +545,14 @@ export function EmployeeWalletDetail({ employeeId, onBack }: Props) {
           </span>
         </div>
       )}
+
+      <TransferToWalletDialog
+        open={transferOpen}
+        onOpenChange={setTransferOpen}
+        employeeId={employeeId}
+        employeeName={employee?.fullName}
+        onSuccess={() => loadData()}
+      />
     </div>
   );
 }
