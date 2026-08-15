@@ -21,8 +21,8 @@ import { LoadingSpinner } from "@/components/common/loading-spinner";
 import { EmptyState } from "@/components/common/empty-state";
 import { PayrollActions } from "@/components/payroll/payroll-actions";
 import { PayrollGenerateDialog } from "@/components/payroll/payroll-generate-dialog";
+import { PayrollExportDropdown } from "@/components/payroll/payroll-export-dropdown";
 import { payrollApi } from "@/services/payroll-api";
-import { getToken } from "@/services/api";
 import { formatMinor } from "@/lib/money";
 import { usePermissions } from "@/hooks/use-permissions";
 import { toast } from "sonner";
@@ -30,7 +30,6 @@ import {
   Wallet,
   ChevronLeft,
   ChevronRight,
-  Download,
   Plus,
 } from "lucide-react";
 
@@ -101,25 +100,6 @@ export function PayrollPage() {
     return pages;
   }, [totalPages, page]);
 
-  async function handleExport() {
-    try {
-      const res = await fetch("/api/payroll/export", {
-        headers: { Authorization: `Bearer ${getToken()}` },
-      });
-      if (!res.ok) throw new Error("Export failed");
-      const blob = await res.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = "payroll-export.csv";
-      a.click();
-      window.URL.revokeObjectURL(url);
-      toast.success("Payroll CSV downloaded");
-    } catch (e: any) {
-      toast.error(e?.message || "Export failed");
-    }
-  }
-
   if (!canView) return null;
 
   const startIndex = total === 0 ? 0 : (page - 1) * pageSize + 1;
@@ -155,10 +135,7 @@ export function PayrollPage() {
               Generate Payroll
             </Button>
           )}
-          <Button variant="outline" onClick={handleExport}>
-            <Download className="mr-2 h-4 w-4" />
-            Export CSV
-          </Button>
+          <PayrollExportDropdown status={status || undefined} />
         </div>
       </div>
 

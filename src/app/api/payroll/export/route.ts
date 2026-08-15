@@ -12,6 +12,7 @@ export async function GET(request: NextRequest) {
   const status = searchParams.get("status") || undefined;
   const periodStart = searchParams.get("periodStart") || undefined;
   const periodEnd = searchParams.get("periodEnd") || undefined;
+  const format = searchParams.get("format") || "csv";
 
   try {
     const scope = await buildAccessScope(user, "employee");
@@ -32,9 +33,16 @@ export async function GET(request: NextRequest) {
           select: { id: true, fullName: true, employeeNumber: true, department: true },
         },
         lines: true,
+        wallet: { select: { id: true, name: true, currency: true } },
+        approvedBy: { select: { id: true, name: true } },
+        createdBy: { select: { id: true, name: true } },
       },
       orderBy: { periodStart: "desc" },
     });
+
+    if (format === "json") {
+      return NextResponse.json({ success: true, data: rows });
+    }
 
     const header = [
       "Employee No",
