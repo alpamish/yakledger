@@ -35,15 +35,31 @@ export async function POST(request: NextRequest) {
     const scope = await buildAccessScope(user, "expense");
 
     // Verify expenses exist AND are accessible to the user
-    const expenses = await db.expense.findMany({
+    const found = await db.expense.findMany({
       where: withScope({ id: { in: ids } }, scope),
-      select: { id: true, title: true, amount: true, paidById: true, approvalStatus: true },
+      select: {
+        id: true,
+        title: true,
+        amount: true,
+        paidById: true,
+        approvalStatus: true,
+        payrollId: true,
+      },
     });
+
+    // Payroll-generated salary expenses belong to the payroll ledger and must
+    // not be bulk-deleted (correct them by reverting the payroll instead).
+    const expenses = found.filter((e) => !e.payrollId);
+    const skipped = found.length - expenses.length;
 
     if (expenses.length === 0) {
       return NextResponse.json(
-        { success: false, error: "No expenses found with the given IDs" },
-        { status: 404 }
+        {
+          success: false,
+          error:
+            "The selected expenses are payroll-generated salary records and cannot be deleted. Revert the payroll instead.",
+        },
+        { status: 400 }
       );
     }
 
@@ -78,8 +94,11 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      data: { deletedCount: deleted.count },
-      message: `${deleted.count} expense(s) deleted successfully`,
+      data: { deletedCount: deleted.count, skipped },
+      message:
+        skipped > 0
+          ? `${deleted.count} expense(s) deleted; ${skipped} payroll-generated record(s) skipped`
+          : `${deleted.count} expense(s) deleted successfully`,
     });
   } catch (error) {
     console.error("Bulk delete expenses error:", error);

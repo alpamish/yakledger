@@ -1252,6 +1252,7 @@ function PayrollTab({
                 <TableHead>Net Payable</TableHead>
                 <TableHead>Remaining Debt</TableHead>
                 <TableHead>Payment</TableHead>
+                <TableHead>Wallet</TableHead>
                 {canManage && <TableHead>Actions</TableHead>}
               </TableRow>
             </TableHeader>
@@ -1288,12 +1289,16 @@ function PayrollTab({
                           : p.status}
                       </Badge>
                     </TableCell>
+                    <TableCell className="text-muted-foreground text-sm">
+                      {p.wallet?.name ?? "—"}
+                    </TableCell>
                     {canManage && (
                       <TableCell>
                         <PayrollActions
                           payrollId={p.id}
                           employeeId={employeeId}
                           status={p.status}
+                          defaultWalletId={p.walletId}
                           onChanged={onChanged}
                         />
                       </TableCell>

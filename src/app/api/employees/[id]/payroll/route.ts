@@ -13,7 +13,10 @@ export async function GET(
   try {
     const payroll = await db.payroll.findMany({
       where: { employeeId: id },
-      include: { lines: true },
+      include: {
+        lines: true,
+        wallet: { select: { id: true, name: true, currency: true } },
+      },
       orderBy: { periodStart: "desc" },
     });
     return NextResponse.json({ success: true, data: payroll });

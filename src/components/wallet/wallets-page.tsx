@@ -40,7 +40,7 @@ import {
 import { LoadingSpinner } from "@/components/common/loading-spinner";
 import { EmptyState } from "@/components/common/empty-state";
 import { usePermissions } from "@/hooks/use-permissions";
-import { Plus, Wallet, ArrowLeftRight, Pencil, Power, PiggyBank } from "lucide-react";
+import { Plus, Wallet, ArrowLeftRight, Pencil, Power, PiggyBank, Eye } from "lucide-react";
 
 function fmt(amount: number, currency = "AFN") {
   return formatMinor(Math.round(amount * 100), currency);
@@ -51,7 +51,7 @@ function fmtDate(d?: string | null) {
   return new Date(d).toISOString().slice(0, 10);
 }
 
-type DialogState = "create" | "edit" | "fund" | "adjust" | "transfer" | null;
+type DialogState = "create" | "edit" | "fund" | "adjust" | "transfer" | "ledger" | null;
 
 export function WalletsPage() {
   const { hasPermission } = usePermissions();
@@ -173,6 +173,14 @@ export function WalletsPage() {
                           <Button
                             size="sm"
                             variant="ghost"
+                            title="Transactions"
+                            onClick={() => openDialog("ledger", w)}
+                          >
+                            <Eye className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
                             title="Edit"
                             onClick={() => openDialog("edit", w)}
                           >
@@ -280,7 +288,111 @@ export function WalletsPage() {
           load();
         }}
       />
+      <WalletTransactionsDialog
+        open={dialog === "ledger"}
+        onOpenChange={(o) => setDialog(o ? "ledger" : null)}
+        wallet={selected}
+      />
     </div>
+  );
+}
+
+const TX_TYPE_LABELS: Record<string, string> = {
+  FUNDING: "Funding",
+  ADJUSTMENT: "Adjustment",
+  PAYROLL: "Payroll payment",
+  REVERSAL: "Reversal",
+  TRANSFER_OUT: "Transfer out",
+  TRANSFER_IN: "Transfer in",
+};
+
+function WalletTransactionsDialog({
+  open,
+  onOpenChange,
+  wallet,
+}: {
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+  wallet: any;
+}) {
+  const [txs, setTxs] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (open && wallet) {
+      setLoading(true);
+      walletApi
+        .get(wallet.id)
+        .then((res) => setTxs(res.data?.transactions ?? []))
+        .catch(() => setTxs([]))
+        .finally(() => setLoading(false));
+    }
+  }, [open, wallet]);
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Transactions</DialogTitle>
+        </DialogHeader>
+        {wallet && (
+          <p className="text-sm text-muted-foreground">
+            {wallet.name} · balance{" "}
+            <span className="font-mono">{fmt(wallet.balance, wallet.currency)}</span>
+          </p>
+        )}
+        <div className="max-h-[60vh] overflow-auto">
+          {loading ? (
+            <div className="py-8">
+              <LoadingSpinner text="Loading transactions..." />
+            </div>
+          ) : txs.length === 0 ? (
+            <EmptyState
+              icon={Wallet}
+              title="No transactions"
+              description="No ledger entries for this wallet yet."
+            />
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Date</TableHead>
+                  <TableHead>Type</TableHead>
+                  <TableHead>Amount</TableHead>
+                  <TableHead>Note</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {txs.map((t) => (
+                  <TableRow key={t.id}>
+                    <TableCell className="whitespace-nowrap text-sm">
+                      {fmtDate(t.createdAt)}
+                    </TableCell>
+                    <TableCell>{TX_TYPE_LABELS[t.type] ?? t.type}</TableCell>
+                    <TableCell
+                      className={`font-mono font-semibold ${
+                        t.amount < 0 ? "text-red-600" : "text-green-600"
+                      }`}
+                    >
+                      {t.amount < 0 ? "−" : "+"}
+                      {formatMinor(Math.round(Math.abs(t.amount) * 100), wallet?.currency)}
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground">
+                      {t.note || (t.payrollId ? "Linked to payroll" : "—")}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Close
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

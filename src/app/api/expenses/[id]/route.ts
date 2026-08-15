@@ -83,6 +83,19 @@ export async function PUT(
       );
     }
 
+    // Payroll-generated salary expenses are owned by the payroll ledger and
+    // must be corrected by reverting the payroll, not by editing here.
+    if (existingExpense.payrollId) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            "Payroll-generated salary expenses cannot be edited. Revert the payroll instead.",
+        },
+        { status: 400 }
+      );
+    }
+
     const body = await request.json();
     const parsed = updateExpenseSchema.safeParse(body);
 
@@ -233,6 +246,19 @@ export async function DELETE(
       return NextResponse.json(
         { success: false, error: "Expense not found" },
         { status: 404 }
+      );
+    }
+
+    // Payroll-generated salary expenses are reconciled against the wallet
+    // ledger; removing them directly would desync it.
+    if (existingExpense.payrollId) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            "Payroll-generated salary expenses cannot be deleted. Revert the payroll instead.",
+        },
+        { status: 400 }
       );
     }
 

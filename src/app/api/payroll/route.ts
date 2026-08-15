@@ -41,6 +41,7 @@ export async function GET(request: NextRequest) {
         include: {
           employee: { select: { id: true, fullName: true, employeeNumber: true } },
           lines: true,
+          wallet: { select: { id: true, name: true, currency: true } },
           createdBy: { select: { id: true, name: true } },
           approvedBy: { select: { id: true, name: true } },
         },

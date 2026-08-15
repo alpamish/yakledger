@@ -228,6 +228,7 @@ export function PayrollPage() {
                   <TableHead>Net Payable</TableHead>
                   <TableHead>Remaining Debt</TableHead>
                   <TableHead>Payment</TableHead>
+                  <TableHead>Wallet</TableHead>
                   <TableHead>By</TableHead>
                   {canManage && <TableHead>Actions</TableHead>}
                 </TableRow>
@@ -274,6 +275,9 @@ export function PayrollPage() {
                         </Badge>
                       </TableCell>
                       <TableCell className="text-muted-foreground text-sm">
+                        {p.wallet?.name ?? "—"}
+                      </TableCell>
+                      <TableCell className="text-muted-foreground text-sm">
                         {p.approvedBy?.name ?? p.createdBy?.name ?? "—"}
                       </TableCell>
                       {canManage && (
@@ -282,6 +286,7 @@ export function PayrollPage() {
                             payrollId={p.id}
                             employeeId={p.employeeId}
                             status={p.status}
+                            defaultWalletId={p.walletId}
                             onChanged={load}
                           />
                         </TableCell>

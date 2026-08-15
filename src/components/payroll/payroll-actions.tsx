@@ -28,11 +28,14 @@ export function PayrollActions({
   payrollId,
   employeeId,
   status,
+  defaultWalletId,
   onChanged,
 }: {
   payrollId: string;
   employeeId: string;
   status: string;
+  /** Preferred wallet chosen when the payroll was generated. */
+  defaultWalletId?: string;
   onChanged: () => void;
 }) {
   const [busy, setBusy] = useState(false);
@@ -46,10 +49,16 @@ export function PayrollActions({
       setWalletId("");
       walletApi
         .list()
-        .then((res) => setWallets(res.data ?? []))
+        .then((res) => {
+          const ws = res.data ?? [];
+          setWallets(ws);
+          if (defaultWalletId && ws.some((w: any) => w.id === defaultWalletId)) {
+            setWalletId(defaultWalletId);
+          }
+        })
         .catch(() => setWallets([]));
     }
-  }, [approveOpen]);
+  }, [approveOpen, defaultWalletId]);
 
   async function handleRevert() {
     if (
