@@ -30,6 +30,7 @@ import { db } from "../lib/db";
 import { toMinor } from "../lib/money";
 import { Prisma } from "@prisma/client";
 import { walletService } from "./wallet.service";
+import { companyWalletService } from "./company-wallet.service";
 
 export type SalaryAtDate = {
   amountMinor: number;
@@ -229,6 +230,8 @@ export async function generatePayroll(params: {
   allowancesMinor?: number;
   bonusesMinor?: number;
   deductionsMinor?: number;
+  /** Preferred company wallet the salary should be paid from. */
+  walletId?: string;
 }) {
   const periodStart =
     typeof params.periodStart === "string"
@@ -315,6 +318,7 @@ export async function generatePayroll(params: {
       periodEnd,
       currency: salary.currency,
       status: "DRAFT",
+      walletId: params.walletId ?? null,
       createdById: params.createdById,
       lines: {
         create: {
@@ -552,7 +556,7 @@ async function overtimeRate(employeeId: string): Promise<number> {
 export async function approvePayroll(
   payrollId: string,
   approvedById: string,
-  opts?: { paymentMethod?: string }
+  opts?: { paymentMethod?: string; walletId?: string }
 ) {
   const payroll = await db.payroll.findUnique({
     where: { id: payrollId },
@@ -574,10 +578,26 @@ export async function approvePayroll(
 
   const payrollId2 = payroll.id;
   const employeeId = payroll.employeeId;
+  const walletId = opts?.walletId ?? payroll.walletId ?? undefined;
 
   // Figures were recomputed above at approval time (the ledger may have
   // changed since the draft was generated). Only a positive net is paid out.
   const netPayMinor = Math.max(fig.netPayableMinor, 0);
+
+  // Names for the company-paid expense record.
+  const [emp, approver] = await Promise.all([
+    db.employee.findUnique({
+      where: { id: employeeId },
+      select: { fullName: true },
+    }),
+    db.user.findUnique({
+      where: { id: approvedById },
+      select: { name: true },
+    }),
+  ]);
+  const employeeName = emp?.fullName ?? "Employee";
+  const approverName = approver?.name ?? "Manager";
+  const periodLabel = `${payroll.periodStart.toISOString().slice(0, 10)}–${payroll.periodEnd.toISOString().slice(0, 10)}`;
 
   await db.$transaction(async (tx) => {
     await allocateAdvances(
@@ -589,17 +609,49 @@ export async function approvePayroll(
     );
 
     if (netPayMinor > 0) {
+      const amount = netPayMinor / 100;
+      // Deduct the payout from the selected company wallet (validates funds).
+      if (walletId) {
+        await companyWalletService.deductForPayroll(
+          tx,
+          walletId,
+          amount,
+          payrollId2,
+          approvedById
+        );
+      }
       await tx.cashTransaction.create({
         data: {
           employeeId,
           type: "SALARY_PAYMENT",
-          amount: netPayMinor / 100,
-          note: `Salary payment ${payroll.periodStart.toISOString().slice(0, 10)}–${payroll.periodEnd.toISOString().slice(0, 10)}`,
+          amount,
+          note: `Salary payment ${periodLabel}`,
           createdBy: approvedById,
           approvalStatus: "APPROVED",
           approvedById,
           approvedAt: new Date(),
           payrollId: payrollId2,
+          walletId: walletId ?? null,
+        },
+      });
+      // The approved payroll is a company-paid expense (salary).
+      await tx.expense.create({
+        data: {
+          title: `Salary payment ${periodLabel}`,
+          description: `Payroll for ${employeeName}`,
+          category: "SALARY",
+          amount,
+          paymentMethod: opts?.paymentMethod ?? "CASH",
+          paidTo: employeeName,
+          paidBy: approverName,
+          expenseDate: payroll.periodEnd,
+          paidToId: employeeId,
+          createdBy: approvedById,
+          approvalStatus: "APPROVED",
+          approvedById,
+          approvedAt: new Date(),
+          payrollId: payrollId2,
+          walletId: walletId ?? null,
         },
       });
     }
@@ -674,11 +726,15 @@ export async function revertPayroll(
   const employeeId = payroll.employeeId;
 
   await db.$transaction(async (tx) => {
+    // Remove the company-paid salary expense created at approval.
+    await tx.expense.deleteMany({ where: { payrollId: payroll.id } });
     // Remove the salary payment(s) created at approval.
     await tx.cashTransaction.deleteMany({ where: { payrollId: payroll.id } });
     // Free the advances allocated to this payroll so they can be re-allocated
     // when the corrected payroll is generated.
     await tx.payrollAdvanceAllocation.deleteMany({ where: { payrollId: payroll.id } });
+    // Restore any company wallet balance deducted for this payroll.
+    await companyWalletService.reversePayrollDeduction(tx, payroll.id, userId);
     await tx.payroll.update({
       where: { id: payroll.id },
       data: {
@@ -707,4 +763,137 @@ export async function revertPayroll(
     where: { id: payroll.id },
     include: { lines: true },
   });
+}
+
+/**
+ * Per-employee financial summary for the employee profile tab.
+ *
+ * - daysWorked: approved attendance (PRESENT + 0.5 x HALF_DAY) since hire
+ * - totalPaid (incl. expenses): payroll salary payments + expenses paid to the
+ *   employee + reimbursed employee-paid expenses
+ * - totalReceived: money the employee has taken (salary + expenses paid to them
+ *   + advances)
+ * - outstanding: earned entitlement (days-based salary + overtime) +
+ *   reimbursements owed, minus totalReceived (positive = company owes the
+ *   employee, negative = employee owes the company)
+ */
+export async function getEmployeeFinancialSummary(employeeId: string) {
+  const employee = await db.employee.findUnique({
+    where: { id: employeeId },
+    select: {
+      id: true,
+      fullName: true,
+      salary: true,
+      workHoursPerDay: true,
+      overtimeRate: true,
+      hireDate: true,
+      status: true,
+      quitingDate: true,
+      cashAccount: { select: { currentBalance: true } },
+    },
+  });
+  if (!employee) throw new Error("Employee not found");
+
+  const hireDateObj = new Date(employee.hireDate);
+  const now = new Date();
+  const isActive = employee.status === "ACTIVE";
+  const endDate = isActive
+    ? now
+    : employee.quitingDate
+      ? new Date(employee.quitingDate)
+      : now;
+
+  const [attendanceRecords, salaryPayments, expensesTo, expensesBy, advances, otAgg] =
+    await Promise.all([
+      db.attendance.findMany({
+        where: {
+          employeeId,
+          date: { gte: hireDateObj, lte: endDate },
+          status: { in: ["PRESENT", "HALF_DAY"] },
+          approvalStatus: "APPROVED",
+        },
+        select: { status: true, overtimeHours: true },
+      }),
+      db.cashTransaction.aggregate({
+        where: { employeeId, type: "SALARY_PAYMENT", approvalStatus: "APPROVED" },
+        _sum: { amount: true },
+      }),
+      db.expense.aggregate({
+        where: {
+          paidToId: employeeId,
+          approvalStatus: "APPROVED",
+          payrollId: null,
+        },
+        _sum: { amount: true },
+      }),
+      db.expense.aggregate({
+        where: { paidById: employeeId, approvalStatus: "APPROVED" },
+        _sum: { amount: true },
+      }),
+      db.cashTransaction.aggregate({
+        where: { employeeId, type: "ADVANCE", approvalStatus: "APPROVED" },
+        _sum: { amount: true },
+      }),
+      db.attendance.aggregate({
+        where: {
+          employeeId,
+          date: { gte: hireDateObj, lte: endDate },
+          approvalStatus: "APPROVED",
+        },
+        _sum: { overtimeHours: true },
+      }),
+    ]);
+
+  let daysWorked = 0;
+  if (attendanceRecords.length > 0) {
+    let present = 0;
+    let half = 0;
+    for (const r of attendanceRecords) {
+      if (r.status === "PRESENT") present++;
+      else if (r.status === "HALF_DAY") half++;
+    }
+    daysWorked = present + half * 0.5;
+  } else {
+    // Fallback: elapsed calendar days since hire.
+    daysWorked = Math.max(
+      0,
+      Math.floor((endDate.getTime() - hireDateObj.getTime()) / 86400000)
+    );
+  }
+
+  const totalOvertimeHours = otAgg._sum.overtimeHours ?? 0;
+  const dailySalary = (employee.salary ?? 0) / 30;
+  const workHours =
+    employee.workHoursPerDay && employee.workHoursPerDay > 0
+      ? employee.workHoursPerDay
+      : 9;
+  const hourlySalary = dailySalary / workHours;
+  const overtimePay =
+    totalOvertimeHours * hourlySalary * (employee.overtimeRate ?? 1.25);
+  const earnedSalary = dailySalary * daysWorked + overtimePay;
+
+  const salaryPaid = salaryPayments._sum.amount ?? 0;
+  const expensesPaidTo = expensesTo._sum.amount ?? 0;
+  const reimbursements = expensesBy._sum.amount ?? 0;
+  const advancesReceived = advances._sum.amount ?? 0;
+
+  const totalPaid = salaryPaid + expensesPaidTo + reimbursements;
+  const totalReceived = salaryPaid + expensesPaidTo + advancesReceived;
+  const outstanding = earnedSalary + reimbursements - totalReceived;
+
+  return {
+    employeeId,
+    daysWorked,
+    totalOvertimeHours,
+    overtimePay,
+    earnedSalary,
+    salaryPaid,
+    expensesPaidTo,
+    reimbursements,
+    advancesReceived,
+    totalPaid,
+    totalReceived,
+    outstanding,
+    walletBalance: employee.cashAccount?.currentBalance ?? 0,
+  };
 }

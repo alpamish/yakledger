@@ -226,6 +226,9 @@ export const employeesApi = {
   getPayroll: async (id: string): Promise<ApiResponse<any[]>> =>
     request(`/employees/${id}/payroll`),
 
+  getFinancialSummary: async (id: string): Promise<ApiResponse<any>> =>
+    request(`/employees/${id}/financial-summary`),
+
   getAlerts: async (): Promise<ApiResponse<any>> => request(`/employees/alerts`),
 
   getAuditEvents: async (id: string): Promise<ApiResponse<any[]>> =>

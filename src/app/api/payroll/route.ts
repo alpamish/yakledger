@@ -133,6 +133,7 @@ export async function POST(request: NextRequest) {
           allowancesMinor: d.allowancesMinor ? toMinor(d.allowancesMinor) : 0,
           bonusesMinor: d.bonusesMinor ? toMinor(d.bonusesMinor) : 0,
           deductionsMinor: d.deductionsMinor ? toMinor(d.deductionsMinor) : 0,
+          walletId: d.walletId,
         });
         results.push(p);
       } catch (err: any) {

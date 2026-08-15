@@ -63,4 +63,5 @@ export const payrollGenerateSchema = z.object({
   allowancesMinor: z.number().int().min(0).optional(),
   bonusesMinor: z.number().int().min(0).optional(),
   deductionsMinor: z.number().int().min(0).optional(),
+  walletId: z.string().optional(),
 });

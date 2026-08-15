@@ -52,6 +52,7 @@ import { LoadingSpinner } from "@/components/common/loading-spinner";
 import { EmptyState } from "@/components/common/empty-state";
 import { PayrollActions } from "@/components/payroll/payroll-actions";
 import { PayrollGenerateDialog } from "@/components/payroll/payroll-generate-dialog";
+import { EmployeeFinancialSummaryTab } from "@/components/employee/employee-financial-summary-tab";
 import {
   FileText,
   User,
@@ -160,6 +161,7 @@ export function EmployeeHrProfile({ employee }: { employee: Employee }) {
           <TabsTrigger value="documents">Documents</TabsTrigger>
           <TabsTrigger value="leave">Leave</TabsTrigger>
           {canViewPayroll && <TabsTrigger value="payroll">Payroll</TabsTrigger>}
+          {canViewPayroll && <TabsTrigger value="summary">Financial Summary</TabsTrigger>}
           <TabsTrigger value="assignments">Assignments</TabsTrigger>
           <TabsTrigger value="activity">Activity</TabsTrigger>
         </TabsList>
@@ -221,6 +223,12 @@ export function EmployeeHrProfile({ employee }: { employee: Employee }) {
                   canManage={canManagePayroll}
                   onChanged={load}
                 />
+              </TabsContent>
+            )}
+
+            {canViewPayroll && (
+              <TabsContent value="summary">
+                <EmployeeFinancialSummaryTab employeeId={employee.id} />
               </TabsContent>
             )}
 

@@ -37,7 +37,7 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { usePermissions } from '@/hooks/use-permissions';
 import Image from 'next/image';
 
-export type NavSection = 'dashboard' | 'projectCost' | 'expenses' | 'employees' | 'payroll' | 'contractors' | 'timesheets' | 'fuelUsage' | 'machinery' | 'reports' | 'cashAdvance' | 'approvals' | 'settings' | 'assets' | 'users';
+export type NavSection = 'dashboard' | 'projectCost' | 'expenses' | 'employees' | 'payroll' | 'wallets' | 'contractors' | 'timesheets' | 'fuelUsage' | 'machinery' | 'reports' | 'cashAdvance' | 'approvals' | 'settings' | 'assets' | 'users';
 
 interface NavItem {
   id: NavSection;
@@ -52,6 +52,7 @@ const allNavItems: NavItem[] = [
   { id: 'expenses', label: 'Expenses', icon: Receipt, permission: 'expenses:view' },
   { id: 'employees', label: 'Employees', icon: Users, permission: 'employees:view' },
   { id: 'payroll', label: 'Payroll', icon: Wallet, permission: 'employees:payroll:view' },
+  { id: 'wallets', label: 'Wallets', icon: Wallet, permission: 'wallets:view' },
   { id: 'contractors', label: 'Contractors', icon: HardHat, permission: 'contractors:view' },
   { id: 'timesheets', label: 'Timesheets', icon: Clock, permission: 'timesheets:view' },
   { id: 'fuelUsage', label: 'Fuel Usage', icon: Fuel, permission: 'fuelUsage:view' },

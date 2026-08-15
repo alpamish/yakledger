@@ -36,15 +36,17 @@ export async function POST(
 
   try {
     const body = await request.json().catch(() => ({}));
-    const { payrollId, action, paymentMethod, reason } = body as {
+    const { payrollId, action, paymentMethod, reason, walletId } = body as {
       payrollId?: string;
       action?: string;
       paymentMethod?: string;
       reason?: string;
+      walletId?: string;
     };
     if (action === "approve" && payrollId) {
       const updated = await approvePayroll(payrollId, user.id, {
         paymentMethod,
+        walletId,
       });
       return NextResponse.json({ success: true, data: updated });
     }

@@ -34,6 +34,7 @@ const sectionTitles: Record<NavSection, string> = {
   expenses: 'Expenses',
   employees: 'Employees',
   payroll: 'Payroll',
+  wallets: 'Wallets',
   contractors: 'Contractors',
   timesheets: 'Timesheets',
   fuelUsage: 'Fuel Usage',

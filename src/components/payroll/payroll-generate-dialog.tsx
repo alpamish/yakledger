@@ -12,7 +12,16 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { payrollApi } from "@/services/payroll-api";
+import { walletApi } from "@/services/wallet-api";
+import { formatMinor } from "@/lib/money";
 import { toast } from "sonner";
 
 function currentMonthRange() {
@@ -43,6 +52,8 @@ export function PayrollGenerateDialog({
   const [allowances, setAllowances] = useState("");
   const [bonuses, setBonuses] = useState("");
   const [deductions, setDeductions] = useState("");
+  const [wallets, setWallets] = useState<any[]>([]);
+  const [walletId, setWalletId] = useState<string>("");
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -53,6 +64,11 @@ export function PayrollGenerateDialog({
       setAllowances("");
       setBonuses("");
       setDeductions("");
+      setWalletId("");
+      walletApi
+        .list()
+        .then((res) => setWallets(res.data ?? []))
+        .catch(() => setWallets([]));
     }
   }, [open]);
 
@@ -70,6 +86,7 @@ export function PayrollGenerateDialog({
         ...(allowances ? { allowancesMinor: Number(allowances) } : {}),
         ...(bonuses ? { bonusesMinor: Number(bonuses) } : {}),
         ...(deductions ? { deductionsMinor: Number(deductions) } : {}),
+        ...(walletId ? { walletId } : {}),
       });
       const errors: string[] = res.data?.errors ?? [];
       if (errors.length > 0) {
@@ -149,6 +166,27 @@ export function PayrollGenerateDialog({
                 onChange={(e) => setDeductions(e.target.value)}
               />
             </div>
+          </div>
+          <div>
+            <Label>Pay from Wallet</Label>
+            <Select value={walletId} onValueChange={setWalletId}>
+              <SelectTrigger>
+                <SelectValue placeholder="Cash / no wallet" />
+              </SelectTrigger>
+              <SelectContent>
+                {wallets.length === 0 ? (
+                  <SelectItem value="__none" disabled>
+                    No wallets configured
+                  </SelectItem>
+                ) : (
+                  wallets.map((w) => (
+                    <SelectItem key={w.id} value={w.id}>
+                      {w.name} — {formatMinor(w.balance, w.currency)}
+                    </SelectItem>
+                  ))
+                )}
+              </SelectContent>
+            </Select>
           </div>
         </div>
         <DialogFooter>

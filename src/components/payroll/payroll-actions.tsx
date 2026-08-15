@@ -18,8 +18,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { payrollApi } from "@/services/payroll-api";
+import { walletApi } from "@/services/wallet-api";
+import { formatMinor } from "@/lib/money";
 import { PAYMENT_METHODS } from "@/types/expense";
 import { toast } from "sonner";
+import { useEffect } from "react";
 
 export function PayrollActions({
   payrollId,
@@ -35,6 +38,18 @@ export function PayrollActions({
   const [busy, setBusy] = useState(false);
   const [approveOpen, setApproveOpen] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<string>("CASH");
+  const [wallets, setWallets] = useState<any[]>([]);
+  const [walletId, setWalletId] = useState<string>("");
+
+  useEffect(() => {
+    if (approveOpen) {
+      setWalletId("");
+      walletApi
+        .list()
+        .then((res) => setWallets(res.data ?? []))
+        .catch(() => setWallets([]));
+    }
+  }, [approveOpen]);
 
   async function handleRevert() {
     if (
@@ -58,7 +73,7 @@ export function PayrollActions({
   async function handleApprove() {
     setBusy(true);
     try {
-      await payrollApi.approve(employeeId, payrollId, paymentMethod);
+      await payrollApi.approve(employeeId, payrollId, paymentMethod, walletId || undefined);
       toast.success("Payroll approved and paid");
       setApproveOpen(false);
       onChanged();
@@ -101,20 +116,43 @@ export function PayrollActions({
             Approving pays out the net payable amount as a salary payment and
             settles advances and employee-paid expense reimbursements.
           </p>
-          <div>
-            <Label>Payment Method</Label>
-            <Select value={paymentMethod} onValueChange={setPaymentMethod}>
-              <SelectTrigger className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {PAYMENT_METHODS.map((m) => (
-                  <SelectItem key={m} value={m}>
-                    {m.replace(/_/g, " ")}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+          <div className="space-y-3">
+            <div>
+              <Label>Payment Method</Label>
+              <Select value={paymentMethod} onValueChange={setPaymentMethod}>
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {PAYMENT_METHODS.map((m) => (
+                    <SelectItem key={m} value={m}>
+                      {m.replace(/_/g, " ")}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>Deduct from Wallet</Label>
+              <Select value={walletId} onValueChange={setWalletId}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Cash / no wallet" />
+                </SelectTrigger>
+                <SelectContent>
+                  {wallets.length === 0 ? (
+                    <SelectItem value="__none" disabled>
+                      No wallets configured
+                    </SelectItem>
+                  ) : (
+                    wallets.map((w) => (
+                      <SelectItem key={w.id} value={w.id}>
+                        {w.name} — {formatMinor(w.balance, w.currency)}
+                      </SelectItem>
+                    ))
+                  )}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
           <DialogFooter>
             <Button

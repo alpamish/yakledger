@@ -13,6 +13,7 @@ const DashboardPage = dynamic(() => import('@/components/dashboard/dashboard-pag
 const ExpensePage = dynamic(() => import('@/components/expense/expense-page').then(mod => mod.ExpensePage), { loading: PageSkeleton });
 const EmployeePage = dynamic(() => import('@/components/employee/employee-page').then(mod => mod.EmployeePage), { loading: PageSkeleton });
 const PayrollPage = dynamic(() => import('@/components/payroll/payroll-page').then(mod => mod.PayrollPage), { loading: PageSkeleton });
+const WalletsPage = dynamic(() => import('@/components/wallet/wallets-page').then(mod => mod.WalletsPage), { loading: PageSkeleton });
 const ContractorPage = dynamic(() => import('@/components/contractor/contractor-page').then(mod => mod.ContractorPage), { loading: PageSkeleton });
 const MachineryPage = dynamic(() => import('@/components/machinery/machinery-page').then(mod => mod.MachineryPage), { loading: PageSkeleton });
 const TimesheetPage = dynamic(() => import('@/components/timesheet/timesheet-page').then(mod => mod.TimesheetPage), { loading: PageSkeleton });
@@ -45,6 +46,8 @@ const SectionContent = React.memo(function SectionContent({ section }: { section
       return <EmployeePage />;
     case 'payroll':
       return <PayrollPage />;
+    case 'wallets':
+      return <WalletsPage />;
     case 'contractors':
       return <ContractorPage />;
     case 'timesheets':

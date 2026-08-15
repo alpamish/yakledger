@@ -335,6 +335,8 @@ model Payroll {
   currency      String   @default("AFN")
   status        String   @default("DRAFT")
   notes         String?
+  walletId      String?
+  wallet        Wallet?  @relation(fields: [walletId], references: [id])
   approvedById  String?
   approvedBy    User?    @relation("PayrollApprover", fields: [approvedById], references: [id])
   approvedAt    DateTime?
@@ -347,10 +349,12 @@ model Payroll {
   updatedAt   DateTime @updatedAt
   lines       PayrollLine[]
   allocations PayrollAdvanceAllocation[]
+  expenses    Expense[]
 
   @@unique([employeeId, periodStart, periodEnd])
   @@index([employeeId, periodStart])
   @@index([status])
+  @@index([walletId])
 }
 
 model PayrollLine {
@@ -439,11 +443,15 @@ model Expense {
   paidToId           String?
   paidToContractorId String?
   paidByContractorId String?
+  payrollId          String?
+  walletId           String?
   approvalStatus     String      @default("PENDING")
   approvedById       String?
   approvedAt         DateTime?
   approvalNote       String?
   approver           User?       @relation("ExpenseApprover", fields: [approvedById], references: [id])
+  payroll            Payroll?    @relation(fields: [payrollId], references: [id])
+  wallet             Wallet?     @relation(fields: [walletId], references: [id])
   paidByContractor   Contractor? @relation("ExpensePaidByContractor", fields: [paidByContractorId], references: [id])
   paidToContractor   Contractor? @relation("ExpensePaidToContractor", fields: [paidToContractorId], references: [id])
   paidToEmployee     Employee?   @relation("ExpensePaidTo", fields: [paidToId], references: [id])
@@ -466,6 +474,8 @@ model Expense {
   @@index([category, expenseDate])
   @@index([approvalStatus])
   @@index([approvalStatus, createdAt])
+  @@index([payrollId])
+  @@index([walletId])
 }
 
 model Contractor {
@@ -687,10 +697,12 @@ model CashTransaction {
   approvedAt      DateTime?
   approvalNote    String?
   payrollId       String?
+  walletId        String?
   createdAt       DateTime  @default(now())
   approver        User?     @relation("CashTransactionApprover", fields: [approvedById], references: [id])
   creator         User      @relation(fields: [createdBy], references: [id])
   employee        Employee  @relation(fields: [employeeId], references: [id])
+  wallet          Wallet?   @relation(fields: [walletId], references: [id])
   payrollAllocations PayrollAdvanceAllocation[]
 
   @@index([employeeId])
@@ -699,6 +711,40 @@ model CashTransaction {
   @@index([createdAt])
   @@index([approvalStatus])
   @@index([approvalStatus, createdAt])
+  @@index([payrollId])
+  @@index([walletId])
+}
+
+model Wallet {
+  id               String             @id @default(cuid())
+  name             String
+  type             String             @default("CASH")
+  currency         String             @default("AFN")
+  balance          Float              @default(0)
+  isActive         Boolean            @default(true)
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+  transactions     WalletTransaction[]
+  cashTransactions CashTransaction[]
+  payrolls         Payroll[]
+  expenses         Expense[]
+
+  @@index([isActive])
+}
+
+model WalletTransaction {
+  id        String   @id @default(cuid())
+  walletId  String
+  wallet    Wallet   @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  type      String
+  amount    Float
+  note      String?
+  payrollId String?
+  createdBy String
+  createdAt DateTime @default(now())
+
+  @@index([walletId])
+  @@index([type])
   @@index([payrollId])
 }
 

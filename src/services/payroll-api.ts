@@ -59,6 +59,7 @@ export interface PayrollGenerateBody {
   allowancesMinor?: number;
   bonusesMinor?: number;
   deductionsMinor?: number;
+  walletId?: string;
 }
 
 export const payrollApi = {
@@ -79,11 +80,12 @@ export const payrollApi = {
   approve: async (
     employeeId: string,
     payrollId: string,
-    paymentMethod?: string
+    paymentMethod?: string,
+    walletId?: string
   ): Promise<ApiResponse<any>> =>
     request(`/employees/${employeeId}/payroll`, {
       method: "POST",
-      body: JSON.stringify({ action: "approve", payrollId, paymentMethod }),
+      body: JSON.stringify({ action: "approve", payrollId, paymentMethod, walletId }),
     }),
 
   revert: async (
