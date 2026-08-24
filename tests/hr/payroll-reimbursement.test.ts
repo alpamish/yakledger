@@ -38,8 +38,8 @@ async function addSalary(empId: string) {
   });
 }
 
-// An approved employee-paid company expense produces an approved DEBIT wallet
-// transaction (the wallet effect recorded when the expense is approved).
+// An approved employee-paid company expense reduces the employee's wallet
+// debt directly (derived from the approved expense); no DEBIT record is needed.
 async function addEmployeePaidExpense(empId: string, user: any, amount: number, createdAt: Date) {
   await db.expense.create({
     data: {
@@ -53,19 +53,6 @@ async function addEmployeePaidExpense(empId: string, user: any, amount: number, 
       paidById: empId,
       createdBy: user.id,
       approvalStatus: "APPROVED",
-    },
-  });
-  await db.cashTransaction.create({
-    data: {
-      employeeId: empId,
-      type: "DEBIT",
-      amount,
-      note: "Employee paid expense",
-      approvalStatus: "APPROVED",
-      createdBy: user.id,
-      approvedById: user.id,
-      approvedAt: createdAt,
-      createdAt,
     },
   });
 }

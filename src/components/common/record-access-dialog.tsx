@@ -26,6 +26,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 
 import { accessApi } from '@/services/api';
 import { getToken } from '@/services/api';
+import { ROLE_LABELS } from '@/types/expense';
 import type { RecordAccessGrant, RecordAccessType } from '@/types/expense';
 
 interface UserOption {
@@ -34,14 +35,6 @@ interface UserOption {
   email: string;
   role: string;
 }
-
-const ROLE_LABELS: Record<string, string> = {
-  ADMIN: 'Admin',
-  MANAGER: 'Manager',
-  USER: 'User',
-  WATCHER: 'Watcher',
-  TIMESHEET_USER: 'Timesheet User',
-};
 
 export function RecordAccessDialog({
   entity,

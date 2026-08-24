@@ -1,84 +1,42 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthenticatedUser } from "./auth-middleware";
 import { db } from "./db";
+import {
+  ROLES,
+  ROLE_PERMISSIONS,
+  resolveRolePermissions,
+} from "./permission-catalog";
 
 export type AuthUser = NonNullable<Awaited<ReturnType<typeof getAuthenticatedUser>>>;
+
+export { ROLES };
+
+const ADMIN_ROLES = ["ADMIN"];
 
 export function isAdminUser(user: Pick<AuthUser, "role">): boolean {
   return ADMIN_ROLES.includes(user.role);
 }
 
-const ADMIN_ROLES = ["ADMIN"];
+const ROLE_PERMISSION_CACHE = new Map<string, string[]>();
 
-const ROLE_PERMISSION_DEFAULTS: Record<string, string[]> = {
-  ADMIN: ["*"],
-  MANAGER: [
-    "dashboard:view", "projectCost:view",
-    "expenses:view", "expenses:create", "expenses:edit", "expenses:approve",
-    "employees:view", "employees:create", "employees:edit", "employees:approve",
-    "employees:salary:view", "employees:salary:manage",
-    "employees:contract:view", "employees:contract:manage",
-    "employees:documents:view", "employees:documents:manage",
-    "employees:leave:view", "employees:leave:manage",
-    "employees:payroll:view", "employees:payroll:manage",
-    "employees:attendance:view", "employees:attendance:manage",
-    "contractors:view", "contractors:create", "contractors:edit",
-    "timesheets:view", "timesheets:create", "timesheets:edit", "timesheets:approve",
-    "fuelUsage:view", "fuelUsage:create", "fuelUsage:edit", "fuelUsage:approve",
-    "machinery:view", "machinery:create", "machinery:edit",
-    "assets:view", "assets:create", "assets:edit", "assets:approve",
-    "cashAdvance:view", "cashAdvance:create", "cashAdvance:approve",
-    "wallets:view", "wallets:manage",
-    "reports:view", "reports:generatePdf",
-    "settings:view",
-    "users:view", "users:create", "users:edit",
-    "users:managePermissions",
-  ],
-  USER: [
-    "dashboard:view", "projectCost:view",
-    "expenses:view", "expenses:create", "expenses:edit",
-    "employees:view", "employees:create", "employees:edit",
-    "employees:contract:view",
-    "employees:documents:view",
-    "employees:leave:view", "employees:leave:manage",
-    "employees:attendance:view", "employees:attendance:manage",
-    "contractors:view", "contractors:create", "contractors:edit",
-    "timesheets:view", "timesheets:create", "timesheets:edit",
-    "fuelUsage:view", "fuelUsage:create", "fuelUsage:edit",
-    "machinery:view", "machinery:create", "machinery:edit",
-    "assets:view", "assets:create", "assets:edit",
-    "cashAdvance:view", "cashAdvance:create",
-    "reports:view",
-    "settings:view",
-  ],
-  WATCHER: [
-    "dashboard:view", "projectCost:view",
-    "expenses:view",
-    "employees:view",
-    "employees:attendance:view",
-    "employees:leave:view",
-    "contractors:view",
-    "timesheets:view",
-    "fuelUsage:view",
-    "machinery:view",
-    "assets:view",
-    "cashAdvance:view",
-    "reports:view",
-    "settings:view",
-  ],
-  TIMESHEET_USER: [
-    "dashboard:view", "projectCost:view",
-    "expenses:view",
-    "employees:view",
-    "employees:attendance:view",
-    "contractors:view",
-    "timesheets:view", "timesheets:create", "timesheets:edit",
-    "fuelUsage:view",
-    "machinery:view",
-    "cashAdvance:view",
-    "reports:view",
-  ],
-};
+/**
+ * Effective base permissions for a role, including the reference-list
+ * dependencies (content:*, wallets:view, etc.) that create/edit forms need.
+ */
+function resolvedRolePermissions(role: string): string[] {
+  const cached = ROLE_PERMISSION_CACHE.get(role);
+  if (cached) return cached;
+
+  if (ADMIN_ROLES.includes(role) || ROLE_PERMISSIONS[role]?.includes("*")) {
+    const adminPerms = resolveRolePermissions(role);
+    ROLE_PERMISSION_CACHE.set(role, adminPerms);
+    return adminPerms;
+  }
+
+  const perms = resolveRolePermissions(role);
+  ROLE_PERMISSION_CACHE.set(role, perms);
+  return perms;
+}
 
 export async function checkUserPermission(
   userId: string,
@@ -87,7 +45,7 @@ export async function checkUserPermission(
 ): Promise<boolean> {
   if (ADMIN_ROLES.includes(role)) return true;
 
-  const rolePerms = ROLE_PERMISSION_DEFAULTS[role];
+  const rolePerms = resolvedRolePermissions(role);
   if (!rolePerms) return false;
 
   if (rolePerms.includes("*")) return true;
@@ -111,7 +69,7 @@ export async function getEffectivePermissions(userId: string, role: string): Pro
     return { "*": true };
   }
 
-  const rolePerms = ROLE_PERMISSION_DEFAULTS[role] ?? [];
+  const rolePerms = resolvedRolePermissions(role) ?? [];
   const perms: Record<string, boolean> = {};
   for (const p of rolePerms) perms[p] = true;
 

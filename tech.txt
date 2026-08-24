@@ -1,0 +1,282 @@
+================================================================================
+  Yakledger — Technical Background: RBAC, Permissions & Approval/Visibility
+================================================================================
+
+This document explains how authentication, role-based access control (RBAC),
+fine-grained permissions, record-level access, and the approval/visibility
+workflow work inside Yakledger. It is a descriptive walkthrough of the existing
+implementation, with file references so the behavior can be traced in code.
+
+--------------------------------------------------------------------------------
+1. AUTHENTICATION (JWT)
+--------------------------------------------------------------------------------
+
+All API access is authenticated with a short-lived JSON Web Token.
+
+  src/lib/auth.ts
+    - generateToken(payload): signs { userId, email, role } with JWT_SECRET
+      using jsonwebtoken, expiresIn: "7d".
+    - verifyToken(token): validates and returns the payload, or null.
+    - JWT_SECRET comes from process.env.JWT_SECRET; a fallback secret is
+      defined in code for local/dev convenience. The token is NOT a source of
+      authority for roles — it only carries identity.
+
+  src/lib/auth-middleware.ts
+    - getAuthenticatedUser(request): extracts the Bearer token from the
+      Authorization header, verifies it, then loads the User row from the
+      database (id, email, name, role, avatar) and returns it.
+    - Returns null when the token is missing or invalid. Roles and permissions
+      are always re-read from the DB on every request, so a stale or forged
+      token cannot escalate privileges.
+
+  src/lib/db.ts
+    - Selects the Prisma client based on DATABASE_URL: the SQLite client when
+      the URL starts with "file:", otherwise the Postgres/Neon client
+      (src/lib/neon-db.ts). Both clients expose the same data model.
+
+--------------------------------------------------------------------------------
+2. THE PERMISSION MODEL (THREE LAYERS)
+--------------------------------------------------------------------------------
+
+The permission system combines three layers:
+
+  Layer 1 — Role base permissions
+    src/lib/permission-catalog.ts defines ROLES:
+      ADMIN, MANAGER, USER, WATCHER, TIMESHEET_USER, EXPENSE_USER, DATA_ENTRY
+    ROLE_PERMISSIONS maps each role to a base set of permission names, e.g.
+      USER  -> ["expenses:view", "expenses:create", "expenses:edit", ...]
+      MANAGER adds approve/delete/manage powers on top.
+    ADMIN is special-cased as ["*"] (every permission).
+
+  Layer 2 — The permission catalog
+    PERMISSIONS is a flat list of { name, label, module } entries. Names follow
+    the "<module>:<action>" convention, for example:
+      expenses:view / expenses:create / expenses:edit / expenses:delete / expenses:approve
+      employees:salary:view, employees:payroll:manage, users:managePermissions
+      reports:view, reports:generatePdf, settings:edit
+    There are also reference-list permissions under the "content:" pseudo
+    module (content:machinery, content:contractors, content:employees, etc.)
+    that gate whether a user can use shared reference lists in create/edit
+    forms.
+
+  Layer 3 — Per-user overrides
+    The UserPermission table stores a boolean grant/revoke for a specific
+    (userId, permissionId) pair. An override wins over the role default, so a
+    MANAGER can have expenses:delete revoked, or a USER can be granted
+    expenses:approve, without changing the role.
+
+--------------------------------------------------------------------------------
+3. RESOLVING ROLE PERMISSIONS AND DEPENDENCIES
+--------------------------------------------------------------------------------
+
+  src/lib/permission-catalog.ts
+    - PERMISSION_DEPENDENCIES declares implicit dependencies: holding a
+      create/edit permission also grants the reference-list permissions those
+      forms need. For example:
+        "expenses:create" -> ["content:contractors", "wallets:view", "cashAdvance:view"]
+        "timesheets:create" -> ["content:machinery", "content:machinery-rates"]
+        "cashAdvance:create" -> ["wallets:view"]
+        "assets:create" -> ["assets:view"]
+    - resolvePermissions(base): BFS-expands a base list through the dependency
+      graph (transitively, de-duplicated).
+    - resolveRolePermissions(role): returns the full effective set for a role
+      (base list + resolved dependencies). ADMIN expands to the entire
+      PERMISSIONS catalog.
+
+  src/lib/permissions.ts
+    - resolvedRolePermissions(role): memoizes the per-role effective list in
+      ROLE_PERMISSION_CACHE so repeated checks in one process don't re-resolve.
+    - Notes: the "content:employees" permission is deliberately NOT a
+      dependency of employees:create/edit — the employee reference list is
+      OR-gated with employees:view, and granting content:employees would relax
+      record-level access scope for the whole employee entity (contracts,
+      salaries, documents).
+
+--------------------------------------------------------------------------------
+4. SERVER-SIDE ENFORCEMENT
+--------------------------------------------------------------------------------
+
+  src/lib/permissions.ts
+    - checkUserPermission(userId, role, permission): the core decision:
+        1. ADMIN roles always return true.
+        2. Resolve the role's effective permission list.
+        3. If the list contains "*" (ADMIN) -> true.
+        4. hasByRole = the role list contains the permission.
+        5. Look up the Permission row, then the UserPermission override for
+           that user. If an override exists, its `granted` value wins.
+        6. Otherwise fall back to hasByRole.
+    - requirePermission(request, permission):
+        * getAuthenticatedUser -> 401 "Unauthorized" if no valid user.
+        * checkUserPermission -> 403 "Forbidden: insufficient permissions"
+          if not allowed.
+        * Returns { user } on success.
+      Every REST handler in src/app/api/**/route.ts guards with
+      requirePermission(request, "<module>:<action>"). This is the primary
+      server-side gate; the UI cannot bypass it.
+    - requireAnyPermission(request, [..]): passes if the user holds ANY of the
+      listed permissions (used where several modules can trigger the same
+      action, e.g. the Approvals page).
+    - getEffectivePermissions(userId, role): builds the full
+      { "<permission>": true|false } map for a user (role defaults merged with
+      overrides). ADMIN returns { "*": true }.
+
+--------------------------------------------------------------------------------
+5. CLIENT-SIDE GATING
+--------------------------------------------------------------------------------
+
+The server is authoritative, but the UI hides/disables what the user cannot do.
+
+  src/app/api/auth/permissions/route.ts
+    - GET /api/auth/permissions returns the user's effective permission map
+      (built by getEffectivePermissions) after authenticating the request.
+
+  src/hooks/use-expense-store.ts
+    - On login: authApi.me() loads the current user, then fetchPermissions()
+      calls /api/auth/permissions and stores the map in the store
+      (userPermissions).
+
+  src/hooks/use-permissions.ts
+    - usePermissions() reads user + userPermissions from the store and exposes:
+        hasPermission(permission)
+        can(module, action)
+        canView / canCreate / canEdit / canDelete / canApprove / canManagePermissions
+      ADMIN users and the "*" wildcard always pass. Returns false when no user
+      is loaded.
+
+  UI usage:
+    - Sidebar (src/components/layout/sidebar-nav.tsx) filters nav sections by
+      module view permission.
+    - SectionContent in src/app/page.tsx renders each page only if the user has
+      the corresponding <module>:view permission.
+    - Buttons (create/edit/delete/approve) are gated by the matching
+      canX(module) helpers.
+
+--------------------------------------------------------------------------------
+6. RECORD-LEVEL ACCESS (OWNERSHIP + GRANTS)
+--------------------------------------------------------------------------------
+
+Beyond module/action permissions, individual records are scoped by ownership
+and explicit grants. This lives in src/lib/access-control.ts.
+
+  RecordAccess table (Prisma):
+    entity, entityId, userId, accessType ("view" | "edit"), grantedBy.
+    Unique on [entity, entityId, userId]. A row grants one user access to one
+    specific record of a given entity.
+
+  Builders return a Prisma `where` clause:
+    - buildAccessScope(user, entity):
+        ADMIN or a content:<entity> permission holder -> {} (unrestricted).
+        Otherwise -> { OR: [ { createdBy: user.id },
+                             { id: { in: grantedIds } } ] }
+        grantedIds come from RecordAccess rows for (entity, user).
+    - buildListScope(user, entity): the list-view variant (see section 7).
+    - buildAggregateScope(user, entity): the counting variant (see section 7).
+
+  Helpers:
+    - withScope(base, scope): AND-combines a base filter with an access scope
+      (returns base unchanged for an empty/admin scope).
+    - findAccessibleRecord(user, entity, id, fetcher): single-record lookup that
+      enforces ownership/grant access.
+    - canViewRecord(user, entity, record): admin/owner/grant -> true.
+    - canManageRecord(user, entity, record): admin/owner/edit-grant -> true.
+
+  Content-permission holders (content:*) get an unrestricted scope for their
+  reference entity — they can use the full shared list even though they don't
+  "own" every row.
+
+--------------------------------------------------------------------------------
+7. APPROVAL WORKFLOW AND VISIBILITY
+--------------------------------------------------------------------------------
+
+Records of the approval entities require approval before they count as valid.
+The approval status interacts with the permission layer at the data level.
+
+  Approval entities (APPROVAL_ENTITIES in access-control.ts):
+    expense, timesheet, fuelUsage, cashTransaction, transfer, attendance,
+    assetLog.
+
+  Status lifecycle:
+    - resolveApprovalStatusOnCreate(user, ...):
+        ADMIN -> APPROVED (admin-created records are valid immediately).
+        Otherwise -> PENDING.
+    - resolveApprovalStatusOnEdit(user, currentStatus):
+        ADMIN -> APPROVED.
+        Non-admin editing an APPROVED record -> PENDING (re-approval).
+        Non-admin editing a REJECTED record -> PENDING (resubmission).
+        PENDING stays PENDING for non-admins.
+
+  What appears in lists (buildListScope):
+    - ADMIN / content-permission holders: APPROVED + REJECTED only (PENDING is
+      managed in the Approvals page).
+    - Non-admins: their OWN records at ANY status (including PENDING, so a
+      creator can track what is awaiting approval) plus records explicitly
+      granted to them once APPROVED.
+
+  What counts in aggregates (buildAggregateScope):
+    - APPROVED records only. PENDING is never "valid" money and REJECTED is
+      never counted, even for ADMIN. Used by dashboards, sums, charts,
+      summaries, and financial reports.
+
+  Where the scopes are applied:
+    - List endpoints (expenses, timesheets, fuel-usage, attendance,
+      asset-logs, cash-transactions) use buildListScope on their GET handlers.
+    - Aggregate endpoints (expenses/dashboard, asset-logs/stats,
+      attendance/summary, fuel-usage summaries, contractor dashboards,
+      employee financial summaries, machinery summaries) use
+      buildAggregateScope.
+    - Detail GET handlers use buildListScope (a creator may open their own
+      PENDING record); edit/delete use buildAccessScope.
+
+  Approval actions:
+    - Approve/reject endpoints guard with
+      requirePermission(request, "<module>:approve").
+    - Approving a PENDING record flips it to APPROVED; it then immediately
+      becomes visible/counted app-wide (the Approvals page emits a live-refresh
+      event so open dashboards and lists update without a reload; a focus-aware
+      polling fallback keeps other tabs/sessions fresh).
+
+  Intentional exception:
+    - The payroll financial-summary path (hr.service.getEmployeeFinancialSummary,
+      GET /api/employees/[id]/financial-summary) is hardcoded to APPROVED-only
+      regardless of role, because payroll must never include unapproved money.
+
+--------------------------------------------------------------------------------
+8. DATA MODEL RECAP (PRISMA)
+--------------------------------------------------------------------------------
+
+  model User              id, email, password, name, role, avatar, ...
+  model Permission        name (unique), label, module, ...
+  model RolePermission    role, permissionId  — unique [role, permissionId]
+  model UserPermission    userId, permissionId, granted (bool)
+                          — unique [userId, permissionId]
+  model RecordAccess      entity, entityId, userId, accessType, grantedBy
+                          — unique [entity, entityId, userId]
+
+  Seeding:
+    prisma/seed-permissions.ts seeds the permission catalog and role defaults.
+    tsx seed.ts seeds the demo admin user (demo@yakhshiledger.com) and sample
+    data. Permissions referenced in code must exist in the catalog so the
+    RolePermission/UserPermission lookups resolve.
+
+--------------------------------------------------------------------------------
+9. KEY FILES SUMMARY
+--------------------------------------------------------------------------------
+
+  src/lib/auth.ts                JWT sign/verify + header extraction
+  src/lib/auth-middleware.ts     request -> authenticated User
+  src/lib/permission-catalog.ts  ROLES, PERMISSIONS, dependencies, resolution
+  src/lib/permissions.ts         checkUserPermission / requirePermission /
+                                 requireAnyPermission / getEffectivePermissions
+  src/lib/access-control.ts      buildAccessScope / buildListScope /
+                                 buildAggregateScope / withScope / can*Record /
+                                 approval status resolution
+  src/lib/db.ts, neon-db.ts      Prisma client selection (SQLite vs Neon)
+  src/app/api/auth/permissions/route.ts   client permission map endpoint
+  src/hooks/use-permissions.ts   client-side permission helpers
+  src/hooks/use-expense-store.ts auth + permission state, live data fetch
+  prisma/schema.prisma           User/Permission/RolePermission/UserPermission/
+                                 RecordAccess models
+  prisma/seed-permissions.ts     permission + role seeding
+  tsx seed.ts                    demo user + sample data
+
+================================================================================

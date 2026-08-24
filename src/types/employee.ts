@@ -97,6 +97,7 @@ export interface Employee {
   terminationReason?: string | null;
   workLocation?: string | null;
   supervisorId?: string | null;
+  supervisor?: { fullName: string } | null;
   currency?: string;
   baseSalaryMinor?: number;
 }

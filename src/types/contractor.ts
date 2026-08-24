@@ -40,6 +40,7 @@ export type MachineryStatus = (typeof MACHINERY_STATUSES)[number];
 
 export interface Contractor {
   id: string;
+  contractorNumber?: string | null;
   contractorName: string;
   fatherName: string;
   companyName?: string | null;
@@ -144,6 +145,7 @@ export interface FuelUsage {
   fuelStation?: string | null;
   receiptAttachment?: string | null;
   linkedExpenseId?: string | null;
+  billable?: boolean;
   notes?: string | null;
   approvalStatus?: import("@/types/expense").ApprovalStatus;
   approvalNote?: string | null;
@@ -295,6 +297,7 @@ export interface FuelUsageFormData {
   receiptAttachment?: string;
   linkedExpenseId?: string;
   containerId?: string;
+  billable?: boolean;
   notes?: string;
 }
 
@@ -436,6 +439,7 @@ export interface TimesheetFilters {
   machineryId?: string;
   dateFrom?: string;
   dateTo?: string;
+  approvalStatus?: import("@/types/expense").ApprovalStatus;
 }
 
 export interface FuelUsageFilters {
@@ -551,6 +555,12 @@ export interface MonthlyAnalysisResponse {
   monthlyData: MonthlyFuelData[];
   dailyData?: DailyFuelData[];
   anomalies: FuelAnomaly[];
+  fuelTypeDistribution?: Array<{ fuelType: string; totalLiters: number }>;
+  fuelTypeByMonth?: Array<{
+    month: string;
+    monthLabel: string;
+    fuelTypes: Array<{ fuelType: string; totalLiters: number }>;
+  }>;
 }
 
 export interface MonthlyAnalysisParams {

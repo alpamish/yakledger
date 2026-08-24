@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
-import { ArrowLeft, Package, Pencil, Trash2, Loader2 } from 'lucide-react';
+import { ArrowLeft, Package, Pencil, Trash2, Loader2, FileText } from 'lucide-react';
 import {
   ASSET_CATEGORY_LABELS,
   ASSET_STATUS_LABELS,
@@ -182,6 +182,34 @@ export function AssetDetailPage() {
             </CardHeader>
             <CardContent>
               <p className="font-mono">{asset.serialNumber}</p>
+            </CardContent>
+          </Card>
+        )}
+        {asset.images && (
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">Document</CardTitle>
+            </CardHeader>
+            <CardContent className="flex items-center gap-3">
+              {/\.(jpe?g|png|webp|gif)(\?.*)?$/i.test(asset.images) ? (
+                <img
+                  src={asset.images}
+                  alt="Asset document"
+                  className="h-16 w-16 rounded-md border object-cover"
+                />
+              ) : (
+                <FileText className="h-10 w-10 text-red-500" />
+              )}
+              <a
+                href={asset.images}
+                target="_blank"
+                rel="noreferrer"
+                className="text-sm text-emerald-600 hover:underline"
+              >
+                {/\.(jpe?g|png|webp|gif)(\?.*)?$/i.test(asset.images)
+                  ? 'View image'
+                  : 'Open PDF'}
+              </a>
             </CardContent>
           </Card>
         )}

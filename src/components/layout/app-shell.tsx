@@ -1,12 +1,19 @@
 'use client';
 
 import * as React from 'react';
+import dynamic from 'next/dynamic';
 
 import { SidebarProvider, SidebarInset } from '@/components/ui/sidebar';
 import { SidebarNav, type NavSection } from './sidebar-nav';
 import { Header } from './header';
 import { Footer } from './footer';
-import { QuickSearch } from '@/components/common/quick-search';
+
+// QuickSearch is only needed when the user opens the search dialog (⌘K), so
+// load its chunk lazily to keep the initial shell bundle smaller.
+const QuickSearch = dynamic(
+  () => import('@/components/common/quick-search').then((m) => m.QuickSearch),
+  { ssr: false }
+);
 
 interface AppShellProps {
   children: React.ReactNode | ((section: NavSection) => React.ReactNode);

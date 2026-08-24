@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
-import { requirePermission } from "@/lib/permissions";
+import { requirePermission, checkUserPermission } from "@/lib/permissions";
 import { Prisma } from "@prisma/client";
 import { buildAccessScope, withScope } from "@/lib/access-control";
+import { createPurchaseExpense, assetCategoryToExpenseCategory } from "@/services/purchase-expense.service";
+import { PAYMENT_METHODS } from "@/types/expense";
 
 const createAssetSchema = z.object({
   name: z.string().min(1, "Name is required"),
@@ -22,6 +24,12 @@ const createAssetSchema = z.object({
   fuelCapacity: z.coerce.number().min(0).optional().nullable(),
   fuelLocation: z.string().optional().nullable(),
   isMainContainer: z.boolean().optional().default(false),
+  createExpense: z.boolean().optional().default(false),
+  paymentMethod: z.enum(PAYMENT_METHODS).optional().nullable(),
+  paidBy: z.string().optional().nullable(),
+  paidTo: z.string().optional().nullable(),
+  payNow: z.boolean().optional().default(false),
+  walletId: z.string().optional().nullable(),
 });
 
 export async function GET(request: NextRequest) {
@@ -87,6 +95,7 @@ export async function GET(request: NextRequest) {
         include: {
           assignedTo: { select: { id: true, fullName: true, jobTitle: true } },
           _count: { select: { maintenanceRecords: true, assetLogs: true, fuelTransactions: true } },
+          expenses: { select: { id: true, amount: true, approvalStatus: true, walletId: true } },
         },
         orderBy: { [sortField]: order },
         skip: (page - 1) * pageSize,
@@ -118,6 +127,20 @@ export async function POST(request: NextRequest) {
     }
 
     const data = parsed.data;
+
+    if (data.createExpense) {
+      const hasExpensePermission = await checkUserPermission(user.id, user.role, "expenses:create");
+      if (!hasExpensePermission) {
+        return NextResponse.json({ success: false, error: "Forbidden: insufficient permissions to record an expense" }, { status: 403 });
+      }
+      if (data.purchasePrice <= 0) {
+        return NextResponse.json({ success: false, error: "Purchase price is required to record this asset as an expense" }, { status: 400 });
+      }
+      if (!data.paymentMethod) {
+        return NextResponse.json({ success: false, error: "Payment method is required when recording this asset as an expense" }, { status: 400 });
+      }
+    }
+
     const asset = await db.$transaction(async (tx) => {
       const created = await tx.asset.create({
         data: {
@@ -147,6 +170,21 @@ export async function POST(request: NextRequest) {
       await tx.auditLog.create({
         data: { action: "CREATE", entity: "Asset", entityId: created.id, details: `Created asset: ${created.name} (${created.category})`, userId: user.id },
       });
+
+      if (data.createExpense) {
+        await createPurchaseExpense(tx, user, {
+          title: `Asset purchase — ${created.name}`,
+          category: assetCategoryToExpenseCategory(created.category),
+          amount: data.purchasePrice,
+          paymentMethod: data.paymentMethod!,
+          paidTo: data.paidTo || created.name,
+          paidBy: data.paidBy || user.name || user.email || "Company",
+          expenseDate: new Date(data.purchaseDate),
+          notes: data.notes ?? null,
+          walletId: data.payNow ? data.walletId ?? null : null,
+          assetId: created.id,
+        });
+      }
 
       return created;
     });

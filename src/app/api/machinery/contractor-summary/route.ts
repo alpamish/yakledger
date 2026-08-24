@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/permissions";
-import { buildAccessScope, withScope, APPROVED } from "@/lib/access-control";
+import { buildAccessScope, buildAggregateScope, withScope } from "@/lib/access-control";
 
 export async function GET(request: NextRequest) {
   const result = await requirePermission(request, "machinery:view");
@@ -86,15 +86,15 @@ export async function GET(request: NextRequest) {
           const [hoursAgg, fuelAgg] = await Promise.all([
             db.timesheet.aggregate({
               where: withScope(
-                { machineryId: { in: ids }, approvalStatus: APPROVED },
-                await buildAccessScope(user, "timesheet")
+                { machineryId: { in: ids } },
+                await buildAggregateScope(user, "timesheet")
               ),
               _sum: { totalHours: true },
             }),
             db.fuelUsage.aggregate({
               where: withScope(
-                { machineryId: { in: ids }, approvalStatus: APPROVED },
-                await buildAccessScope(user, "fuelUsage")
+                { machineryId: { in: ids } },
+                await buildAggregateScope(user, "fuelUsage")
               ),
               _sum: { quantity: true, totalCost: true },
             }),

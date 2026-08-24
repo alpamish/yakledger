@@ -188,6 +188,19 @@ export function ContractorTable({
         ),
       },
       {
+        accessorKey: 'contractorNumber',
+        header: 'Contract ID',
+        cell: ({ getValue }) => {
+          const number = getValue() as string | null | undefined;
+          return (
+            <span className="text-sm font-medium tabular-nums text-muted-foreground">
+              {number ?? '\u2014'}
+            </span>
+          );
+        },
+        enableSorting: false,
+      },
+      {
         accessorKey: 'contractorType',
         header: ({ column }) => {
           const sorted = column.getIsSorted();
@@ -410,6 +423,7 @@ export function ContractorTable({
           <div key={i} className="flex items-center gap-4">
             <Skeleton className="h-4 w-4" />
             <Skeleton className="h-4 w-36" />
+            <Skeleton className="h-4 w-16" />
             <Skeleton className="h-6 w-28" />
             <Skeleton className="h-4 w-28" />
             <Skeleton className="h-4 w-20" />

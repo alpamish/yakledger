@@ -7,12 +7,14 @@ import { useExpenseStore } from '@/hooks/use-expense-store';
 import { useDeleteExpense, useBulkDeleteExpenses } from '@/hooks/use-expense-query';
 import { ExpenseTable } from '@/components/expense/expense-table';
 import { ExpenseForm } from '@/components/expense/expense-form';
+import { BatchExpenseForm } from '@/components/expense/batch-expense-form';
 import { ConfirmDialog } from '@/components/common/confirm-dialog';
 import PdfPreviewModal from '@/components/pdf/pdf-preview-modal';
 import ExpenseDetailModal from '@/components/expense/expense-detail-modal';
 import type { Expense } from '@/types/expense';
 import { Plus, Receipt } from 'lucide-react';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useLiveRefresh } from '@/hooks/use-live-refresh';
 
 export function ExpensePage() {
   const { canView, canCreate, canEdit, canDelete } = usePermissions();
@@ -24,6 +26,11 @@ export function ExpensePage() {
   const selectedExpenseIds = useExpenseStore((s) => s.selectedExpenseIds);
   const expenses = useExpenseStore((s) => s.expenses);
   const fetchExpenses = useExpenseStore((s) => s.fetchExpenses);
+
+  // Keep the store copy (used for PDF export) fresh on live refresh events
+  useLiveRefresh(() => {
+    fetchExpenses();
+  }, 30_000);
 
   // Fetch expenses on mount to populate the store for PDF export
   useEffect(() => {
@@ -42,6 +49,9 @@ export function ExpensePage() {
   // PDF preview state
   const [pdfPreviewOpen, setPdfPreviewOpen] = useState(false);
 
+  // Batch entry state
+  const [batchFormOpen, setBatchFormOpen] = useState(false);
+
   // Detail modal state
   const [detailExpense, setDetailExpense] = useState<Expense | null>(null);
 
@@ -59,6 +69,21 @@ export function ExpensePage() {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [openForm, canCreate]);
+
+  // Keyboard shortcut: Alt+B to open Batch Entry form
+  useEffect(() => {
+    if (!canCreate('expenses')) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.altKey && (e.key === 'b' || e.key === 'B')) {
+        const target = e.target as HTMLElement;
+        if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) return;
+        e.preventDefault();
+        setBatchFormOpen(true);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [canCreate]);
 
   // Get selected expenses for PDF
   const selectedExpenses = useMemo(() => {
@@ -117,13 +142,19 @@ export function ExpensePage() {
           </p>
         </div>
         {canCreate('expenses') && (
-          <Button
-            onClick={() => openForm()}
-            className="bg-emerald-600 hover:bg-emerald-700 text-white"
-          >
-            <Plus className="mr-2 h-4 w-4" />
-            Add Expense
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              onClick={() => openForm()}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white"
+            >
+              <Plus className="mr-2 h-4 w-4" />
+              Add Expense
+            </Button>
+            <Button onClick={() => setBatchFormOpen(true)} variant="outline">
+              <Plus className="mr-2 h-4 w-4" />
+              Batch Entry
+            </Button>
+          </div>
         )}
       </div>
 
@@ -142,6 +173,13 @@ export function ExpensePage() {
 
       {/* Expense Form Dialog */}
       <ExpenseForm />
+
+      {/* Batch Entry Dialog */}
+      <BatchExpenseForm
+        open={batchFormOpen}
+        onOpenChange={setBatchFormOpen}
+        onSuccess={() => fetchExpenses()}
+      />
 
       {/* Single Delete Confirmation */}
       <ConfirmDialog

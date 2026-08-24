@@ -92,7 +92,7 @@ import { settingsApi } from '@/services/settings-api';
 import { employeesApi } from '@/services/employee-api';
 import { cashAdvanceApi } from '@/services/api';
 import type { Employee, Department } from '@/types/employee';
-import { DEPARTMENT_LABELS, EMPLOYEE_STATUS_LABELS } from '@/types/employee';
+import { DEPARTMENT_LABELS, EMPLOYEE_STATUS_LABELS, EMPLOYMENT_TYPE_LABELS, GENDER_LABELS } from '@/types/employee';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Command, CommandEmpty, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -113,6 +113,20 @@ function formatCurrency(amount: number): string {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(amount);
+}
+
+function fmtExportDate(value?: string | null): string {
+  if (!value) return '—';
+  try {
+    return format(new Date(value), 'yyyy-MM-dd');
+  } catch {
+    return value;
+  }
+}
+
+function fmtExportLabel<T extends string>(labels: Record<T, string>, value?: string | null): string {
+  if (!value) return '—';
+  return labels[value as T] ?? value;
 }
 
 export function ReportsPage() {
@@ -199,7 +213,7 @@ export function ReportsPage() {
   const [empListActiveOnly, setEmpListActiveOnly] = useState(false);
   const [empListDateFrom, setEmpListDateFrom] = useState('');
   const [empListDateTo, setEmpListDateTo] = useState('');
-  const [allEmployees, setAllEmployees] = useState<Pick<Employee, 'id' | 'fullName' | 'jobTitle' | 'department' | 'salary' | 'status' | 'hireDate'>[]>([]);
+  const [allEmployees, setAllEmployees] = useState<Employee[]>([]);
 
   // ─── Fuel Report State ────────────────────────────
   const [fuelDateFrom, setFuelDateFrom] = useState('');
@@ -393,19 +407,47 @@ export function ReportsPage() {
       }
 
       const rows = filtered.map((e, i) => {
-        const deptLabel = DEPARTMENT_LABELS[e.department as Department] ?? e.department;
-        const statusLabel = EMPLOYEE_STATUS_LABELS[e.status as keyof typeof EMPLOYEE_STATUS_LABELS] ?? e.status;
         const row: Record<string, string | number> = {
           '#': i + 1,
+          'Employee No': e.employeeNumber ?? '—',
           'Full Name': e.fullName,
-          'Department': deptLabel,
+          'Father Name': e.fatherName,
+          'Grandfather Name': e.grandfatherName ?? '—',
+          'Gender': fmtExportLabel(GENDER_LABELS, e.gender),
+          'Date of Birth': fmtExportDate(e.dateOfBirth),
+          'Nationality': e.nationality ?? '—',
+          'Phone': e.phoneNumber,
+          'Email': e.email ?? '—',
+          'Address': e.address ?? '—',
+          'National ID': e.nationalId ?? '—',
+          'Emergency Contact': e.emergencyContactName ?? '—',
+          'Emergency Phone': e.emergencyContactPhone ?? '—',
           'Job Title': e.jobTitle,
+          'Department': fmtExportLabel(DEPARTMENT_LABELS, e.department),
+          'Employment Type': fmtExportLabel(EMPLOYMENT_TYPE_LABELS, e.employmentType),
+          'Work Location': e.workLocation ?? '—',
+          'Category': e.employeeCategory ?? '—',
+          'Supervisor': e.supervisor?.fullName ?? '—',
+          'Work Hours/Day': e.workHoursPerDay,
+          'Overtime Rate': e.overtimeRate,
+          'Start Time': e.workStartTime ?? '—',
+          'End Time': e.workEndTime ?? '—',
+          'Break Minutes': e.breakMinutes ?? '—',
+          'Hire Date': fmtExportDate(e.hireDate),
+          'Contract Start': fmtExportDate(e.contractStartDate),
+          'Contract End': fmtExportDate(e.contractEndDate),
+          'Probation End': fmtExportDate(e.probationEndDate),
+          'Termination Date': fmtExportDate(e.terminationDate),
+          'Termination Reason': e.terminationReason ?? '—',
+          'Quit Date': fmtExportDate(e.quitingDate),
+          'Status': fmtExportLabel(EMPLOYEE_STATUS_LABELS, e.status),
+          'Created At': fmtExportDate(e.createdAt),
+          'Updated At': fmtExportDate(e.updatedAt),
         };
         if (empListWithSalary) {
-          row['Salary'] = e.salary;
+          row['Salary'] = e.salary ?? 0;
+          row['Base Salary (AFN, minor)'] = e.baseSalaryMinor ?? 0;
         }
-        row['Hire Date'] = e.hireDate ? format(new Date(e.hireDate), 'yyyy-MM-dd') : '—';
-        row['Status'] = statusLabel;
         return row;
       });
 
@@ -422,7 +464,7 @@ export function ReportsPage() {
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, 'Employees');
 
-      const totalSalary = filtered.reduce((s, e) => s + e.salary, 0);
+      const totalSalary = filtered.reduce((s, e) => s + (e.salary ?? 0), 0);
       const activeCount = filtered.filter((e) => e.status === 'ACTIVE').length;
       const deptCount = new Set(filtered.map((e) => e.department)).size;
 

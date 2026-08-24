@@ -7,6 +7,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useMachineryStore } from '@/hooks/use-machinery-store';
 import { MachineryTable } from '@/components/machinery/machinery-table';
 import { MachineryForm } from '@/components/machinery/machinery-form';
+import { MachineryDetailModal } from '@/components/machinery/machinery-detail-modal';
 import { MachinerySummary } from '@/components/machinery/machinery-summary';
 import { MachineryTimesheetTemplate } from '@/components/machinery/machinery-timesheet-template';
 import { TimesheetFormDialog } from '@/components/machinery/timesheet-form-dialog';
@@ -31,6 +32,9 @@ export function MachineryPage() {
   const deleteMachinery = useMachineryStore((s) => s.deleteMachinery);
 
   const [activeTab, setActiveTab] = useState<MachineryTab>('list');
+
+  // Detail modal
+  const [detailMachinery, setDetailMachinery] = useState<Machinery | null>(null);
 
   // Delete confirmation
   const [deleteConfirm, setDeleteConfirm] = useState<{
@@ -75,6 +79,11 @@ export function MachineryPage() {
     if (!canDelete('machinery')) return;
     setDeleteConfirm({ open: true, machinery: m });
   }, [canDelete]);
+
+  const handleViewDetail = useCallback((m: Machinery) => {
+    if (!canView('machinery')) return;
+    setDetailMachinery(m);
+  }, [canView]);
 
   const handleDeleteConfirm = useCallback(async () => {
     if (deleteConfirm.machinery) {
@@ -158,6 +167,7 @@ export function MachineryPage() {
           <Card>
             <CardContent className="p-4 sm:p-6">
               <MachineryTable
+                onViewDetail={handleViewDetail}
                 onTimesheet={handleTimesheetForm}
                 onEdit={handleEdit}
                 onDelete={handleDelete}
@@ -224,6 +234,13 @@ export function MachineryPage() {
 
       {/* Form Dialog */}
       <MachineryForm />
+
+      {/* Detail Modal */}
+      <MachineryDetailModal
+        open={!!detailMachinery}
+        onOpenChange={(open) => { if (!open) setDetailMachinery(null); }}
+        machinery={detailMachinery}
+      />
 
       {/* Delete Confirmation */}
       <ConfirmDialog

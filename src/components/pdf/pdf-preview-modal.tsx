@@ -85,8 +85,20 @@ export default function PdfPreviewModal({
           return;
         }
 
+        // Defensive: only ever pass well-formed expense records to the PDF
+        // renderer. react-pdf will throw (e.g. "reading 'id' of undefined")
+        // if it ever receives a malformed/undefined element.
+        const safeExpenses = expenses.filter(
+          (e): e is Expense => Boolean(e && typeof e === "object" && e.id)
+        );
+
+        if (safeExpenses.length === 0) {
+          setError("No valid expenses to generate a report.");
+          return;
+        }
+
         const blob = await pdf(
-          <ExpensePDFDocument expenses={expenses} filters={pdfFilters} companyName={companyName} />
+          <ExpensePDFDocument expenses={safeExpenses} filters={pdfFilters} companyName={companyName} />
         ).toBlob();
 
         if (cancelled) return;

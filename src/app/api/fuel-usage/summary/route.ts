@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/permissions";
-import { buildAccessScope, withScope, APPROVED } from "@/lib/access-control";
+import { buildAggregateScope, withScope } from "@/lib/access-control";
 
 export async function GET(request: NextRequest) {
   const result = await requirePermission(request, "fuelUsage:view");
@@ -40,13 +40,11 @@ export async function GET(request: NextRequest) {
       dateFilter.contractorId = contractorId;
     }
 
-    const statusFilter = approvalStatusParam
-      ? { approvalStatus: approvalStatusParam }
-      : { approvalStatus: APPROVED };
+    const statusFilter = approvalStatusParam ? { approvalStatus: approvalStatusParam } : {};
 
     const where = withScope(
       { ...dateFilter, ...statusFilter },
-      await buildAccessScope(user, "fuelUsage")
+      await buildAggregateScope(user, "fuelUsage")
     );
 
     const [aggregation, dailyGroup, typeGroup, fuelGroup, count] = await Promise.all([

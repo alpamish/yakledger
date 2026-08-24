@@ -24,7 +24,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Loader2, ChevronDown, Check } from 'lucide-react';
+import { Loader2, ChevronDown, Check, Upload, X, FileText } from 'lucide-react';
 import {
   Popover,
   PopoverContent,
@@ -39,8 +39,12 @@ import {
 } from '@/components/ui/command';
 import { ASSET_CATEGORIES, ASSET_STATUSES, ASSET_CATEGORY_LABELS, ASSET_STATUS_LABELS } from '@/types/asset';
 import { FUEL_TYPES, FUEL_TYPE_LABELS } from '@/types/contractor';
+import { PAYMENT_METHODS, PAYMENT_METHOD_LABELS } from '@/types/expense';
 import { Checkbox } from '@/components/ui/checkbox';
+import { walletApi } from '@/services/wallet-api';
 import { employeesApi } from '@/services/api';
+import { assetsApi } from '@/services/asset-api';
+import { toast } from 'sonner';
 
 const assetFormSchema = z.object({
   name: z.string().min(1, 'Name is required'),
@@ -54,10 +58,17 @@ const assetFormSchema = z.object({
   assignedToId: z.string().optional(),
   status: z.enum(ASSET_STATUSES as unknown as [string, ...string[]]).default('ACTIVE'),
   notes: z.string().optional(),
+  images: z.string().optional(),
   fuelType: z.string().optional(),
   fuelCapacity: z.coerce.number().min(0).optional(),
   fuelLocation: z.string().optional(),
   isMainContainer: z.boolean().optional(),
+  createExpense: z.boolean().optional().default(false),
+  paymentMethod: z.string().optional(),
+  paidBy: z.string().optional(),
+  paidTo: z.string().optional(),
+  payNow: z.boolean().optional().default(false),
+  walletId: z.string().optional(),
 });
 
 export type AssetFormValues = z.infer<typeof assetFormSchema>;
@@ -83,6 +94,7 @@ export function AssetForm({ defaultValues, onSubmit, isSubmitting }: AssetFormPr
   const [employees, setEmployees] = useState<EmployeeOption[]>([]);
   const [loadingEmployees, setLoadingEmployees] = useState(true);
   const [employeePopoverOpen, setEmployeePopoverOpen] = useState(false);
+  const [wallets, setWallets] = useState<{ id: string; name: string; balance: number; currency: string }[]>([]);
   const isEditing = !!defaultValues;
   const prevCategory = useRef<string | undefined>(undefined);
   const prevPurchasePrice = useRef<number>(0);
@@ -91,6 +103,12 @@ export function AssetForm({ defaultValues, onSubmit, isSubmitting }: AssetFormPr
     employeesApi.list().then((res) => {
       if (res.data) setEmployees(res.data);
     }).catch(() => {}).finally(() => setLoadingEmployees(false));
+  }, []);
+
+  useEffect(() => {
+    walletApi.list().then((res) => {
+      if (res.data) setWallets(res.data);
+    }).catch(() => {});
   }, []);
 
   const form = useForm<AssetFormValues>({
@@ -107,6 +125,12 @@ export function AssetForm({ defaultValues, onSubmit, isSubmitting }: AssetFormPr
       fuelLocation: '',
       isMainContainer: false,
       status: 'ACTIVE' as never,
+      createExpense: false,
+      paymentMethod: 'CASH',
+      paidBy: '',
+      paidTo: '',
+      payNow: false,
+      walletId: '',
       ...defaultValues,
     },
   });
@@ -141,6 +165,51 @@ export function AssetForm({ defaultValues, onSubmit, isSubmitting }: AssetFormPr
 
   const handleAssignedToChange = (value: string) => {
     form.setValue('assignedToId', value === UNASSIGNED ? '' : value);
+  };
+
+  const documentInputRef = useRef<HTMLInputElement>(null);
+  const [isUploadingDocument, setIsUploadingDocument] = useState(false);
+
+  const isImageUrl = (url: string) =>
+    /\.(jpe?g|png|webp|gif)(\?.*)?$/i.test(url);
+
+  const handleDocumentChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+
+    const allowed = [
+      'image/jpeg',
+      'image/png',
+      'image/webp',
+      'image/gif',
+      'application/pdf',
+    ];
+    if (!allowed.includes(file.type)) {
+      toast.error('File type not allowed. Accepted: images and PDFs');
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      toast.error('File size must be less than 10 MB');
+      return;
+    }
+
+    setIsUploadingDocument(true);
+    try {
+      const res = await assetsApi.uploadDocument(file);
+      if (res.success && res.data?.path) {
+        form.setValue('images', res.data.path);
+        toast.success('Document uploaded');
+      } else {
+        toast.error(res.error || 'Failed to upload document');
+      }
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : 'Failed to upload document'
+      );
+    } finally {
+      setIsUploadingDocument(false);
+    }
   };
 
   return (
@@ -319,6 +388,7 @@ export function AssetForm({ defaultValues, onSubmit, isSubmitting }: AssetFormPr
                             <CommandItem
                               key={emp.id}
                               value={emp.id}
+                              keywords={[emp.fullName, emp.jobTitle]}
                               onSelect={() => {
                                 handleAssignedToChange(emp.id);
                                 setEmployeePopoverOpen(false);
@@ -467,6 +537,218 @@ export function AssetForm({ defaultValues, onSubmit, isSubmitting }: AssetFormPr
             </FormItem>
           )}
         />
+
+        <FormField
+          control={form.control}
+          name="images"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Document (Image or PDF)</FormLabel>
+              <FormControl>
+                {field.value ? (
+                  <div className="flex items-center gap-3 rounded-md border p-3">
+                    {isImageUrl(field.value) ? (
+                      <img
+                        src={field.value}
+                        alt="Asset document"
+                        className="h-16 w-16 rounded-md border object-cover"
+                      />
+                    ) : (
+                      <FileText className="h-10 w-10 text-red-500" />
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium">
+                        {field.value.split('/').pop()}
+                      </p>
+                      <a
+                        href={field.value}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-xs text-emerald-600 hover:underline"
+                      >
+                        {isImageUrl(field.value) ? 'View image' : 'Open PDF'}
+                      </a>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => form.setValue('images', '')}
+                    >
+                      <X className="mr-1 h-4 w-4" />
+                      Remove
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-3">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={isUploadingDocument}
+                      onClick={() => documentInputRef.current?.click()}
+                    >
+                      {isUploadingDocument ? (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      ) : (
+                        <Upload className="mr-2 h-4 w-4" />
+                      )}
+                      {isUploadingDocument ? 'Uploading...' : 'Upload Document'}
+                    </Button>
+                    <input
+                      ref={documentInputRef}
+                      type="file"
+                      accept="image/*,application/pdf"
+                      className="hidden"
+                      onChange={handleDocumentChange}
+                    />
+                    <span className="text-xs text-muted-foreground">
+                      PNG, JPG, WebP, GIF or PDF (max 10 MB)
+                    </span>
+                  </div>
+                )}
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        {!isEditing && (
+          <div className="border rounded-lg p-4 space-y-4 bg-muted/30">
+            <FormField
+              control={form.control}
+              name="createExpense"
+              render={({ field }) => (
+                <FormItem className="flex flex-row items-start space-x-3 space-y-0">
+                  <FormControl>
+                    <Checkbox
+                      checked={field.value}
+                      onCheckedChange={field.onChange}
+                    />
+                  </FormControl>
+                  <div className="space-y-1 leading-none">
+                    <FormLabel>Record this purchase as an expense</FormLabel>
+                    <p className="text-xs text-muted-foreground">
+                      Adds the asset purchase to the expenses ledger. Only approved expenses count toward balances.
+                    </p>
+                  </div>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            {form.watch('createExpense') && (
+              <>
+                <FormField
+                  control={form.control}
+                  name="paymentMethod"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Payment Method</FormLabel>
+                      <Select onValueChange={field.onChange} value={field.value}>
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select payment method" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {PAYMENT_METHODS.map((m) => (
+                            <SelectItem key={m} value={m}>
+                              {PAYMENT_METHOD_LABELS[m]}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="paidTo"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Paid To</FormLabel>
+                      <FormControl>
+                        <Input placeholder="Vendor / supplier name" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="paidBy"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Paid By</FormLabel>
+                      <FormControl>
+                        <Input placeholder="Who paid (defaults to current user)" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="payNow"
+                  render={({ field }) => (
+                    <FormItem className="flex flex-row items-start space-x-3 space-y-0">
+                      <FormControl>
+                        <Checkbox
+                          checked={field.value}
+                          onCheckedChange={field.onChange}
+                        />
+                      </FormControl>
+                      <div className="space-y-1 leading-none">
+                        <FormLabel>Pay now from wallet</FormLabel>
+                        <p className="text-xs text-muted-foreground">
+                          Leave unchecked to record as unpaid (pay later).
+                        </p>
+                      </div>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                {form.watch('payNow') && (
+                  <FormField
+                    control={form.control}
+                    name="walletId"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Company Wallet</FormLabel>
+                        <Select onValueChange={field.onChange} value={field.value || ''}>
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select wallet" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            {wallets.length === 0 ? (
+                              <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                                No wallets found
+                              </div>
+                            ) : (
+                              wallets.map((w) => (
+                                <SelectItem key={w.id} value={w.id}>
+                                  {w.name} ({w.balance.toLocaleString()} {w.currency})
+                                </SelectItem>
+                              ))
+                            )}
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                )}
+              </>
+            )}
+          </div>
+        )}
 
         <div className="flex justify-end gap-3">
           <Button

@@ -64,6 +64,12 @@ export interface Asset {
     assetLogs: number;
     fuelTransactions: number;
   };
+  expenses?: {
+    id: string;
+    amount: number;
+    approvalStatus: string;
+    walletId?: string | null;
+  }[];
 }
 
 export interface AssetFormData {
@@ -83,6 +89,12 @@ export interface AssetFormData {
   fuelCapacity?: number;
   fuelLocation?: string;
   isMainContainer?: boolean;
+  createExpense?: boolean;
+  paymentMethod?: string;
+  paidBy?: string;
+  paidTo?: string;
+  payNow?: boolean;
+  walletId?: string;
 }
 
 export interface AssetFilters {
@@ -122,6 +134,12 @@ export interface FuelTransaction {
   createdBy: string;
   createdAt: string;
   updatedAt: string;
+  expenses?: {
+    id: string;
+    amount: number;
+    approvalStatus: string;
+    walletId?: string | null;
+  }[];
 }
 
 export interface FuelTransactionFilters {
@@ -150,6 +168,12 @@ export interface FuelTransactionFormData {
   contractorId?: string;
   machineryId?: string;
   issuedToName?: string;
+  billable?: boolean;
+  createExpense?: boolean;
+  paymentMethod?: string;
+  paidBy?: string;
+  payNow?: boolean;
+  walletId?: string;
   notes?: string;
   date?: string;
 }

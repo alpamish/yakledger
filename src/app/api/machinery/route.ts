@@ -33,6 +33,14 @@ const createMachinerySchema = z.object({
   workHoursPerDay: z.number().int().min(1).max(24).default(9),
   contractStartDate: z.string().optional().nullable(),
   contractEndDate: z.string().optional().nullable(),
+}).superRefine((data, ctx) => {
+  if (data.hourlyRate <= 0 && data.dailyRate <= 0 && data.monthlyRate <= 0) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["monthlyRate"],
+      message: "At least one rate (hourly, daily, or monthly) is required",
+    });
+  }
 });
 
 // GET /api/machinery - List machinery with filtering, pagination, sorting
@@ -176,11 +184,24 @@ export async function POST(request: NextRequest) {
           contractStartDate: data.contractStartDate ? new Date(data.contractStartDate) : null,
           contractEndDate: data.contractEndDate ? new Date(data.contractEndDate) : null,
           createdBy: user.id,
+          machineryRates: {
+            create: {
+              rateName: "Default",
+              monthlyRate: data.monthlyRate,
+              dailyRate: data.dailyRate,
+              hourlyRate: data.hourlyRate,
+              contractDaysPerMonth: data.contractDaysPerMonth,
+              workHoursPerDay: data.workHoursPerDay,
+              isDefault: true,
+              createdBy: user.id,
+            },
+          },
         },
         include: {
           assignedContractor: {
             select: { id: true, contractorName: true, contractorType: true },
           },
+          machineryRates: true,
           _count: {
             select: { timesheets: true, fuelUsages: true },
           },

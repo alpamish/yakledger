@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthenticatedUser } from "@/lib/auth-middleware";
+import { getEffectivePermissions } from "@/lib/permissions";
 
 export async function GET(request: NextRequest) {
   try {
@@ -12,10 +13,21 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    return NextResponse.json({
-      success: true,
-      data: user,
-    });
+    // Resolve effective permissions in the same request so the client boot
+    // needs a single roundtrip instead of two (me + permissions).
+    const permissions = await getEffectivePermissions(user.id, user.role);
+
+    return NextResponse.json(
+      {
+        success: true,
+        data: { user, permissions },
+      },
+      {
+        headers: {
+          "Cache-Control": "private, max-age=30, stale-while-revalidate=60",
+        },
+      }
+    );
   } catch (error) {
     console.error("Get current user error:", error);
     return NextResponse.json(

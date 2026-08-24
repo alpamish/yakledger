@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/permissions";
 import { buildAccessScope, withScope } from "@/lib/access-control";
 import { walletService } from "@/services/wallet.service";
+import { companyWalletService } from "@/services/company-wallet.service";
 import { APPROVED } from "@/lib/access-control";
 
 const bulkDeleteSchema = z.object({
@@ -44,6 +45,8 @@ export async function POST(request: NextRequest) {
         paidById: true,
         approvalStatus: true,
         payrollId: true,
+        walletId: true,
+        deductFromWallet: true,
       },
     });
 
@@ -66,6 +69,20 @@ export async function POST(request: NextRequest) {
     const accessibleIds = expenses.map((e) => e.id);
 
     const deleted = await db.$transaction(async (tx) => {
+      // Credit back any approved company-wallet deductions BEFORE deleting the
+      // expenses so the reversal transactions can still reference their ids.
+      for (const expense of expenses) {
+        if (expense.approvalStatus === APPROVED && expense.walletId) {
+          await companyWalletService.reverseExpenseDeduction(
+            tx,
+            expense.walletId,
+            expense.amount,
+            user.id,
+            expense.id
+          );
+        }
+      }
+
       await tx.auditLog.createMany({
         data: expenses.map((expense) => ({
           action: "BULK_DELETE",
@@ -81,15 +98,21 @@ export async function POST(request: NextRequest) {
       });
     });
 
-    // Refund wallets for any approved, employee-paid expenses (best-effort)
+    // Reconcile paying employees' wallets for any approved, employee-paid
+    // expenses that were deleted.
+    const affectedEmployees = new Set<string>();
     for (const expense of expenses) {
-      if (expense.approvalStatus === APPROVED && expense.paidById) {
-        try {
-          await walletService.addBackToWallet(expense.paidById, expense.amount, user.id);
-        } catch (walletErr) {
-          console.warn("Wallet add-back failed:", walletErr);
-        }
+      if (
+        expense.approvalStatus === APPROVED &&
+        expense.paidById &&
+        expense.deductFromWallet !== false
+      ) {
+        affectedEmployees.add(expense.paidById);
       }
+    }
+    for (const empId of affectedEmployees) {
+      try { await walletService.reconcileForExpense(empId); }
+      catch (e) { console.warn("Wallet reconcile on bulk delete failed:", e); }
     }
 
     return NextResponse.json({

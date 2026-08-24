@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/permissions";
-import { buildAccessScope, withScope, APPROVED } from "@/lib/access-control";
+import { buildAccessScope, buildAggregateScope, withScope } from "@/lib/access-control";
 
 const MONTH_LABELS = [
   "January", "February", "March", "April", "May", "June",
@@ -75,10 +75,7 @@ export async function GET(request: NextRequest) {
     }
 
     const fuelUsageRecords = await db.fuelUsage.findMany({
-      where: withScope(
-        { ...dateFilter, approvalStatus: APPROVED },
-        await buildAccessScope(user, "fuelUsage")
-      ),
+      where: withScope(dateFilter, await buildAggregateScope(user, "fuelUsage")),
       select: {
         machineryId: true,
         date: true,

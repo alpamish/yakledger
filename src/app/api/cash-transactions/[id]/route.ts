@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/permissions";
 import { walletService } from "@/services/wallet.service";
-import { buildAccessScope, withScope, APPROVED } from "@/lib/access-control";
+import { buildAccessScope, buildListScope, withScope, APPROVED } from "@/lib/access-control";
 
 export async function GET(
   request: NextRequest,
@@ -15,7 +15,7 @@ export async function GET(
 
     const { id } = await params;
     const transaction = await db.cashTransaction.findFirst({
-      where: withScope({ id }, await buildAccessScope(user, "cashTransaction")),
+      where: withScope({ id }, await buildListScope(user, "cashTransaction")),
       include: {
         employee: { select: { id: true, fullName: true, jobTitle: true, department: true } },
         creator: { select: { id: true, name: true } },

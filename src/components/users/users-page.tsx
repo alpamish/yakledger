@@ -74,6 +74,7 @@ interface PermissionItem {
   description: string | null;
   module: string;
   granted: boolean | null;
+  roleGranted: boolean;
 }
 
 interface UserItem {
@@ -89,6 +90,7 @@ interface UserItem {
 
 const MODULE_LABELS: Record<string, string> = {
   dashboard: "Dashboard",
+  projectCost: "Project Cost",
   expenses: "Expenses",
   employees: "Employees",
   contractors: "Contractors",
@@ -97,9 +99,11 @@ const MODULE_LABELS: Record<string, string> = {
   machinery: "Machinery",
   assets: "Assets",
   cashAdvance: "Cash & Advances",
+  wallets: "Wallets",
   reports: "Reports",
   settings: "Settings",
   users: "Users",
+  content: "Reference Lists",
 };
 
 function getRoleColor(role: string): string {
@@ -108,6 +112,8 @@ function getRoleColor(role: string): string {
     case "MANAGER": return "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400";
     case "WATCHER": return "bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-400";
     case "TIMESHEET_USER": return "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400";
+    case "EXPENSE_USER": return "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400";
+    case "DATA_ENTRY": return "bg-teal-100 text-teal-800 dark:bg-teal-900/30 dark:text-teal-400";
     default: return "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400";
   }
 }
@@ -277,9 +283,9 @@ export function UsersPage() {
     let method = "PUT";
     let body: Record<string, unknown>;
 
-    if (perm.granted === null) {
-      newGranted = false;
-      body = { permissionName: perm.name, granted: false };
+    if (perm.granted === null && !perm.roleGranted) {
+      newGranted = true;
+      body = { permissionName: perm.name, granted: true };
     } else if (perm.granted === true) {
       newGranted = false;
       body = { permissionName: perm.name, granted: false };
@@ -574,7 +580,10 @@ export function UsersPage() {
                               {perm.granted === false && (
                                 <Badge variant="secondary" className="bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400 text-[10px] px-1.5 py-0">Denied</Badge>
                               )}
-                              {perm.granted === null && (
+                              {perm.granted === null && perm.roleGranted && (
+                                <Badge variant="secondary" className="bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 text-[10px] px-1.5 py-0">By Role</Badge>
+                              )}
+                              {perm.granted === null && !perm.roleGranted && (
                                 <Badge variant="secondary" className="text-[10px] px-1.5 py-0">Default</Badge>
                               )}
                             </button>

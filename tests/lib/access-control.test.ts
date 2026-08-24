@@ -1,6 +1,8 @@
 import {
   isAdmin,
   buildAccessScope,
+  buildListScope,
+  buildAggregateScope,
   withScope,
   resolveApprovalStatusOnCreate,
   resolveApprovalStatusOnEdit,
@@ -20,12 +22,14 @@ beforeAll(async () => {
     data: [
       { id: "u_admin", email: "admin@test.local", name: "admin", password: "hash", role: "ADMIN" },
       { id: "u_regular", email: "regular@test.local", name: "regular", password: "hash", role: "USER" },
+      { id: "u_watcher", email: "watcher@test.local", name: "watcher", password: "hash", role: "WATCHER" },
     ],
   });
 });
 
 const adminUser = { id: "u_admin", role: "ADMIN" } as AuthUser;
 const regularUser = { id: "u_regular", role: "USER" } as AuthUser;
+const watcherUser = { id: "u_watcher", role: "WATCHER" } as AuthUser;
 
 describe("access-control helpers (pure)", () => {
   it("isAdmin recognises ADMIN and rejects everything else", () => {
@@ -54,6 +58,8 @@ describe("access-control helpers (pure)", () => {
     expect(resolveApprovalStatusOnEdit(regularUser, APPROVED)).toBe(PENDING);
     // Non-admin editing a pending record keeps it pending.
     expect(resolveApprovalStatusOnEdit(regularUser, PENDING)).toBe(PENDING);
+    // Non-admin editing a rejected record resubmits it as pending.
+    expect(resolveApprovalStatusOnEdit(regularUser, REJECTED)).toBe(PENDING);
     // Nullish current status defaults to PENDING for non-admins.
     expect(resolveApprovalStatusOnEdit(regularUser, null)).toBe(PENDING);
     expect(resolveApprovalStatusOnEdit(regularUser, undefined)).toBe(PENDING);
@@ -104,8 +110,9 @@ describe("access-control.buildAccessScope", () => {
   });
 
   it("a non-admin with no grants is scoped only to own records", async () => {
-    const scope = await buildAccessScope(regularUser, "contractor");
-    expect(scope).toEqual({ OR: [{ createdBy: "u_regular" }] });
+    // WATCHER has no create/edit perms, so no reference content:* deps apply.
+    const scope = await buildAccessScope(watcherUser, "contractor");
+    expect(scope).toEqual({ OR: [{ createdBy: "u_watcher" }] });
   });
 
   it("a content-permission grant relaxes the scope to unrestricted for that entity", async () => {
@@ -116,14 +123,61 @@ describe("access-control.buildAccessScope", () => {
     });
     const perm = await db.permission.findUniqueOrThrow({ where: { name: "content:machinery" } });
     await db.userPermission.upsert({
-      where: { userId_permissionId: { userId: "u_regular", permissionId: perm.id } },
+      where: { userId_permissionId: { userId: "u_watcher", permissionId: perm.id } },
       update: { granted: true },
-      create: { userId: "u_regular", permissionId: perm.id, granted: true },
+      create: { userId: "u_watcher", permissionId: perm.id, granted: true },
     });
 
-    expect(await buildAccessScope(regularUser, "machinery")).toEqual({});
-    expect(await buildAccessScope(regularUser, "employee")).toEqual({
-      OR: [{ createdBy: "u_regular" }],
+    expect(await buildAccessScope(watcherUser, "machinery")).toEqual({});
+    expect(await buildAccessScope(watcherUser, "employee")).toEqual({
+      OR: [{ createdBy: "u_watcher" }],
     });
+  });
+});
+
+describe("access-control.buildListScope (creator sees own records at any status)", () => {
+  it("admin list scope for an approval entity keeps only approved + rejected", async () => {
+    expect(await buildListScope(adminUser, "expense")).toEqual({
+      approvalStatus: { in: [APPROVED, REJECTED] },
+    });
+  });
+
+  it("non-admin list scope includes own records at any status (pending visible to creator)", async () => {
+    // u_regular has a grant on exp_granted from the buildAccessScope test.
+    expect(await buildListScope(regularUser, "expense")).toEqual({
+      OR: [
+        { createdBy: "u_regular" },
+        { AND: [{ approvalStatus: APPROVED }, { id: { in: ["exp_granted"] } }] },
+      ],
+    });
+  });
+
+  it("non-approval entities fall back to buildAccessScope", async () => {
+    expect(await buildListScope(regularUser, "employee")).toEqual(
+      await buildAccessScope(regularUser, "employee")
+    );
+  });
+});
+
+describe("access-control.buildAggregateScope (only approved counted)", () => {
+  it("admin aggregate scope for an approval entity keeps only approved", async () => {
+    expect(await buildAggregateScope(adminUser, "expense")).toEqual({
+      approvalStatus: APPROVED,
+    });
+  });
+
+  it("non-admin aggregate scope counts approved only (own + granted)", async () => {
+    expect(await buildAggregateScope(regularUser, "expense")).toEqual({
+      OR: [
+        { createdBy: "u_regular", approvalStatus: APPROVED },
+        { AND: [{ approvalStatus: APPROVED }, { id: { in: ["exp_granted"] } }] },
+      ],
+    });
+  });
+
+  it("non-approval entities fall back to buildAccessScope", async () => {
+    expect(await buildAggregateScope(regularUser, "employee")).toEqual(
+      await buildAccessScope(regularUser, "employee")
+    );
   });
 });

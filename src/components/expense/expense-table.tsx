@@ -37,6 +37,7 @@ import {
 } from '@/components/ui/popover';
 import { useExpenseStore } from '@/hooks/use-expense-store';
 import { useExpenses } from '@/hooks/use-expense-query';
+import { useLiveRefresh } from '@/hooks/use-live-refresh';
 import { useDebounce } from '@/hooks/use-debounce';
 import { usePermissions } from '@/hooks/use-permissions';
 import {
@@ -48,6 +49,7 @@ import {
 } from '@/types/expense';
 import type { Expense, Category, PaymentMethod } from '@/types/expense';
 import { EmptyState } from '@/components/common/empty-state';
+import { gregorianToShamsi } from '@/lib/shamsi';
 import { ApprovalStatusBadge } from '@/components/common/approval-status-badge';
 import { RecordAccessDialog } from '@/components/common/record-access-dialog';
 import {
@@ -86,8 +88,11 @@ export function ExpenseTable({
   onViewDetail,
 }: ExpenseTableProps) {
   const { canEdit, canDelete } = usePermissions();
-  const { data: queryData, isLoading, isFetching } = useExpenses();
+  const { data: queryData, isLoading, isFetching, refetch } = useExpenses();
   const expenses = queryData?.data ?? [];
+  useLiveRefresh(() => {
+    refetch();
+  }, 15_000, { fetchOnMount: false });
   const selectedExpenseIds = useExpenseStore((s) => s.selectedExpenseIds);
   const filters = useExpenseStore((s) => s.filters);
   const pagination = useExpenseStore((s) => s.pagination);
@@ -457,6 +462,19 @@ export function ExpenseTable({
             return date;
           }
         },
+      },
+      {
+        id: 'expenseDateShamsi',
+        header: 'Date (Shamsi)',
+        cell: ({ row }) => {
+          try {
+            return gregorianToShamsi(new Date(row.original.expenseDate));
+          } catch {
+            return '—';
+          }
+        },
+        enableSorting: false,
+        size: 110,
       },
       {
         id: 'actions',

@@ -13,6 +13,9 @@
     "db:generate": "prisma generate && prisma generate --schema=prisma/schema.pg.prisma",
     "db:migrate": "prisma migrate dev",
     "db:reset": "prisma migrate reset",
+    "backup": "tsx scripts/backup.ts",
+    "backup:list": "tsx scripts/backup.ts --list",
+    "backup:restore": "tsx scripts/backup.ts --restore",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
@@ -105,6 +108,7 @@
     "eslint-config-next": "^16.1.1",
     "happy-dom": "^20.11.1",
     "tailwindcss": "^4",
+    "tsx": "^4.23.12",
     "tw-animate-css": "^1.3.5",
     "typescript": "^5",
     "vitest": "^3"

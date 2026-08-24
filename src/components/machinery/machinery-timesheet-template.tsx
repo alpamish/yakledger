@@ -82,12 +82,18 @@ function generatePage1Html(
   useShamsi?: boolean,
   emptyMode?: boolean,
   machineryLabel?: string,
+  autoFillDates?: boolean,
+  startDate?: string,
 ): string {
   const [year, monthNum] = month.split("-").map(Number);
-  const dateObj = new Date(year, monthNum - 1, 1);
-  const monthFarsi = useShamsi
-    ? `${getShamsiMonthName(toShamsiMonth(dateObj))} ${toShamsiYear(dateObj)}`
-    : `${getMonthFarsiName(monthNum)} ${year}`;
+  const useAutoFill = autoFillDates && startDate;
+  const monthFarsi = useAutoFill
+    ? (useShamsi
+      ? `${getShamsiMonthName(toShamsiMonth(new Date(startDate)))} ${toShamsiYear(new Date(startDate))}`
+      : `${getMonthFarsiName(new Date(startDate).getMonth() + 1)} ${new Date(startDate).getFullYear()}`)
+    : (useShamsi
+      ? `${getShamsiMonthName(toShamsiMonth(new Date(year, monthNum - 1, 1)))} ${toShamsiYear(new Date(year, monthNum - 1, 1))}`
+      : `${getMonthFarsiName(monthNum)} ${year}`);
 
   const tableRows = entries
     .map(
@@ -234,10 +240,12 @@ function generateSingleMachineryHtml(
   emptyMode?: boolean,
   pageSelection?: TimesheetPageSelection,
   machineryLabel?: string,
+  autoFillDates?: boolean,
+  startDate?: string,
 ): string {
   const pages: string[] = [];
   if (pageSelection === "front" || pageSelection === "both") {
-    pages.push(generatePage1Html(entries, machinery, contractorName, companyName, month, totalHours, useShamsi, emptyMode, machineryLabel));
+    pages.push(generatePage1Html(entries, machinery, contractorName, companyName, month, totalHours, useShamsi, emptyMode, machineryLabel, autoFillDates, startDate));
   }
   if (pageSelection === "back" || pageSelection === "both") {
     pages.push(generatePage2Html(fuelEntries));
@@ -444,7 +452,7 @@ export function MachineryTimesheetTemplate({ onBack, initialMachineryIds }: Mach
       pagesHtml.push(generateSingleMachineryHtml(
         data.dailyEntries, data.fuelEntries, data.machinery, data.contractorName,
         companyName, selectedMonth, data.totalHours, useShamsi, false,
-        pageSelection, label,
+        pageSelection, label, autoFillDates, startDate,
       ));
       idx++;
     }
@@ -481,7 +489,7 @@ export function MachineryTimesheetTemplate({ onBack, initialMachineryIds }: Mach
       [generateSingleMachineryHtml(
         emptyEntries, emptyFuelEntries, null, "",
         companyName, selectedMonth, 0, useShamsi, true,
-        pageSelection, undefined,
+        pageSelection, undefined, autoFillDates, startDate,
       )],
       `تایم شیت خالی - ${selectedMonth}`,
     );

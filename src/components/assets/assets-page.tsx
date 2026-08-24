@@ -6,11 +6,10 @@ import { usePermissions } from '@/hooks/use-permissions';
 import { AssetsListPage } from './assets-list-page';
 import { AssetFormPage } from './asset-form-page';
 import { AssetDetailPage } from './asset-detail-page';
-import { FuelPage } from '../fuel/fuel-page';
 import { MaintenancePage } from '../maintenance/maintenance-page';
 import { AssetLogsPage } from '../asset-logs/asset-logs-page';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
-import { Package, Fuel, Wrench, ClipboardList } from 'lucide-react';
+import { Package, Wrench, ClipboardList } from 'lucide-react';
 
 export function AssetsPage() {
   const { canView } = usePermissions();
@@ -21,7 +20,6 @@ export function AssetsPage() {
 
   useEffect(() => {
     useAssetStore.getState().fetchAssets();
-    useAssetStore.getState().fetchFuelStock();
   }, []);
 
   if (activeView === 'create' || activeView === 'edit') {
@@ -52,10 +50,6 @@ export function AssetsPage() {
             <Package className="h-4 w-4" />
             All Assets
           </TabsTrigger>
-          <TabsTrigger value="fuel" className="flex items-center gap-2">
-            <Fuel className="h-4 w-4" />
-            Fuel Stock
-          </TabsTrigger>
           <TabsTrigger value="maintenance" className="flex items-center gap-2">
             <Wrench className="h-4 w-4" />
             Maintenance
@@ -68,10 +62,6 @@ export function AssetsPage() {
 
         <TabsContent value="assets" className="mt-6">
           <AssetsListPage />
-        </TabsContent>
-
-        <TabsContent value="fuel" className="mt-6">
-          <FuelPage />
         </TabsContent>
 
         <TabsContent value="maintenance" className="mt-6">

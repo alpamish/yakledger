@@ -62,6 +62,14 @@ const machineryEntrySchema = z.object({
   workHoursPerDay: z.coerce.number().int().min(1, 'Min 1').max(24, 'Max 24').default(9),
   contractStartDate: z.string().optional().nullable(),
   contractEndDate: z.string().optional().nullable(),
+}).superRefine((data, ctx) => {
+  if (data.hourlyRate <= 0 && data.dailyRate <= 0 && data.monthlyRate <= 0) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['monthlyRate'],
+      message: 'At least one rate (hourly, daily, or monthly) is required',
+    });
+  }
 });
 
 const contractorFormSchema = z.object({
@@ -370,6 +378,10 @@ export function ContractorForm() {
                   <Plus className="h-4 w-4 mr-1" /> Add Machinery
                 </Button>
               </div>
+              <p className="text-xs text-muted-foreground -mt-2 mb-3">
+                Each machinery needs at least one rate (hourly, daily, or monthly). A default rate
+                tier ('Default') is created automatically from those rates.
+              </p>
             </div>
 
             {fields.map((field, index) => (

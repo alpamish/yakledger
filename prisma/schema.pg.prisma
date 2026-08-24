@@ -23,6 +23,9 @@ enum Category {
   MATERIALS
   EQUIPMENT_RENTAL
   OFFICE_EXPENSE
+  REWARD
+  BONUS
+  MEDICATION
   MISCELLANEOUS
 }
 
@@ -630,6 +633,9 @@ model Expense {
   paidByContractorId String?
   payrollId          String?
   walletId           String?
+  deductFromWallet   Boolean     @default(true)
+  assetId            String?
+  fuelTransactionId  String?
 
   creator        User          @relation(fields: [createdBy], references: [id], onDelete: Cascade)
   payroll        Payroll?      @relation(fields: [payrollId], references: [id])
@@ -638,6 +644,8 @@ model Expense {
   paidToEmployee Employee?     @relation("ExpensePaidTo", fields: [paidToId], references: [id], onDelete: SetNull)
   paidToContractor Contractor? @relation("ExpensePaidToContractor", fields: [paidToContractorId], references: [id], onDelete: SetNull)
   paidByContractor Contractor? @relation("ExpensePaidByContractor", fields: [paidByContractorId], references: [id], onDelete: SetNull)
+  asset            Asset?      @relation("ExpenseAsset", fields: [assetId], references: [id], onDelete: SetNull)
+  fuelTransaction  FuelTransaction? @relation("FuelTransactionExpense", fields: [fuelTransactionId], references: [id], onDelete: SetNull)
 
   approvalStatus String   @default("PENDING")
   approvedById   String?
@@ -646,6 +654,7 @@ model Expense {
   approver       User?    @relation("ExpenseApprover", fields: [approvedById], references: [id], onDelete: SetNull)
 
   fuelUsage      FuelUsage[]
+  walletTransactions WalletTransaction[]
 
   @@index([expenseDate])
   @@index([category])
@@ -662,12 +671,20 @@ model Expense {
   @@index([category, expenseDate])
   @@index([approvalStatus])
   @@index([approvalStatus, createdAt])
+  @@index([approvalStatus, expenseDate])
+  @@index([approvalStatus, category])
+  @@index([paidToId, expenseDate])
+  @@index([approvalStatus, paidToContractorId, expenseDate])
+  @@index([approvalStatus, createdBy, expenseDate])
   @@index([payrollId])
   @@index([walletId])
+  @@index([assetId])
+  @@index([fuelTransactionId])
 }
 
 model Contractor {
   id                  String          @id @default(cuid())
+  contractorNumber    String?         @unique
   contractorName      String
   fatherName          String
   companyName         String?
@@ -696,6 +713,11 @@ model Contractor {
   @@index([nationalId])
   @@index([status])
   @@index([createdBy])
+}
+
+model Sequence {
+  name  String @id
+  value Int    @default(1)
 }
 
 model Timesheet {
@@ -736,6 +758,9 @@ model Timesheet {
   @@index([createdBy])
   @@index([approvalStatus])
   @@index([approvalStatus, createdAt])
+  @@index([approvalStatus, contractorId, date])
+  @@index([approvalStatus, machineryId, date])
+  @@index([approvalStatus, createdBy])
 }
 
 model FuelUsage {
@@ -751,7 +776,8 @@ model FuelUsage {
   receiptAttachment String?
   linkedExpenseId String?
   fuelTransactionId String?
-  notes           String?
+  billable         Boolean   @default(false)
+  notes            String?
   createdBy       String
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
@@ -769,11 +795,15 @@ model FuelUsage {
 
   @@index([contractorId, date])
   @@index([machineryId])
+  @@index([machineryId, date])
   @@index([linkedExpenseId])
   @@index([fuelTransactionId])
   @@index([createdBy])
   @@index([approvalStatus])
   @@index([approvalStatus, createdAt])
+  @@index([approvalStatus, contractorId, date])
+  @@index([approvalStatus, machineryId, date])
+  @@index([approvalStatus, createdBy])
 }
 
 model Machinery {
@@ -783,6 +813,11 @@ model Machinery {
   plateNumber           String?
   model                 String?
   driverName            String?
+  driverFatherName      String?
+  driverPhoneNumber     String?
+  driverNationalId      String?
+  driverIdImageFront    String?
+  driverIdImageBack     String?
   status                MachineryStatus @default(OPERATIONAL)
   assignedContractorId  String
   fuelType              FuelType        @default(DIESEL)
@@ -907,12 +942,15 @@ model WalletTransaction {
   amount    Float
   note      String?
   payrollId String?
+  expenseId String?
   createdBy String
   createdAt DateTime @default(now())
+  expense   Expense? @relation(fields: [expenseId], references: [id], onDelete: SetNull)
 
   @@index([walletId])
   @@index([type])
   @@index([payrollId])
+  @@index([expenseId])
 }
 
 model Transfer {
@@ -1003,6 +1041,7 @@ model Asset {
   fuelDestinationTransactions FuelTransaction[] @relation("FuelTransactionDestination")
   maintenanceRecords MaintenanceRecord[]
   assetLogs          AssetLog[]
+  expenses           Expense[]        @relation("ExpenseAsset")
 
   @@index([assignedToId])
   @@index([category])
@@ -1039,6 +1078,7 @@ model FuelTransaction {
 
   creator      User        @relation(fields: [createdBy], references: [id], onDelete: Cascade)
   fuelUsages   FuelUsage[]
+  expenses     Expense[]   @relation("FuelTransactionExpense")
 
   @@index([type])
   @@index([fuelType])

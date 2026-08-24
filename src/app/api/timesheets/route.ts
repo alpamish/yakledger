@@ -3,7 +3,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/permissions";
 import { Prisma } from "@prisma/client";
-import { buildAccessScope, withScope, resolveApprovalStatusOnCreate, APPROVED } from "@/lib/access-control";
+import { buildListScope, withScope, resolveApprovalStatusOnCreate, APPROVED } from "@/lib/access-control";
 
 const createTimesheetSchema = z.object({
   contractorId: z.string().min(1, "Contractor is required"),
@@ -62,12 +62,18 @@ export async function GET(request: NextRequest) {
     const machineryId = searchParams.get("machineryId") || undefined;
     const dateFrom = searchParams.get("dateFrom") || undefined;
     const dateTo = searchParams.get("dateTo") || undefined;
+    const approvalStatusParam = searchParams.get("approvalStatus");
+    const approvalStatus = approvalStatusParam || undefined;
 
     const sortBy = searchParams.get("sortBy") || "date";
     const sortOrder = searchParams.get("sortOrder") || "desc";
 
     // Build dynamic where clause
     const where: Prisma.TimesheetWhereInput = {};
+
+    if (approvalStatus) {
+      where.approvalStatus = approvalStatus as Prisma.StringFilter["equals"];
+    }
 
     if (search) {
       where.OR = [
@@ -98,7 +104,7 @@ export async function GET(request: NextRequest) {
     const sortField = validSortFields.includes(sortBy) ? sortBy : "date";
     const order = sortOrder === "asc" ? "asc" : "desc";
 
-    const scopedWhere = withScope(where, await buildAccessScope(user, "timesheet"));
+    const scopedWhere = withScope(where, await buildListScope(user, "timesheet"));
 
     const [timesheets, total] = await Promise.all([
       db.timesheet.findMany({

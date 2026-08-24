@@ -142,9 +142,9 @@ export const employeesApi = {
 
   getList: async (
     status?: string
-  ): Promise<ApiResponse<Pick<Employee, "id" | "fullName" | "jobTitle" | "department" | "salary" | "status" | "hireDate">[]>> => {
+  ): Promise<ApiResponse<Employee[]>> => {
     const qs = status ? `?status=${status}` : "";
-    return request<ApiResponse<Pick<Employee, "id" | "fullName" | "jobTitle" | "department" | "salary" | "status" | "hireDate">[]>>(
+    return request<ApiResponse<Employee[]>>(
       `/employees/list${qs}`
     );
   },

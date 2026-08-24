@@ -1,11 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/permissions";
+import { buildAccessScope, buildAggregateScope, withScope } from "@/lib/access-control";
 
 export async function POST(request: NextRequest) {
   try {
     const result = await requirePermission(request, "employees:view");
     if ("status" in result) return result;
+    const user = result.user;
+
+    const [employeeScope, expenseScope, cashTransactionScope, attendanceScope] =
+      await Promise.all([
+        buildAccessScope(user, "employee"),
+        buildAggregateScope(user, "expense"),
+        buildAggregateScope(user, "cashTransaction"),
+        buildAggregateScope(user, "attendance"),
+      ]);
 
     const { ids } = await request.json();
 
@@ -17,7 +27,7 @@ export async function POST(request: NextRequest) {
     }
 
     const employees = await db.employee.findMany({
-      where: { id: { in: ids } },
+      where: withScope({ id: { in: ids } }, employeeScope),
       select: {
         id: true,
         fullName: true,
@@ -36,32 +46,32 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    const expenseTotalsPromises = ids.map(async (id) => {
+    const expenseTotalsPromises = employees.map(async (emp) => {
       const [paidBy, paidTo, salaryPaid, rewards, advances] = await Promise.all([
         db.expense.aggregate({
-          where: { paidById: id },
+          where: withScope({ paidById: emp.id }, expenseScope),
           _sum: { amount: true },
         }),
         db.expense.aggregate({
-          where: { paidToId: id },
+          where: withScope({ paidToId: emp.id }, expenseScope),
           _sum: { amount: true },
         }),
         db.expense.aggregate({
-          where: { paidToId: id, category: "SALARY" },
+          where: withScope({ paidToId: emp.id, category: "SALARY" }, expenseScope),
           _sum: { amount: true },
         }),
         db.expense.aggregate({
-          where: { paidToId: id, category: { in: ["REWARD", "BONUS"] } },
+          where: withScope({ paidToId: emp.id, category: { in: ["REWARD", "BONUS"] } }, expenseScope),
           _sum: { amount: true },
         }),
         db.cashTransaction.aggregate({
-          where: { employeeId: id, type: "ADVANCE" },
+          where: withScope({ employeeId: emp.id, type: "ADVANCE" }, cashTransactionScope),
           _sum: { amount: true },
         }),
       ]);
 
       return {
-        id,
+        id: emp.id,
         totalExpensesPaidBy: paidBy._sum.amount ?? 0,
         totalExpensesPaidTo: paidTo._sum.amount ?? 0,
         totalSalaryPaid: salaryPaid._sum.amount ?? 0,
@@ -96,14 +106,17 @@ export async function POST(request: NextRequest) {
             : currentDate;
 
         const attendanceRecords = await db.attendance.findMany({
-          where: {
-            employeeId: emp.id,
-            date: {
-              gte: hireDateObj,
-              lte: endDate,
+          where: withScope(
+            {
+              employeeId: emp.id,
+              date: {
+                gte: hireDateObj,
+                lte: endDate,
+              },
+              status: { in: ["PRESENT", "HALF_DAY"] },
             },
-            status: { in: ["PRESENT", "HALF_DAY"] },
-          },
+            attendanceScope
+          ),
           select: { status: true, date: true, overtimeHours: true },
         });
 

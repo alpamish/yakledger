@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useLiveRefresh } from '@/hooks/use-live-refresh';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -152,6 +153,7 @@ export function FuelUsagePage() {
 
   const [summary, setSummary] = useState<FuelUsageSummary | null>(null);
   const [summaryLoading, setSummaryLoading] = useState(false);
+  const [refreshTick, setRefreshTick] = useState(0);
 
   const [viewMode, setViewMode] = useState<'contractor' | 'asset'>('contractor');
 
@@ -246,7 +248,7 @@ export function FuelUsagePage() {
       })
       .catch(() => {})
       .finally(() => setSummaryLoading(false));
-  }, [summaryFilters]);
+  }, [summaryFilters, refreshTick]);
 
   const activeFilterCount = useMemo(() => {
     let count = 0;
@@ -314,6 +316,12 @@ export function FuelUsagePage() {
     setPage(1);
     setAssetIssuesPage(1);
   }, [effectiveFilters]);
+
+  useLiveRefresh(() => {
+    setRefreshTick((t) => t + 1);
+    fetchData();
+    fetchAssetIssues();
+  }, 15_000);
 
   useEffect(() => {
     fetchData();
@@ -788,6 +796,11 @@ export function FuelUsagePage() {
                               <Badge variant="outline" className="border-0 text-[10px] px-1.5 py-0" style={{ backgroundColor: `${fColor}18`, color: fColor }}>
                                 {FUEL_TYPE_LABELS[f.fuelType as FuelType] ?? f.fuelType}
                               </Badge>
+                              {f.billable && (
+                                <Badge variant="outline" className="ml-1 border-0 text-[10px] px-1.5 py-0 bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-400">
+                                  Billable
+                                </Badge>
+                              )}
                             </TableCell>
                             <TableCell className="text-right font-mono tabular-nums">{f.quantity.toFixed(2)}</TableCell>
                             <TableCell className="text-right font-mono tabular-nums">{formatCurrency(f.unitPrice)}</TableCell>

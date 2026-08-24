@@ -195,6 +195,7 @@ export const timesheetsApi = {
       if (params.machineryId) searchParams.set("machineryId", params.machineryId);
       if (params.dateFrom) searchParams.set("dateFrom", params.dateFrom);
       if (params.dateTo) searchParams.set("dateTo", params.dateTo);
+      if (params.approvalStatus) searchParams.set("approvalStatus", params.approvalStatus);
       if (params.page) searchParams.set("page", String(params.page));
       if (params.pageSize) searchParams.set("pageSize", String(params.pageSize));
       if (params.sortBy) searchParams.set("sortBy", params.sortBy);

@@ -3,6 +3,7 @@
 import * as React from 'react';
 import { useExpenseStore } from '@/hooks/use-expense-store';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useLiveRefresh } from '@/hooks/use-live-refresh';
 import { CATEGORY_LABELS, CATEGORY_COLORS } from '@/types/expense';
 import type { Category } from '@/types/expense';
 import {
@@ -175,15 +176,11 @@ function StatCard({ title, value, description, icon: Icon }: StatCardProps) {
 export function DashboardPage() {
   const { canView } = usePermissions();
   const { dashboardStats, fetchDashboard, isLoading } = useExpenseStore();
-  const [hasFetched, setHasFetched] = React.useState(false);
 
-  React.useEffect(() => {
-    if (!canView('dashboard')) return;
-    if (!hasFetched) {
-      fetchDashboard();
-      setHasFetched(true);
-    }
-  }, [canView, fetchDashboard, hasFetched]);
+  const canViewDashboard = canView('dashboard');
+  useLiveRefresh(() => {
+    if (canViewDashboard) fetchDashboard();
+  }, 30_000);
 
   if (!canView('dashboard')) return null;
 

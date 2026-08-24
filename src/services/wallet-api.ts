@@ -37,6 +37,28 @@ export interface WalletInput {
 export const walletApi = {
   list: (): Promise<ApiResponse<any[]>> => request("/wallets"),
   get: (id: string): Promise<ApiResponse<any>> => request(`/wallets/${id}`),
+  transactions: (params?: {
+    walletId?: string;
+    type?: string;
+    from?: string;
+    to?: string;
+    search?: string;
+    page?: number;
+    pageSize?: number;
+  }): Promise<ApiResponse<any>> => {
+    const qs = new URLSearchParams();
+    if (params) {
+      if (params.walletId) qs.set("walletId", params.walletId);
+      if (params.type) qs.set("type", params.type);
+      if (params.from) qs.set("from", params.from);
+      if (params.to) qs.set("to", params.to);
+      if (params.search) qs.set("search", params.search);
+      if (params.page) qs.set("page", String(params.page));
+      if (params.pageSize) qs.set("pageSize", String(params.pageSize));
+    }
+    const q = qs.toString();
+    return request(`/wallets/transactions${q ? `?${q}` : ""}`);
+  },
   create: (body: WalletInput): Promise<ApiResponse<any>> =>
     request("/wallets", { method: "POST", body: JSON.stringify(body) }),
   update: (id: string, body: Partial<WalletInput> & { isActive?: boolean }): Promise<ApiResponse<any>> =>

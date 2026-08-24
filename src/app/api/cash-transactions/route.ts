@@ -3,7 +3,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/permissions";
 import { walletService } from "@/services/wallet.service";
-import { buildAccessScope, withScope } from "@/lib/access-control";
+import { buildListScope, withScope } from "@/lib/access-control";
 
 const createTransactionSchema = z.object({
   employeeId: z.string().min(1, "Employee is required"),
@@ -27,7 +27,7 @@ export async function GET(request: NextRequest) {
     if (employeeId) where.employeeId = employeeId;
     if (type) where.type = type;
 
-    const scope = await buildAccessScope(user, "cashTransaction");
+    const scope = await buildListScope(user, "cashTransaction");
     const scopedWhere = withScope(where, scope);
 
     const transactions = await db.cashTransaction.findMany({

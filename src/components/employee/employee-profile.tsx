@@ -66,11 +66,13 @@ import {
   Wallet,
   RotateCw,
   RotateCcw,
+  Camera,
 } from 'lucide-react';
 import { pdf } from "@react-pdf/renderer";
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import { rotateCanvas } from '@/lib/image-utils';
+import { IdCaptureDialog } from '@/components/employee/id-capture-dialog';
 
 function formatCurrency(amount: number): string {
   return new Intl.NumberFormat('en-US', {
@@ -108,6 +110,7 @@ export function EmployeeProfile() {
   const [isUploadingIdImage, setIsUploadingIdImage] = React.useState(false);
   const [isUploadingIdImageBack, setIsUploadingIdImageBack] = React.useState(false);
   const [showIdImageDialog, setShowIdImageDialog] = React.useState(false);
+  const [showCaptureDialog, setShowCaptureDialog] = React.useState(false);
   const [idImageSide, setIdImageSide] = React.useState<'front' | 'back'>('front');
   const [pendingIdImageFile, setPendingIdImageFile] = React.useState<File | null>(null);
   const [previewRotation, setPreviewRotation] = React.useState(0);
@@ -155,6 +158,25 @@ export function EmployeeProfile() {
     setPendingIdImageFile(file);
     setIdImageSide(side);
     setPreviewRotation(0);
+    setShowIdImageDialog(true);
+  };
+
+  const openIdImageDialog = (side: 'front' | 'back') => {
+    setIdImageSide(side);
+    setPendingIdImageFile(null);
+    setPreviewRotation(0);
+    setShowIdImageDialog(true);
+  };
+
+  const openGalleryPicker = () => {
+    const input = document.getElementById(`id-image-${idImageSide}-upload`) as HTMLInputElement | null;
+    input?.click();
+  };
+
+  const handleCapturedImage = (file: File) => {
+    setPendingIdImageFile(file);
+    setPreviewRotation(0);
+    setShowCaptureDialog(false);
     setShowIdImageDialog(true);
   };
 
@@ -741,7 +763,7 @@ export function EmployeeProfile() {
                         variant="outline"
                         size="sm"
                         className="mt-2 w-full"
-                        onClick={() => { setIdImageSide('front'); setShowIdImageDialog(true); }}
+                        onClick={() => openIdImageDialog('front')}
                       >
                         <Upload className="h-4 w-4 mr-2" />
                         Update Front
@@ -764,8 +786,9 @@ export function EmployeeProfile() {
                   )}
                 </div>
               ) : (
-                <label
-                  htmlFor="id-image-front-upload"
+                <button
+                  type="button"
+                  onClick={() => openIdImageDialog('front')}
                   className="flex flex-col items-center justify-center w-full h-48 border-2 border-dashed rounded-lg cursor-pointer hover:bg-muted/50 transition-colors"
                 >
                   {isUploadingIdImage ? (
@@ -776,11 +799,11 @@ export function EmployeeProfile() {
                   ) : (
                     <>
                       <ImageIcon className="h-8 w-8 text-muted-foreground mb-2" />
-                      <span className="text-sm text-muted-foreground">Click to upload</span>
-                      <span className="text-xs text-muted-foreground mt-1">JPEG, PNG</span>
+                      <span className="text-sm text-muted-foreground">Upload front ID</span>
+                      <span className="text-xs text-muted-foreground mt-1">Camera or gallery</span>
                     </>
                   )}
-                </label>
+                </button>
               )}
             </div>
 
@@ -802,7 +825,7 @@ export function EmployeeProfile() {
                         variant="outline"
                         size="sm"
                         className="mt-2 w-full"
-                        onClick={() => { setIdImageSide('back'); setShowIdImageDialog(true); }}
+                        onClick={() => openIdImageDialog('back')}
                       >
                         <Upload className="h-4 w-4 mr-2" />
                         Update Back
@@ -825,8 +848,9 @@ export function EmployeeProfile() {
                   )}
                 </div>
               ) : (
-                <label
-                  htmlFor="id-image-back-upload"
+                <button
+                  type="button"
+                  onClick={() => openIdImageDialog('back')}
                   className="flex flex-col items-center justify-center w-full h-48 border-2 border-dashed rounded-lg cursor-pointer hover:bg-muted/50 transition-colors"
                 >
                   {isUploadingIdImageBack ? (
@@ -837,11 +861,11 @@ export function EmployeeProfile() {
                   ) : (
                     <>
                       <ImageIcon className="h-8 w-8 text-muted-foreground mb-2" />
-                      <span className="text-sm text-muted-foreground">Click to upload</span>
-                      <span className="text-xs text-muted-foreground mt-1">JPEG, PNG</span>
+                      <span className="text-sm text-muted-foreground">Upload back ID</span>
+                      <span className="text-xs text-muted-foreground mt-1">Camera or gallery</span>
                     </>
                   )}
-                </label>
+                </button>
               )}
             </div>
           </div>
@@ -878,19 +902,25 @@ export function EmployeeProfile() {
           <DialogHeader>
             <DialogTitle>Upload ID Image - {idImageSide === 'front' ? 'Front' : 'Back'}</DialogTitle>
             <DialogDescription>
-              Upload a JPEG or PNG image of the employee's ID {idImageSide} side (max 10MB). Adjust rotation if needed.
+              Take a photo with your camera or upload a JPEG/PNG image of the ID {idImageSide} side (max 10MB). Adjust rotation if needed.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
             {!pendingIdImageFile ? (
-              <label
-                htmlFor={`id-image-${idImageSide}-upload`}
-                className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed rounded-lg cursor-pointer hover:bg-muted/50 transition-colors"
-              >
-                <Upload className="h-8 w-8 text-muted-foreground mb-2" />
-                <span className="text-sm text-muted-foreground">Click to select image</span>
-                <span className="text-xs text-muted-foreground mt-1">JPEG, PNG (max 10MB)</span>
-              </label>
+              <div className="flex flex-col items-center justify-center w-full gap-3">
+                <Button
+                  className="w-full bg-emerald-600 hover:bg-emerald-700 text-white"
+                  onClick={() => { setShowIdImageDialog(false); setShowCaptureDialog(true); }}
+                >
+                  <Camera className="h-4 w-4 mr-2" />
+                  Take Photo
+                </Button>
+                <Button variant="outline" className="w-full" onClick={openGalleryPicker}>
+                  <ImageIcon className="h-4 w-4 mr-2" />
+                  Choose from Gallery
+                </Button>
+                <p className="text-xs text-muted-foreground">JPEG, PNG (max 10MB)</p>
+              </div>
             ) : (
               <div className="flex flex-col items-center gap-3">
                 <div className="relative w-full h-48 rounded-lg border bg-muted overflow-hidden flex items-center justify-center">
@@ -950,6 +980,16 @@ export function EmployeeProfile() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* ID Capture Dialog (camera + auto edge detection) */}
+      <IdCaptureDialog
+        open={showCaptureDialog}
+        onOpenChange={(open) => {
+          setShowCaptureDialog(open);
+          if (!open) setShowIdImageDialog(true);
+        }}
+        onCaptured={handleCapturedImage}
+      />
 
       {/* Full Image Preview Dialog */}
       <Dialog open={showImagePreview} onOpenChange={setShowImagePreview}>

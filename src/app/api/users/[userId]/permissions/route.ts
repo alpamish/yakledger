@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/permissions";
+import { resolveRolePermissions } from "@/lib/permission-catalog";
 import { z } from "zod";
 
 const setPermissionSchema = z.object({
@@ -28,9 +29,18 @@ export async function GET(
       userOverrides.map((o) => [o.permissionId, o.granted])
     );
 
+    const targetUser = await db.user.findUnique({
+      where: { id: userId },
+      select: { role: true },
+    });
+    const rolePerms = targetUser
+      ? new Set(resolveRolePermissions(targetUser.role))
+      : null;
+
     const result = permissions.map((p) => ({
       ...p,
       granted: userOverrideMap.get(p.id) ?? null,
+      roleGranted: rolePerms?.has(p.name) ?? false,
     }));
 
     return NextResponse.json({ success: true, data: result });

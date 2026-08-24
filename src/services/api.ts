@@ -5,6 +5,7 @@ import type {
   Expense,
   ExpenseFilters,
   ExpenseFormData,
+  BulkExpenseRecord,
   PaginatedResponse,
   User,
   CashTransaction,
@@ -205,8 +206,8 @@ export const authApi = {
     return result;
   },
 
-  me: async (): Promise<ApiResponse<User>> => {
-    return request<ApiResponse<User>>("/auth/me");
+  me: async (): Promise<ApiResponse<{ user: User; permissions: Record<string, boolean> }>> => {
+    return request<ApiResponse<{ user: User; permissions: Record<string, boolean> }>>("/auth/me");
   },
 
   logout: async (): Promise<void> => {
@@ -287,6 +288,13 @@ export const expensesApi = {
     return mutate<ApiResponse<void>>("/expenses/bulk-delete", {
       method: "POST",
       body: JSON.stringify({ ids }),
+    }, "/expenses");
+  },
+
+  bulkCreate: async (records: BulkExpenseRecord[]): Promise<ApiResponse<{ created: number; records: Expense[] }>> => {
+    return mutate<ApiResponse<{ created: number; records: Expense[] }>>("/expenses/bulk", {
+      method: "POST",
+      body: JSON.stringify({ records }),
     }, "/expenses");
   },
 

@@ -56,6 +56,118 @@ export function approvedOnly(): { approvalStatus: ApprovalStatus } {
 }
 
 /**
+ * Build a `where` clause for viewing records: the user's own records are
+ * visible at any approval status, while records shared/granted to the user
+ * are only visible once APPROVED. Admin/`content:` permission holders get an
+ * empty scope (full visibility, including pending records of others).
+ */
+export async function buildViewScope(
+  user: AuthUser,
+  entity: string
+): Promise<Record<string, unknown>> {
+  if (isAdmin(user)) return {};
+
+  const contentPermission = ENTITY_CONTENT_PERMISSION[entity];
+  if (contentPermission && (await checkUserPermission(user.id, user.role, contentPermission))) {
+    return {};
+  }
+
+  const grants = await db.recordAccess.findMany({
+    where: { entity, userId: user.id },
+    select: { entityId: true },
+  });
+
+  const grantedIds = grants.map((g) => g.entityId);
+
+  const or: Record<string, unknown>[] = [{ createdBy: user.id }];
+  if (grantedIds.length > 0) {
+    or.push({ AND: [{ approvalStatus: APPROVED }, { id: { in: grantedIds } }] });
+  }
+
+  return { OR: or };
+}
+
+/**
+ * Build a `where` clause for LIST views of an approval entity: a creator
+ * always sees their own records at any status (including PENDING, so they can
+ * track what is awaiting approval), while records shared/granted to the user
+ * appear only once APPROVED. Admin/`content:` holders see APPROVED + REJECTED
+ * (PENDING stays in the Approvals page for them).
+ *
+ * For entities without an approval workflow this behaves like `buildAccessScope`.
+ */
+export async function buildListScope(
+  user: AuthUser,
+  entity: string
+): Promise<Record<string, unknown>> {
+  if (!isApprovalEntity(entity)) return buildAccessScope(user, entity);
+
+  const approvedOrRejected = {
+    approvalStatus: { in: [APPROVED, REJECTED] },
+  };
+
+  if (isAdmin(user)) return approvedOrRejected;
+
+  const contentPermission = ENTITY_CONTENT_PERMISSION[entity];
+  if (contentPermission && (await checkUserPermission(user.id, user.role, contentPermission))) {
+    return approvedOrRejected;
+  }
+
+  const grants = await db.recordAccess.findMany({
+    where: { entity, userId: user.id },
+    select: { entityId: true },
+  });
+
+  const grantedIds = grants.map((g) => g.entityId);
+
+  const or: Record<string, unknown>[] = [{ createdBy: user.id }];
+  if (grantedIds.length > 0) {
+    or.push({ AND: [{ approvalStatus: APPROVED }, { id: { in: grantedIds } }] });
+  }
+
+  return { OR: or };
+}
+
+/**
+ * Build a `where` clause for AGGREGATE queries (counts/sums/trends) of an
+ * approval entity: only APPROVED records are financially "valid", so PENDING
+ * and REJECTED are never counted. Admin/`content:` holders still scope to
+ * APPROVED-only. For entities without an approval workflow this behaves like
+ * `buildAccessScope`.
+ */
+export async function buildAggregateScope(
+  user: AuthUser,
+  entity: string
+): Promise<Record<string, unknown>> {
+  if (!isApprovalEntity(entity)) return buildAccessScope(user, entity);
+
+  const approvedOnly = { approvalStatus: APPROVED };
+
+  if (isAdmin(user)) return approvedOnly;
+
+  const contentPermission = ENTITY_CONTENT_PERMISSION[entity];
+  if (contentPermission && (await checkUserPermission(user.id, user.role, contentPermission))) {
+    return approvedOnly;
+  }
+
+  const grants = await db.recordAccess.findMany({
+    where: { entity, userId: user.id },
+    select: { entityId: true },
+  });
+
+  const grantedIds = grants.map((g) => g.entityId);
+
+  const or: Record<string, unknown>[] = [
+    { createdBy: user.id, approvalStatus: APPROVED },
+  ];
+  if (grantedIds.length > 0) {
+    or.push({ AND: [{ approvalStatus: APPROVED }, { id: { in: grantedIds } }] });
+  }
+
+  return { OR: or };
+}
+
+/**
  * Build a Prisma `where` clause that restricts access to records the user
  * created OR was explicitly granted access to. Admins get an empty scope
  * (i.e. unrestricted access).
@@ -158,6 +270,8 @@ export async function canManageRecord(
  * - Admin-created/edited records are always valid immediately.
  * - Non-admin edits to an already-approved record send it back to PENDING
  *   for re-approval.
+ * - Non-admin edits to a REJECTED record resubmit it as PENDING (so it can
+ *   be corrected and re-approved rather than being stuck in REJECTED).
  */
 export function resolveApprovalStatusOnEdit(
   user: { role: string },
@@ -165,6 +279,7 @@ export function resolveApprovalStatusOnEdit(
 ): ApprovalStatus {
   if (isAdmin(user)) return APPROVED;
   if (current === APPROVED) return PENDING;
+  if (current === REJECTED) return PENDING;
   return (current as ApprovalStatus) || PENDING;
 }
 

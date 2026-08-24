@@ -56,6 +56,7 @@ describe("salary visibility gate", () => {
     const emp = body.data.find((e: any) => e.id === tokens.employee.id);
     expect(emp).toBeDefined();
     expect("salary" in emp).toBe(false);
+    expect("baseSalaryMinor" in emp).toBe(false);
   });
 
   it("includes salary for MANAGER on its own employee (has employees:salary:view)", async () => {

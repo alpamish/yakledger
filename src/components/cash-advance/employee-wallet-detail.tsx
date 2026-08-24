@@ -240,22 +240,22 @@ export function EmployeeWalletDetail({ employeeId, onBack }: Props) {
 
       {/* Summary Stat Cards */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
-        <Card className={account && account.currentBalance >= 0 ? 'border-emerald-500/30' : 'border-red-500/30'}>
+        <Card className={account && account.currentBalance > 0 ? 'border-red-500/30' : account && account.currentBalance < 0 ? 'border-emerald-500/30' : undefined}>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium">Current Balance</CardTitle>
             <Wallet className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className={`text-xl font-bold ${account && account.currentBalance >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+            <div className={`text-xl font-bold ${account && account.currentBalance > 0 ? 'text-red-600' : account && account.currentBalance < 0 ? 'text-emerald-600' : ''}`}>
               {account?.currentBalance.toLocaleString() ?? 0} AFN
             </div>
             <div className="flex items-center gap-1 mt-1 text-xs text-muted-foreground">
-              {account && account.currentBalance >= 0 ? (
-                <TrendingUp className="h-3 w-3 text-emerald-500" />
-              ) : (
+              {account && account.currentBalance > 0 ? (
                 <TrendingDown className="h-3 w-3 text-red-500" />
-              )}
-              <span>{account && account.currentBalance >= 0 ? 'Remaining' : 'Overdrawn'}</span>
+              ) : account && account.currentBalance < 0 ? (
+                <TrendingUp className="h-3 w-3 text-emerald-500" />
+              ) : null}
+              <span>{account && account.currentBalance > 0 ? 'Owes' : account && account.currentBalance < 0 ? 'Company owes' : 'Settled'}</span>
             </div>
           </CardContent>
         </Card>
@@ -436,9 +436,6 @@ export function EmployeeWalletDetail({ employeeId, onBack }: Props) {
         <div className="space-y-2">
           {paginatedEntries.map((entry) => {
             const colors = getBadgeBg(entry.type);
-            const signedAmount = entry.type === 'ADVANCE' || (entry.type === 'TRANSFER' && entry.amount > 0) || entry.type === 'ADJUSTMENT'
-              ? entry.amount
-              : entry.amount;
             return (
               <div
                 key={entry.id}
@@ -540,7 +537,7 @@ export function EmployeeWalletDetail({ employeeId, onBack }: Props) {
       {ledger.length > 0 && (
         <div className="flex items-center justify-between border-t pt-4 font-semibold">
           <span>Current Balance</span>
-          <span className={account && account.currentBalance >= 0 ? 'text-emerald-600' : 'text-red-600'}>
+          <span className={account && account.currentBalance > 0 ? 'text-red-600' : account && account.currentBalance < 0 ? 'text-emerald-600' : ''}>
             {account?.currentBalance.toLocaleString() ?? 0} AFN
           </span>
         </div>

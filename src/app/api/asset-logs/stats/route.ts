@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/permissions";
-import { buildAccessScope, withScope, APPROVED } from "@/lib/access-control";
+import { buildAggregateScope, withScope } from "@/lib/access-control";
 
 export async function GET(request: NextRequest) {
   const result = await requirePermission(request, "assets:view");
@@ -12,12 +12,12 @@ export async function GET(request: NextRequest) {
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
     const startOfYear = new Date(now.getFullYear(), 0, 1);
 
-    const scope = await buildAccessScope(user, "assetLog");
+    const scope = await buildAggregateScope(user, "assetLog");
     const [totalLogs, monthLogs, yearLogs, assetSummaries] = await Promise.all([
-      db.assetLog.count({ where: withScope({ approvalStatus: APPROVED }, scope) }).catch((e) => { console.error("totalLogs error:", e); return 0; }),
-      db.assetLog.count({ where: withScope({ date: { gte: startOfMonth }, approvalStatus: APPROVED }, scope) }).catch((e) => { console.error("monthLogs error:", e); return 0; }),
+      db.assetLog.count({ where: scope }).catch((e) => { console.error("totalLogs error:", e); return 0; }),
+      db.assetLog.count({ where: withScope({ date: { gte: startOfMonth } }, scope) }).catch((e) => { console.error("monthLogs error:", e); return 0; }),
       db.assetLog.findMany({
-        where: withScope({ date: { gte: startOfYear }, approvalStatus: APPROVED }, scope),
+        where: withScope({ date: { gte: startOfYear } }, scope),
         select: {
           distanceTraveled: true,
           fuelConsumed: true,
@@ -29,7 +29,7 @@ export async function GET(request: NextRequest) {
         by: ["assetId"],
         _count: true,
         _sum: { distanceTraveled: true, fuelConsumed: true, engineHoursUsed: true },
-        where: withScope({ date: { gte: startOfYear }, approvalStatus: APPROVED }, scope),
+        where: withScope({ date: { gte: startOfYear } }, scope),
       }).catch((e) => { console.error("assetSummaries error:", e); return []; }),
     ]);
 

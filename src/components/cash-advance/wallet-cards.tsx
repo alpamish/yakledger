@@ -65,12 +65,13 @@ export function WalletCards({ onSelectEmployee }: WalletCardsProps) {
       {accounts.map((acc) => {
         const employee = acc.employee;
         const balance = acc.currentBalance;
-        const isPositive = balance >= 0;
+        const isOwing = balance > 0;
+        const isOwed = balance < 0;
 
         return (
           <Card
               key={acc.id}
-              className={`${isPositive ? 'border-emerald-500/30' : 'border-red-500/30'} cursor-pointer transition-shadow hover:shadow-md`}
+              className={`${isOwing ? 'border-red-500/30' : isOwed ? 'border-emerald-500/30' : ''} cursor-pointer transition-shadow hover:shadow-md`}
               onClick={() => onSelectEmployee?.(acc.employeeId)}
             >
             <CardHeader className="flex flex-row items-center justify-between pb-2">
@@ -80,17 +81,17 @@ export function WalletCards({ onSelectEmployee }: WalletCardsProps) {
               <Wallet className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">
+              <div className={`text-2xl font-bold ${isOwing ? 'text-red-600' : isOwed ? 'text-emerald-600' : ''}`}>
                 {balance.toLocaleString()} AFN
               </div>
               <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
-                {isPositive ? (
-                  <TrendingUp className="h-3 w-3 text-emerald-500" />
-                ) : (
+                {isOwing ? (
                   <TrendingDown className="h-3 w-3 text-red-500" />
-                )}
-                <span>{isPositive ? 'Remaining balance' : 'Overdrawn'}</span>
-                <Badge variant={isPositive ? 'default' : 'destructive'} className="ml-auto text-[10px]">
+                ) : isOwed ? (
+                  <TrendingUp className="h-3 w-3 text-emerald-500" />
+                ) : null}
+                <span>{isOwing ? 'Owes' : isOwed ? 'Company owes' : 'Settled'}</span>
+                <Badge variant={isOwing ? 'destructive' : 'default'} className="ml-auto text-[10px]">
                   {employee?.department ?? ''}
                 </Badge>
               </div>

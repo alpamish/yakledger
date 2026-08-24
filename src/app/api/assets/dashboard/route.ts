@@ -45,19 +45,20 @@ export async function GET(request: NextRequest) {
       _sum: { quantity: true },
     });
 
-    const fuelStockMap: Record<string, { purchased: number; issued: number; transferredOut: number }> = {};
+    const fuelStockMap: Record<string, { purchased: number; issued: number }> = {};
     for (const f of fuelPurchases) {
       const key = f.fuelType;
-      if (!fuelStockMap[key]) fuelStockMap[key] = { purchased: 0, issued: 0, transferredOut: 0 };
+      if (!fuelStockMap[key]) fuelStockMap[key] = { purchased: 0, issued: 0 };
       if (f.type === "PURCHASE") fuelStockMap[key].purchased += f._sum.quantity || 0;
       if (f.type === "ISSUE") fuelStockMap[key].issued += f._sum.quantity || 0;
-      if (f.type === "TRANSFER") fuelStockMap[key].transferredOut += f._sum.quantity || 0;
+      // TRANSFER rows are internal moves between containers — they do not
+      // change the company's overall stock, so they are excluded here.
     }
     const fuelStock = Object.entries(fuelStockMap).map(([fuelType, v]) => ({
       fuelType,
       totalPurchased: v.purchased,
       totalIssued: v.issued,
-      balance: v.purchased - v.issued - v.transferredOut,
+      balance: v.purchased - v.issued,
     }));
 
     const monthlyMaintenanceCost = monthlyMaintenance.reduce(

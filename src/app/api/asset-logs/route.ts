@@ -3,7 +3,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/permissions";
 import { Prisma } from "@prisma/client";
-import { buildAccessScope, withScope, resolveApprovalStatusOnCreate, APPROVED } from "@/lib/access-control";
+import { buildListScope, withScope, resolveApprovalStatusOnCreate, APPROVED } from "@/lib/access-control";
 
 const createAssetLogSchema = z.object({
   assetId: z.string().min(1, "Asset is required"),
@@ -58,7 +58,7 @@ export async function GET(request: NextRequest) {
     const sortField = validSortFields.includes(sortBy) ? sortBy : "date";
     const order = sortOrder === "asc" ? "asc" : "desc";
 
-    const scopedWhere = withScope(where, await buildAccessScope(user, "assetLog"));
+    const scopedWhere = withScope(where, await buildListScope(user, "assetLog"));
 
     const [logs, total] = await Promise.all([
       db.assetLog.findMany({

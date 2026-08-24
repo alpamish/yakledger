@@ -14,10 +14,17 @@ export async function GET(request: NextRequest) {
 
     const permissions = await getEffectivePermissions(user.id, user.role);
 
-    return NextResponse.json({
-      success: true,
-      data: permissions,
-    });
+    return NextResponse.json(
+      {
+        success: true,
+        data: permissions,
+      },
+      {
+        headers: {
+          "Cache-Control": "private, max-age=30, stale-while-revalidate=60",
+        },
+      }
+    );
   } catch (error) {
     console.error("Get permissions error:", error);
     return NextResponse.json(

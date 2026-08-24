@@ -2,9 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/permissions";
 import { hashPassword } from "@/lib/auth";
+import { ROLES } from "@/lib/permission-catalog";
 import { z } from "zod";
-
-const ROLES = ["ADMIN", "MANAGER", "USER", "WATCHER", "TIMESHEET_USER"] as const;
 
 const updateUserSchema = z.object({
   name: z.string().min(1).optional(),

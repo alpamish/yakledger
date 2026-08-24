@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/permissions";
-import { buildAccessScope, withScope, resolveApprovalStatusOnCreate, resolveApprovalStatusOnEdit, APPROVED } from "@/lib/access-control";
+import { buildListScope, buildAccessScope, withScope, resolveApprovalStatusOnCreate, resolveApprovalStatusOnEdit, APPROVED } from "@/lib/access-control";
 import { computeAttendanceHours } from "@/services/hr.service";
 
 const ATTENDANCE_STATUSES = ["PRESENT", "ABSENT", "HALF_DAY", "LEAVE", "HOLIDAY"] as const;
@@ -40,7 +40,7 @@ export async function GET(request: NextRequest) {
       where.date = dateFilter;
     }
 
-    const scopedWhere = withScope(where, await buildAccessScope(user, "attendance"));
+    const scopedWhere = withScope(where, await buildListScope(user, "attendance"));
 
     const [records, total] = await Promise.all([
       db.attendance.findMany({

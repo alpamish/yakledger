@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { Prisma } from "@prisma/client";
 import { requirePermission } from "@/lib/permissions";
-import { buildAccessScope, withScope, APPROVED } from "@/lib/access-control";
+import { buildAccessScope, buildAggregateScope, withScope } from "@/lib/access-control";
 
 export async function GET(request: NextRequest) {
   const result = await requirePermission(request, "machinery:view");
@@ -65,16 +65,16 @@ export async function GET(request: NextRequest) {
       db.fuelUsage.groupBy({
         by: ["machineryId"],
         where: withScope(
-          { machineryId: { in: machineryIds }, approvalStatus: APPROVED },
-          await buildAccessScope(user, "fuelUsage")
+          { machineryId: { in: machineryIds } },
+          await buildAggregateScope(user, "fuelUsage")
         ),
         _sum: { quantity: true, totalCost: true },
       }),
       db.timesheet.groupBy({
         by: ["machineryId"],
         where: withScope(
-          { machineryId: { in: machineryIds }, approvalStatus: APPROVED },
-          await buildAccessScope(user, "timesheet")
+          { machineryId: { in: machineryIds } },
+          await buildAggregateScope(user, "timesheet")
         ),
         _sum: { totalHours: true },
       }),

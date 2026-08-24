@@ -1,24 +1,33 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/permissions";
+import { buildAccessScope, buildAggregateScope, withScope } from "@/lib/access-control";
 
 // GET /api/contractors/dashboard - Contractor dashboard stats
 export async function GET(request: NextRequest) {
   const result = await requirePermission(request, "contractors:view");
   if ("status" in result) return result;
+  const user = result.user;
   try {
+    const [contractorScope, expenseScope, timesheetScope, fuelUsageScope] = await Promise.all([
+      buildAccessScope(user, "contractor"),
+      buildAggregateScope(user, "expense"),
+      buildAggregateScope(user, "timesheet"),
+      buildAggregateScope(user, "fuelUsage"),
+    ]);
+
     // Get counts by status
     const [totalContractors, activeContractors, inactiveContractors, suspendedContractors] =
       await Promise.all([
-        db.contractor.count(),
-        db.contractor.count({ where: { status: "ACTIVE" } }),
-        db.contractor.count({ where: { status: "INACTIVE" } }),
-        db.contractor.count({ where: { status: "SUSPENDED" } }),
+        db.contractor.count({ where: contractorScope }),
+        db.contractor.count({ where: withScope({ status: "ACTIVE" }, contractorScope) }),
+        db.contractor.count({ where: withScope({ status: "INACTIVE" }, contractorScope) }),
+        db.contractor.count({ where: withScope({ status: "SUSPENDED" }, contractorScope) }),
       ]);
 
     // Total contractor expenses (sum of all linked expenses)
     const totalExpensesResult = await db.expense.aggregate({
-      where: { paidToContractorId: { not: null } },
+      where: withScope({ paidToContractorId: { not: null } }, expenseScope),
       _sum: { amount: true },
     });
     const totalContractorExpenses = totalExpensesResult._sum.amount ?? 0;
@@ -29,22 +38,27 @@ export async function GET(request: NextRequest) {
     const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
 
     const monthlyPaymentsResult = await db.expense.aggregate({
-      where: {
-        paidToContractorId: { not: null },
-        expenseDate: { gte: startOfMonth, lte: endOfMonth },
-      },
+      where: withScope(
+        {
+          paidToContractorId: { not: null },
+          expenseDate: { gte: startOfMonth, lte: endOfMonth },
+        },
+        expenseScope
+      ),
       _sum: { amount: true },
     });
     const monthlyContractorPayments = monthlyPaymentsResult._sum.amount ?? 0;
 
     // Total timesheet hours
     const totalTimesheetHoursResult = await db.timesheet.aggregate({
+      where: timesheetScope,
       _sum: { totalHours: true },
     });
     const totalTimesheetHours = totalTimesheetHoursResult._sum.totalHours ?? 0;
 
     // Total fuel cost
     const totalFuelCostResult = await db.fuelUsage.aggregate({
+      where: fuelUsageScope,
       _sum: { totalCost: true },
     });
     const totalFuelCost = totalFuelCostResult._sum.totalCost ?? 0;
@@ -52,6 +66,7 @@ export async function GET(request: NextRequest) {
     // Contractors by type
     const contractorsByTypeRaw = await db.contractor.groupBy({
       by: ["contractorType"],
+      where: contractorScope,
       _count: { id: true },
       orderBy: { _count: { id: "desc" } },
     });
@@ -63,10 +78,13 @@ export async function GET(request: NextRequest) {
     // Monthly payment trend (last 6 months)
     const sixMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 5, 1);
     const monthlyExpensesRaw = await db.expense.findMany({
-      where: {
-        paidToContractorId: { not: null },
-        expenseDate: { gte: sixMonthsAgo },
-      },
+      where: withScope(
+        {
+          paidToContractorId: { not: null },
+          expenseDate: { gte: sixMonthsAgo },
+        },
+        expenseScope
+      ),
       select: { amount: true, expenseDate: true },
     });
 
@@ -88,6 +106,7 @@ export async function GET(request: NextRequest) {
 
     // Recent contractors (5 most recent)
     const recentContractors = await db.contractor.findMany({
+      where: contractorScope,
       include: {
         creator: {
           select: { id: true, email: true, name: true, role: true, avatar: true },
@@ -100,7 +119,7 @@ export async function GET(request: NextRequest) {
     // Top contractors by expense amount
     const topContractorsRaw = await db.expense.groupBy({
       by: ["paidToContractorId"],
-      where: { paidToContractorId: { not: null } },
+      where: withScope({ paidToContractorId: { not: null } }, expenseScope),
       _sum: { amount: true },
       orderBy: { _sum: { amount: "desc" } },
       take: 5,

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import type { Resolver } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -82,6 +82,7 @@ export function TimesheetForm({ open, onOpenChange, editingTimesheet, onSuccess 
   const [loadingContractors, setLoadingContractors] = useState(false);
   const [contractorPopoverOpen, setContractorPopoverOpen] = useState(false);
   const [workHoursPerDay, setWorkHoursPerDay] = useState(9);
+  const totalHoursManuallyEdited = useRef(false);
 
   const isEditing = !!editingTimesheet;
 
@@ -109,6 +110,7 @@ export function TimesheetForm({ open, onOpenChange, editingTimesheet, onSuccess 
 
   useEffect(() => {
     if (open) {
+      totalHoursManuallyEdited.current = false;
       setLoadingContractors(true);
       contractorsApi.getList().then((res) => {
         setContractors(res.data ?? []);
@@ -218,9 +220,15 @@ export function TimesheetForm({ open, onOpenChange, editingTimesheet, onSuccess 
     if (le >= 0 && e > le) total += (e - le) / 60;
 
     total = Math.round(total * 100) / 100;
-    const ot = Math.max(0, Math.round((total - workHoursPerDay) * 100) / 100);
 
-    form.setValue('totalHours', total);
+    const baseTotal = totalHoursManuallyEdited.current
+      ? Number(form.getValues('totalHours')) || 0
+      : total;
+    const ot = Math.max(0, Math.round((baseTotal - workHoursPerDay) * 100) / 100);
+
+    if (!totalHoursManuallyEdited.current) {
+      form.setValue('totalHours', total);
+    }
     form.setValue('overtimeHours', ot);
   }, [startTime, lunchStart, lunchEnd, endTime, workHoursPerDay, form]);
 
@@ -409,7 +417,10 @@ export function TimesheetForm({ open, onOpenChange, editingTimesheet, onSuccess 
               <FormField control={form.control} name="totalHours" render={({ field }) => (
                 <FormItem>
                   <FormLabel>Total Hours</FormLabel>
-                  <FormControl><Input type="number" step="0.01" min="0" placeholder="0.00" {...field} /></FormControl>
+                  <FormControl><Input type="number" step="0.01" min="0" placeholder="0.00" {...field} onChange={(e) => {
+                    totalHoursManuallyEdited.current = true;
+                    field.onChange(e);
+                  }} /></FormControl>
                   <FormMessage />
                 </FormItem>
               )} />

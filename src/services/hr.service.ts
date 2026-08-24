@@ -462,21 +462,22 @@ export async function computePayrollFigures(
       (returnedAgg._sum.amount ?? 0) * 100
   );
 
-  // Approved employee-paid company expenses (DEBIT) are money the company
-  // owes the employee, so they reduce the employee's net debt.
-  const deductionsAgg = await db.cashTransaction.aggregate({
+  // Approved employee-paid company expenses are money the company owes the
+// employee, so they reduce the employee's net debt. (Employee wallets derive
+// these directly from approved expenses; payroll debt must match.)
+  const employeeExpensesAgg = await db.expense.aggregate({
     _sum: { amount: true },
     where: {
-      employeeId,
-      type: "DEBIT",
+      paidById: employeeId,
       approvalStatus: "APPROVED",
-      createdAt: { lte: periodEnd },
+      deductFromWallet: { not: false },
+      expenseDate: { lte: periodEnd },
     },
   });
-  const totalDeductionsMinor = Math.round((deductionsAgg._sum.amount ?? 0) * 100);
+  const totalExpensesMinor = Math.round((employeeExpensesAgg._sum.amount ?? 0) * 100);
 
   const previousDebtMinor =
-    receivedMinor - priorEarnedMinor - totalDeductionsMinor;
+    receivedMinor - priorEarnedMinor - totalExpensesMinor;
   const amountAlreadyReceivedMinor = Math.max(
     0,
     Math.min(grossPayMinor, previousDebtMinor)

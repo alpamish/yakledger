@@ -19,15 +19,9 @@ function isCompressibleImage(type: string) {
   return type === "image/jpeg" || type === "image/png" || type === "image/webp";
 }
 
-/**
- * Save an employee-related file upload to disk, compressing images where
- * possible. Returns the public URL path.
- */
-export async function saveEmployeeUpload(
-  employeeId: string,
-  file: File,
-  prefix: string
-): Promise<string> {
+async function processUpload(
+  file: File
+): Promise<{ buffer: Buffer | Uint8Array; ext: string }> {
   if (!file.size) {
     throw new Error("No file provided");
   }
@@ -40,15 +34,6 @@ export async function saveEmployeeUpload(
 
   const bytes = await file.arrayBuffer();
   const buffer = Buffer.from(bytes);
-
-  const uploadsDir = path.join(
-    process.cwd(),
-    "public",
-    "uploads",
-    "employees",
-    employeeId
-  );
-  await mkdir(uploadsDir, { recursive: true });
 
   let outputBuffer: Buffer | Uint8Array = buffer;
   let ext = path.extname(file.name) || ".bin";
@@ -77,10 +62,54 @@ export async function saveEmployeeUpload(
     ext = path.extname(file.name) || ".bin";
   }
 
+  return { buffer: outputBuffer, ext };
+}
+
+/**
+ * Save an employee-related file upload to disk, compressing images where
+ * possible. Returns the public URL path.
+ */
+export async function saveEmployeeUpload(
+  employeeId: string,
+  file: File,
+  prefix: string
+): Promise<string> {
+  const { buffer, ext } = await processUpload(file);
+
+  const uploadsDir = path.join(
+    process.cwd(),
+    "public",
+    "uploads",
+    "employees",
+    employeeId
+  );
+  await mkdir(uploadsDir, { recursive: true });
+
   const safePrefix = prefix.replace(/[^a-z0-9_-]/gi, "_").toLowerCase();
   const uniqueName = `${safePrefix}-${Date.now()}${ext}`;
   const filePath = path.join(uploadsDir, uniqueName);
-  await writeFile(filePath, outputBuffer);
+  await writeFile(filePath, buffer);
 
   return `/uploads/employees/${employeeId}/${uniqueName}`;
+}
+
+/**
+ * Save an asset document upload (image or PDF) to disk, compressing images
+ * where possible. Returns the public URL path.
+ */
+export async function saveAssetUpload(
+  file: File,
+  prefix = "asset"
+): Promise<string> {
+  const { buffer, ext } = await processUpload(file);
+
+  const uploadsDir = path.join(process.cwd(), "public", "uploads", "assets");
+  await mkdir(uploadsDir, { recursive: true });
+
+  const safePrefix = prefix.replace(/[^a-z0-9_-]/gi, "_").toLowerCase();
+  const uniqueName = `${safePrefix}-${Date.now()}${ext}`;
+  const filePath = path.join(uploadsDir, uniqueName);
+  await writeFile(filePath, buffer);
+
+  return `/uploads/assets/${uniqueName}`;
 }

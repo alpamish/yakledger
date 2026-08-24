@@ -5,6 +5,7 @@ node_modules/
 tsconfig.tsbuildinfo
 mydb/
 db/
+backups/
 agent-ctx/
 skills-lock.json
 project-details.md
@@ -16,3 +17,4 @@ Assets.md
 timesheet.html
 public/uploads/contractors/
 public/uploads/employees/
+public/uploads/assets/

@@ -37,6 +37,7 @@ import {
   type Asset,
 } from '@/types/asset';
 import { formatCurrency } from '@/lib/utils';
+import { ExpenseLinkBadge } from '@/components/expense/expense-link-badge';
 
 interface AssetTableProps {
   data: Asset[];
@@ -198,7 +199,18 @@ export function AssetTable({ data, onEdit, onDelete, onView }: AssetTableProps) 
                   <TableCell className="font-medium">{asset.name}</TableCell>
                   <TableCell>{ASSET_CATEGORY_LABELS[asset.category] || asset.category}</TableCell>
                   <TableCell>{getStatusBadge(asset.status)}</TableCell>
-                  <TableCell>{formatCurrency(asset.purchasePrice)}</TableCell>
+                  <TableCell>
+                    <div className="flex items-center gap-2">
+                      {formatCurrency(asset.purchasePrice)}
+                      {asset.expenses?.length ? (
+                        <span onClick={(e) => e.stopPropagation()}>
+                          {asset.expenses.map((exp) => (
+                            <ExpenseLinkBadge key={exp.id} expense={exp} />
+                          ))}
+                        </span>
+                      ) : null}
+                    </div>
+                  </TableCell>
                   <TableCell>{formatCurrency(asset.currentValue)}</TableCell>
                   <TableCell>{asset.assignedTo?.fullName || '-'}</TableCell>
                   <TableCell className="text-right">

@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/permissions";
 import { Prisma } from "@prisma/client";
 import { buildAccessScope, withScope } from "@/lib/access-control";
+import { generateContractorNumber } from "@/lib/contractor-number";
 
 const CONTRACTOR_TYPE_VALUES = [
   "MACHINERY_CONTRACTOR",
@@ -43,6 +44,14 @@ const inlineMachinerySchema = z.object({
   workHoursPerDay: z.number().int().min(1).max(24).default(9),
   contractStartDate: z.string().optional().nullable(),
   contractEndDate: z.string().optional().nullable(),
+}).superRefine((data, ctx) => {
+  if (data.hourlyRate <= 0 && data.dailyRate <= 0 && data.monthlyRate <= 0) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["monthlyRate"],
+      message: "At least one rate (hourly, daily, or monthly) is required",
+    });
+  }
 });
 
 const createContractorSchema = z.object({
@@ -94,6 +103,7 @@ export async function GET(request: NextRequest) {
         { email: { contains: search } },
         { companyName: { contains: search } },
         { nationalId: { contains: search } },
+        { contractorNumber: { contains: search } },
       ];
     }
 
@@ -177,8 +187,10 @@ export async function POST(request: NextRequest) {
     const data = parsed.data;
 
     const contractor = await db.$transaction(async (tx) => {
+      const contractorNumber = await generateContractorNumber(tx);
       const created = await tx.contractor.create({
         data: {
+          contractorNumber,
           contractorName: data.contractorName,
           fatherName: data.fatherName,
           companyName: data.companyName ?? null,
@@ -202,27 +214,41 @@ export async function POST(request: NextRequest) {
       });
 
       if (data.machinery && data.machinery.length > 0) {
-        await tx.machinery.createMany({
-          data: data.machinery.map((m) => ({
-            machineryName: m.machineryName,
-            machineryType: m.machineryType,
-            plateNumber: m.plateNumber ?? null,
-            model: m.model ?? null,
-            driverName: m.driverName ?? null,
-            status: m.status,
-            assignedContractorId: created.id,
-            fuelType: m.fuelType,
-            hourlyConsumptionRate: m.hourlyConsumptionRate,
-            hourlyRate: m.hourlyRate,
-            dailyRate: m.dailyRate,
-            monthlyRate: m.monthlyRate,
-            contractDaysPerMonth: m.contractDaysPerMonth,
-            workHoursPerDay: m.workHoursPerDay,
-            contractStartDate: m.contractStartDate ? new Date(m.contractStartDate) : null,
-            contractEndDate: m.contractEndDate ? new Date(m.contractEndDate) : null,
-            createdBy: user.id,
-          })),
-        });
+        for (const m of data.machinery) {
+          await tx.machinery.create({
+            data: {
+              machineryName: m.machineryName,
+              machineryType: m.machineryType,
+              plateNumber: m.plateNumber ?? null,
+              model: m.model ?? null,
+              driverName: m.driverName ?? null,
+              status: m.status,
+              assignedContractorId: created.id,
+              fuelType: m.fuelType,
+              hourlyConsumptionRate: m.hourlyConsumptionRate,
+              hourlyRate: m.hourlyRate,
+              dailyRate: m.dailyRate,
+              monthlyRate: m.monthlyRate,
+              contractDaysPerMonth: m.contractDaysPerMonth,
+              workHoursPerDay: m.workHoursPerDay,
+              contractStartDate: m.contractStartDate ? new Date(m.contractStartDate) : null,
+              contractEndDate: m.contractEndDate ? new Date(m.contractEndDate) : null,
+              createdBy: user.id,
+              machineryRates: {
+                create: {
+                  rateName: "Default",
+                  monthlyRate: m.monthlyRate,
+                  dailyRate: m.dailyRate,
+                  hourlyRate: m.hourlyRate,
+                  contractDaysPerMonth: m.contractDaysPerMonth,
+                  workHoursPerDay: m.workHoursPerDay,
+                  isDefault: true,
+                  createdBy: user.id,
+                },
+              },
+            },
+          });
+        }
       }
 
       // Create audit log entry

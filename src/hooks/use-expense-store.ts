@@ -184,13 +184,14 @@ export const useExpenseStore = create<ExpenseStore>((set, get) => ({
     try {
       const response = await authApi.me();
       if (response.data) {
+        // /api/auth/me now returns { user, permissions } in a single response.
         set({
-          user: response.data,
+          user: response.data.user,
           token: currentToken,
           isAuthenticated: true,
           isLoadingAuth: false,
+          userPermissions: response.data.permissions ?? {},
         });
-        get().fetchPermissions();
       } else {
         clearToken();
         set({ isAuthenticated: false, isLoadingAuth: false, user: null, token: null });

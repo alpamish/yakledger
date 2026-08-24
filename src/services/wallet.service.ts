@@ -70,6 +70,18 @@ async function recalculateBalance(employeeId: string, client: Prisma.Transaction
     where: { employeeId, payroll: { status: "APPROVED" } },
   });
 
+  // Approved employee-paid company expenses reduce what the employee owes
+  // (money they spent on the company's behalf). Honored only when the expense
+  // was flagged to deduct from the wallet.
+  const expensesPaidByAgg = await client.expense.aggregate({
+    _sum: { amount: true },
+    where: {
+      paidById: employeeId,
+      approvalStatus: APPROVED,
+      deductFromWallet: { not: false },
+    },
+  });
+
   const totalAdvances = advancesAgg._sum.amount ?? 0;
   const totalReturns = returnsAgg._sum.amount ?? 0;
   const totalSalaryPayments = salaryPaymentsAgg._sum.amount ?? 0;
@@ -78,9 +90,11 @@ async function recalculateBalance(employeeId: string, client: Prisma.Transaction
   const totalTransfersOut = transfersFromAgg._sum.amount ?? 0;
   const totalTransfersIn = transfersToAgg._sum.amount ?? 0;
   const totalEarned = (payrollGrossAgg._sum.grossPayMinor ?? 0) / 100;
+  const totalExpensesPaidBy = expensesPaidByAgg._sum.amount ?? 0;
 
   // Net received by employee (cash given to them) minus what they earned via
-  // approved payroll. Positive => employee owes the company.
+  // approved payroll and what they spent on approved company expenses.
+  // Positive => employee owes the company.
   const balance =
     totalAdvances +
     totalSalaryPayments +
@@ -89,7 +103,8 @@ async function recalculateBalance(employeeId: string, client: Prisma.Transaction
     totalDeductions -
     totalEarned +
     totalTransfersIn -
-    totalTransfersOut;
+    totalTransfersOut -
+    totalExpensesPaidBy;
 
   // Only update an existing account. Payroll approval/revert recomputes must
   // never create a wallet for an employee who has had no cash activity.
@@ -329,6 +344,16 @@ export const walletService = {
     return recalculateBalance(employeeId);
   },
 
+  /**
+   * Ensure an employee cash account exists and refresh its derived balance.
+   * Used when an approved employee-paid expense is created so the wallet
+   * reflects the expense even before any cash-advance activity.
+   */
+  async reconcileForExpense(employeeId: string) {
+    await getOrCreateAccount(employeeId);
+    return recalculateBalance(employeeId);
+  },
+
   async getLedger(employeeId: string): Promise<LedgerEntry[]> {
     const transactions = await db.cashTransaction.findMany({
       where: { employeeId, approvalStatus: APPROVED },
@@ -343,11 +368,15 @@ export const walletService = {
     const entries: { date: Date; type: LedgerEntry["type"]; description: string; amount: number }[] = [];
 
     for (const txn of transactions) {
+      // Sign convention must match `recalculateBalance`: amounts that increase
+      // what the employee owes (ADVANCE, SALARY_PAYMENT, ADJUSTMENT) are shown
+      // positive; amounts that reduce it (RETURN, DEBIT) are shown negative.
+      const increasesDebt = txn.type === "ADVANCE" || txn.type === "SALARY_PAYMENT" || txn.type === "ADJUSTMENT";
       entries.push({
         date: txn.createdAt,
         type: txn.type,
-        description: txn.note ?? (txn.type === "ADVANCE" ? "Cash Advance" : txn.type === "RETURN" ? "Cash Return" : "Adjustment"),
-        amount: txn.type === "ADVANCE" ? txn.amount : -txn.amount,
+        description: txn.note ?? (txn.type === "ADVANCE" ? "Cash Advance" : txn.type === "RETURN" ? "Cash Return" : txn.type === "SALARY_PAYMENT" ? "Salary Payment" : "Adjustment"),
+        amount: increasesDebt ? txn.amount : -txn.amount,
       });
     }
 

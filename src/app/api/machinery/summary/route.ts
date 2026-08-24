@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/permissions";
-import { buildAccessScope, withScope, APPROVED } from "@/lib/access-control";
+import { buildAccessScope, buildAggregateScope, withScope } from "@/lib/access-control";
 
 export async function GET(request: NextRequest) {
   const result = await requirePermission(request, "machinery:view");
@@ -35,16 +35,16 @@ export async function GET(request: NextRequest) {
 
       db.timesheet.aggregate({
         where: withScope(
-          { machineryId: { not: null }, approvalStatus: APPROVED },
-          await buildAccessScope(user, "timesheet")
+          { machineryId: { not: null } },
+          await buildAggregateScope(user, "timesheet")
         ),
         _sum: { totalHours: true },
       }),
 
       db.timesheet.findMany({
         where: withScope(
-          { machineryId: { not: null }, approvalStatus: APPROVED },
-          await buildAccessScope(user, "timesheet")
+          { machineryId: { not: null } },
+          await buildAggregateScope(user, "timesheet")
         ),
         select: { date: true },
         distinct: ["date"],
@@ -52,8 +52,8 @@ export async function GET(request: NextRequest) {
 
       db.fuelUsage.aggregate({
         where: withScope(
-          { machineryId: { not: null }, approvalStatus: APPROVED },
-          await buildAccessScope(user, "fuelUsage")
+          { machineryId: { not: null } },
+          await buildAggregateScope(user, "fuelUsage")
         ),
         _sum: { quantity: true, totalCost: true },
       }),

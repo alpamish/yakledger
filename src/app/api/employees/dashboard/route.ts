@@ -1,24 +1,29 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/permissions";
+import { buildAccessScope, withScope } from "@/lib/access-control";
 
 // GET /api/employees/dashboard - Employee dashboard stats
 export async function GET(request: NextRequest) {
   const result = await requirePermission(request, "employees:view");
   if ("status" in result) return result;
+  const user = result.user;
   try {
+    const employeeScope = await buildAccessScope(user, "employee");
+
     // Get counts by status
     const [totalEmployees, activeEmployees, inactiveEmployees, terminatedEmployees] =
       await Promise.all([
-        db.employee.count(),
-        db.employee.count({ where: { status: "ACTIVE" } }),
-        db.employee.count({ where: { status: "INACTIVE" } }),
-        db.employee.count({ where: { status: "TERMINATED" } }),
+        db.employee.count({ where: employeeScope }),
+        db.employee.count({ where: withScope({ status: "ACTIVE" }, employeeScope) }),
+        db.employee.count({ where: withScope({ status: "INACTIVE" }, employeeScope) }),
+        db.employee.count({ where: withScope({ status: "TERMINATED" }, employeeScope) }),
       ]);
 
     // Get employees grouped by department
     const employeesByDepartment = await db.employee.groupBy({
       by: ["department"],
+      where: employeeScope,
       _count: { id: true },
       orderBy: { _count: { id: "desc" } },
     });
@@ -30,7 +35,7 @@ export async function GET(request: NextRequest) {
 
     // Get recent hires (last 5 by hireDate desc)
     const recentHires = await db.employee.findMany({
-      where: { status: "ACTIVE" },
+      where: withScope({ status: "ACTIVE" }, employeeScope),
       include: {
         creator: {
           select: { id: true, email: true, name: true, role: true, avatar: true },
@@ -42,7 +47,7 @@ export async function GET(request: NextRequest) {
 
     // Calculate payroll stats (active employees only)
     const payrollStats = await db.employee.aggregate({
-      where: { status: "ACTIVE" },
+      where: withScope({ status: "ACTIVE" }, employeeScope),
       _sum: { salary: true },
       _avg: { salary: true },
     });

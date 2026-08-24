@@ -21,6 +21,8 @@ const updateMachinerySchema = z.object({
   driverFatherName: z.string().optional().nullable(),
   driverPhoneNumber: z.string().optional().nullable(),
   driverNationalId: z.string().optional().nullable(),
+  driverIdImageFront: z.string().optional().nullable(),
+  driverIdImageBack: z.string().optional().nullable(),
   status: z.enum(MACHINERY_STATUS_VALUES).optional(),
   assignedContractorId: z.string().min(1, "Contractor is required").optional(),
   fuelType: z.enum(FUEL_TYPE_VALUES).optional(),
@@ -126,28 +128,75 @@ export async function PUT(
       );
     }
 
-    const updatedMachinery = await db.machinery.update({
-      where: { id },
-      data: updateData,
-      include: {
-        assignedContractor: {
-          select: { id: true, contractorName: true, contractorType: true },
-        },
-        _count: {
-          select: { timesheets: true, fuelUsages: true },
-        },
-      },
-    });
+    const RATE_KEYS = [
+      "hourlyRate",
+      "dailyRate",
+      "monthlyRate",
+      "contractDaysPerMonth",
+      "workHoursPerDay",
+    ];
+    const ratesChanged = RATE_KEYS.some((key) => key in updateData);
 
-    // Create audit log entry
-    await db.auditLog.create({
-      data: {
-        action: "UPDATE",
-        entity: "Machinery",
-        entityId: machinery.id,
-        details: `Updated machinery: ${updatedMachinery.machineryName}`,
-        userId: user.id,
-      },
+    const updatedMachinery = await db.$transaction(async (tx) => {
+      const updated = await tx.machinery.update({
+        where: { id },
+        data: updateData,
+        include: {
+          assignedContractor: {
+            select: { id: true, contractorName: true, contractorType: true },
+          },
+          _count: {
+            select: { timesheets: true, fuelUsages: true },
+          },
+        },
+      });
+
+      // Keep the default rate tier in sync with the machinery's base rates.
+      if (ratesChanged) {
+        const current = await tx.machinery.findUnique({
+          where: { id },
+          select: {
+            monthlyRate: true,
+            dailyRate: true,
+            hourlyRate: true,
+            contractDaysPerMonth: true,
+            workHoursPerDay: true,
+          },
+        });
+        const rateData = {
+          monthlyRate: current?.monthlyRate ?? 0,
+          dailyRate: current?.dailyRate ?? 0,
+          hourlyRate: current?.hourlyRate ?? 0,
+          contractDaysPerMonth: current?.contractDaysPerMonth ?? 28,
+          workHoursPerDay: current?.workHoursPerDay ?? 9,
+        };
+        const defaultRate = await tx.machineryRate.findFirst({
+          where: { machineryId: id, isDefault: true },
+        });
+        if (defaultRate) {
+          await tx.machineryRate.update({
+            where: { id: defaultRate.id },
+            data: rateData,
+          });
+        } else {
+          await tx.machineryRate.create({
+            data: { machineryId: id, rateName: "Default", ...rateData, isDefault: true, createdBy: user.id },
+          });
+        }
+      }
+
+      // Create audit log entry
+      await tx.auditLog.create({
+        data: {
+          action: "UPDATE",
+          entity: "Machinery",
+          entityId: machinery.id,
+          details: `Updated machinery: ${updated.machineryName}`,
+          userId: user.id,
+        },
+      });
+
+      return updated;
     });
 
     return NextResponse.json({

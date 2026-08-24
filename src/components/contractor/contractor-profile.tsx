@@ -18,7 +18,7 @@ import {
   FUEL_TYPE_COLORS,
   MACHINERY_STATUS_COLORS,
 } from '@/types/contractor';
-import type { ContractorType, ContractorStatus, FuelType, MachineryStatus } from '@/types/contractor';
+import type { ContractorType, ContractorStatus, FuelType, MachineryStatus, Machinery } from '@/types/contractor';
 import { CATEGORY_LABELS as EXP_CATEGORY_LABELS, CATEGORY_COLORS as EXP_CATEGORY_COLORS } from '@/types/expense';
 import type { Category } from '@/types/expense';
 import {
@@ -30,6 +30,7 @@ import {
 } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { MachineryDetailModal } from '@/components/machinery/machinery-detail-modal';
 import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -79,6 +80,7 @@ import {
   X,
   RotateCw,
   RotateCcw,
+  Eye,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
@@ -124,12 +126,15 @@ export function ContractorProfile({ contractorId }: { contractorId?: string }) {
   const clearSelectedContractor = useContractorStore((s) => s.clearSelectedContractor);
   const openForm = useContractorStore((s) => s.openForm);
   const updateContractor = useContractorStore((s) => s.updateContractor);
-  const { canEdit, hasPermission } = usePermissions();
+  const { canEdit, hasPermission, canView } = usePermissions();
 
   // Search states for tab filtering
   const [expenseSearch, setExpenseSearch] = useState('');
   const [timesheetSearch, setTimesheetSearch] = useState('');
   const [fuelSearch, setFuelSearch] = useState('');
+
+  // Machinery detail modal state
+  const [detailMachinery, setDetailMachinery] = useState<Machinery | null>(null);
 
   // PDF report state
   const [dateFrom, setDateFrom] = useState('');
@@ -736,7 +741,14 @@ export function ContractorProfile({ contractorId }: { contractorId?: string }) {
               {initials}
             </div>
             <div className="text-center sm:text-left flex-1">
-              <h3 className="text-xl font-bold">{c.contractorName}</h3>
+              <h3 className="text-xl font-bold">
+                {c.contractorName}
+                {c.contractorNumber && (
+                  <span className="ml-2 text-sm font-normal text-muted-foreground">
+                    {c.contractorNumber}
+                  </span>
+                )}
+              </h3>
               {c.companyName && <p className="text-muted-foreground">{c.companyName}</p>}
               <div className="mt-2 flex flex-wrap items-center justify-center sm:justify-start gap-2">
                 <StatusBadge value={c.contractorType} colorMap={CONTRACTOR_TYPE_COLORS} labelMap={CONTRACTOR_TYPE_LABELS} />
@@ -789,6 +801,7 @@ export function ContractorProfile({ contractorId }: { contractorId?: string }) {
               </CardHeader>
               <CardContent className="space-y-1">
                 <InfoItem icon={User} label="Contractor Name" value={c.contractorName} />
+                <InfoItem icon={FileText} label="Contract ID" value={c.contractorNumber} />
                 <InfoItem icon={User} label="Father Name" value={c.fatherName} />
                 <InfoItem icon={Building2} label="Company Name" value={c.companyName} />
                 <InfoItem icon={CreditCard} label="National ID" value={c.nationalId} />
@@ -1426,6 +1439,11 @@ export function ContractorProfile({ contractorId }: { contractorId?: string }) {
                               <Badge variant="outline" className="border-0 text-[10px] px-1.5 py-0" style={{ backgroundColor: `${fColor}18`, color: fColor }}>
                                 {FUEL_TYPE_LABELS[fu.fuelType as FuelType] ?? fu.fuelType}
                               </Badge>
+                              {fu.billable && (
+                                <Badge variant="outline" className="ml-1 border-0 text-[10px] px-1.5 py-0 bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-400">
+                                  Billable
+                                </Badge>
+                              )}
                             </TableCell>
                             <TableCell className="text-right font-mono tabular-nums">{fu.quantity.toFixed(2)}</TableCell>
                             <TableCell className="text-right font-mono tabular-nums">{formatCurrency(fu.unitPrice)}</TableCell>
@@ -1472,9 +1490,23 @@ export function ContractorProfile({ contractorId }: { contractorId?: string }) {
                           <CardTitle className="text-base">{m.machineryName}</CardTitle>
                           <CardDescription className="mt-0.5">{m.machineryType}</CardDescription>
                         </div>
-                        <Badge variant="outline" className="border-0 shrink-0" style={{ backgroundColor: `${mStatusColor}18`, color: mStatusColor }}>
-                          {MACHINERY_STATUS_LABELS[m.status as MachineryStatus] ?? m.status}
-                        </Badge>
+                        <div className="flex items-center gap-1 shrink-0">
+                          {canView('machinery') && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7"
+                              title="View details"
+                              onClick={() => setDetailMachinery(m)}
+                            >
+                              <Eye className="h-4 w-4" />
+                              <span className="sr-only">View details</span>
+                            </Button>
+                          )}
+                          <Badge variant="outline" className="border-0 shrink-0" style={{ backgroundColor: `${mStatusColor}18`, color: mStatusColor }}>
+                            {MACHINERY_STATUS_LABELS[m.status as MachineryStatus] ?? m.status}
+                          </Badge>
+                        </div>
                       </div>
                     </CardHeader>
                     <CardContent className="space-y-3">
@@ -1880,6 +1912,13 @@ export function ContractorProfile({ contractorId }: { contractorId?: string }) {
           )}
         </TabsContent>
       </Tabs>
+
+      {/* Machinery Detail Modal */}
+      <MachineryDetailModal
+        open={!!detailMachinery}
+        onOpenChange={(open) => { if (!open) setDetailMachinery(null); }}
+        machinery={detailMachinery}
+      />
     </div>
   );
 }

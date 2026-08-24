@@ -74,6 +74,37 @@ export const assetsApi = {
     return request<ApiResponse<Asset>>(`/assets/${id}`);
   },
 
+  uploadDocument: async (file: File): Promise<ApiResponse<{ path: string; originalName: string; size: number }>> => {
+    const token = getToken();
+    const formData = new FormData();
+    formData.append("file", file);
+
+    const headers: Record<string, string> = {};
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+
+    const response = await fetch(`${API_BASE}/assets/upload`, {
+      method: "POST",
+      headers,
+      body: formData,
+    });
+
+    if (response.status === 401) {
+      if (typeof window !== "undefined") window.location.href = "/";
+      throw new ApiError("Unauthorized", 401);
+    }
+
+    if (!response.ok) {
+      let message = `Request failed with status ${response.status}`;
+      try {
+        const body = await response.json();
+        if (body.error || body.message) message = body.error || body.message;
+      } catch {}
+      throw new ApiError(message, response.status);
+    }
+
+    return response.json() as Promise<ApiResponse<{ path: string; originalName: string; size: number }>>;
+  },
+
   create: async (data: AssetFormData): Promise<ApiResponse<Asset>> => {
     return request<ApiResponse<Asset>>("/assets", { method: "POST", body: JSON.stringify(data) });
   },

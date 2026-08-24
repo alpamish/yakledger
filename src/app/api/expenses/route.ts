@@ -4,8 +4,9 @@ import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/permissions";
 import { Prisma } from "@prisma/client";
 import { walletService } from "@/services/wallet.service";
+import { companyWalletService } from "@/services/company-wallet.service";
 import {
-  buildAccessScope,
+  buildListScope,
   withScope,
   resolveApprovalStatusOnCreate,
   APPROVED,
@@ -28,6 +29,7 @@ const createExpenseSchema = z.object({
     "OFFICE_EXPENSE",
     "REWARD",
     "BONUS",
+    "MEDICATION",
     "MISCELLANEOUS",
   ]),
   amount: z.number().positive("Amount must be positive").max(999_999_999, "Amount too large"),
@@ -51,6 +53,8 @@ const createExpenseSchema = z.object({
   paidToId: z.string().max(100).optional().nullable(),
   paidToContractorId: z.string().max(100).optional().nullable(),
   paidByContractorId: z.string().max(100).optional().nullable(),
+  walletId: z.string().max(100).optional().nullable(),
+  deductFromWallet: z.boolean().optional().default(true),
 });
 
 // GET /api/expenses - Get all expenses with filtering, pagination, sorting
@@ -193,7 +197,7 @@ export async function GET(request: NextRequest) {
     const sortField = validSortFields.includes(sortBy) ? sortBy : "createdAt";
     const order = sortOrder === "asc" ? "asc" : "desc";
 
-    const scope = await buildAccessScope(user, "expense");
+    const scope = await buildListScope(user, "expense");
     const scopedWhere = withScope(where, scope);
 
     // Execute queries
@@ -269,6 +273,17 @@ export async function POST(request: NextRequest) {
 
     const data = parsed.data;
 
+    // Company wallet and employee-wallet deductions are mutually exclusive.
+    if (data.walletId && data.deductFromWallet !== false) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Select either a company wallet or an employee wallet deduction, not both.",
+        },
+        { status: 400 }
+      );
+    }
+
     // Convert expenseDate: handle both timestamp strings and ISO date strings
     let expenseDate: Date;
     if (!isNaN(Number(data.expenseDate))) {
@@ -297,6 +312,8 @@ export async function POST(request: NextRequest) {
           paidToId: data.paidToId ?? null,
           paidToContractorId: data.paidToContractorId ?? null,
           paidByContractorId: data.paidByContractorId ?? null,
+          walletId: data.walletId ?? null,
+          deductFromWallet: data.deductFromWallet,
           createdBy: user.id,
           approvalStatus,
           approvedById: approvalStatus === APPROVED ? user.id : null,
@@ -325,15 +342,29 @@ export async function POST(request: NextRequest) {
         },
       });
 
+      // Deduct approved expenses from the selected company wallet, atomically
+      // with the expense creation.
+      if (approvalStatus === APPROVED && data.walletId) {
+        await companyWalletService.deductForExpense(
+          tx,
+          data.walletId,
+          data.amount,
+          user.id,
+          created.id,
+          `Expense: ${created.title}`
+        );
+      }
+
       return created;
     });
 
-    // If expense is approved and paid by an employee, deduct from their wallet (best-effort)
-    if (expense.approvalStatus === APPROVED && data.paidById) {
+    // Refresh the paying employee's wallet balance to reflect this expense
+    // (best-effort; the account is created on first expense activity).
+    if (expense.approvalStatus === APPROVED && data.paidById && data.deductFromWallet !== false) {
       try {
-        await walletService.deductFromWallet(data.paidById, data.amount, user.id);
+        await walletService.reconcileForExpense(data.paidById);
       } catch (walletErr) {
-        console.warn("Wallet deduction failed (wallet may not exist yet):", walletErr);
+        console.warn("Wallet reconcile failed:", walletErr);
       }
     }
 

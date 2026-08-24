@@ -3,7 +3,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/permissions";
 import { Prisma } from "@prisma/client";
-import { buildAccessScope, withScope, APPROVED } from "@/lib/access-control";
+import { buildAccessScope, buildListScope, buildAggregateScope, withScope } from "@/lib/access-control";
 
 const CONTRACTOR_TYPE_VALUES = [
   "MACHINERY_CONTRACTOR",
@@ -47,14 +47,36 @@ export async function GET(
 
     const { id } = await params;
 
+    const [
+      contractorScope,
+      expenseScope,
+      timesheetScope,
+      fuelUsageScope,
+      expenseListScope,
+      timesheetListScope,
+      fuelUsageListScope,
+      machineryScope,
+      machineryRateScope,
+    ] = await Promise.all([
+      buildAccessScope(user, "contractor"),
+      buildAggregateScope(user, "expense"),
+      buildAggregateScope(user, "timesheet"),
+      buildAggregateScope(user, "fuelUsage"),
+      buildListScope(user, "expense"),
+      buildListScope(user, "timesheet"),
+      buildListScope(user, "fuelUsage"),
+      buildAccessScope(user, "machinery"),
+      buildAccessScope(user, "machineryRate"),
+    ]);
+
     const contractor = await db.contractor.findFirst({
-      where: withScope({ id }, await buildAccessScope(user, "contractor")),
+      where: withScope({ id }, contractorScope),
       include: {
         creator: {
           select: { id: true, email: true, name: true, role: true, avatar: true },
         },
         expensesPaidTo: {
-          where: withScope({ approvalStatus: APPROVED }, await buildAccessScope(user, "expense")),
+          where: expenseListScope,
           select: {
             id: true,
             title: true,
@@ -69,56 +91,16 @@ export async function GET(
           orderBy: { expenseDate: "desc" },
           take: 20,
         },
-        timesheets: {
-          where: withScope({ approvalStatus: APPROVED }, await buildAccessScope(user, "timesheet")),
-          orderBy: { date: "desc" },
-          take: 20,
-          select: {
-            id: true,
-            machineryId: true,
-            machineryRateId: true,
-            date: true,
-            totalHours: true,
-            overtimeHours: true,
-            startTime: true,
-            lunchStart: true,
-            lunchEnd: true,
-            endTime: true,
-            operatorName: true,
-            workSite: true,
-            notes: true,
-            approvedBy: true,
-            approvedAt: true,
-            createdBy: true,
-            createdAt: true,
-            updatedAt: true,
-            machinery: {
-              select: { id: true, machineryName: true, machineryType: true, plateNumber: true },
-            },
-          },
-        },
-        fuelUsages: {
-          where: withScope({ approvalStatus: APPROVED }, await buildAccessScope(user, "fuelUsage")),
-          orderBy: { date: "desc" },
-          take: 20,
-          include: {
-            machinery: {
-              select: { id: true, machineryName: true, machineryType: true, plateNumber: true },
-            },
-            linkedExpense: {
-              select: { id: true, title: true, amount: true, category: true },
-            },
-          },
-        },
         machinery: {
+          where: machineryScope,
           orderBy: { createdAt: "desc" },
         },
         _count: {
           select: {
-            expensesPaidTo: true,
-            timesheets: true,
-            fuelUsages: true,
-            machinery: true,
+            expensesPaidTo: { where: expenseScope },
+            timesheets: { where: timesheetScope },
+            fuelUsages: { where: fuelUsageScope },
+            machinery: { where: machineryScope },
           },
         },
       },
@@ -133,10 +115,7 @@ export async function GET(
 
     // Compute totalExpensesPaid
     const totalExpensesResult = await db.expense.aggregate({
-      where: withScope(
-        { paidToContractorId: id, approvalStatus: APPROVED },
-        await buildAccessScope(user, "expense")
-      ),
+      where: withScope({ paidToContractorId: id }, expenseScope),
       _sum: { amount: true },
     });
     const totalExpensesPaid = totalExpensesResult._sum.amount ?? 0;
@@ -148,10 +127,9 @@ export async function GET(
       where: withScope(
         {
           paidToContractorId: id,
-          approvalStatus: APPROVED,
           expenseDate: { gte: sixMonthsAgo },
         },
-        await buildAccessScope(user, "expense")
+        expenseScope
       ),
       select: { amount: true, expenseDate: true },
     });
@@ -167,11 +145,14 @@ export async function GET(
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([month, amount]) => ({ month, amount }));
 
-    // Fetch machineryRates for all machinery belonging to this contractor
+    // Fetch machineryRates for the scoped machinery belonging to this contractor
     const contractorMachineryIds = contractor.machinery.map((m) => m.id);
     const machineryRates = contractorMachineryIds.length > 0
       ? await db.machineryRate.findMany({
-          where: { machineryId: { in: contractorMachineryIds } },
+          where: withScope(
+            { machineryId: { in: contractorMachineryIds } },
+            machineryRateScope
+          ),
         })
       : [];
 

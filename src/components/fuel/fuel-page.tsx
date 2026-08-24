@@ -52,6 +52,7 @@ import { Fuel, Plus, Trash2, FileBarChart, FileSpreadsheet, Loader2, ArrowRightL
 import { FuelPurchaseForm } from './fuel-purchase-form';
 import { FuelIssueForm } from './fuel-issue-form';
 import { FuelTransferForm } from './fuel-transfer-form';
+import { ExpenseLinkBadge } from '@/components/expense/expense-link-badge';
 import { FUEL_TYPE_LABELS, FUEL_TYPE_COLORS } from '@/types/contractor';
 import { FUEL_TRANSACTION_TYPE_LABELS } from '@/types/asset';
 import { toast } from 'sonner';
@@ -487,7 +488,16 @@ export function FuelPage() {
               )}
               {t.supplier && <span className="block text-muted-foreground">Supplier: {t.supplier}</span>}
               {t.issuedToName && <span className="block text-muted-foreground">To: {t.issuedToName}</span>}
-              {!t.asset && !t.contractor && !t.supplier && !t.issuedToName && <span>-</span>}
+              {t.type === 'PURCHASE' && t.expenses?.length ? (
+                <span className="mt-1 inline-flex items-center gap-1">
+                  {t.expenses.map((e) => (
+                    <ExpenseLinkBadge key={e.id} expense={e} />
+                  ))}
+                </span>
+              ) : null}
+              {!t.asset && !t.contractor && !t.supplier && !t.issuedToName && (
+                <span>-</span>
+              )}
             </div>
           );
         },

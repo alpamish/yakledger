@@ -46,6 +46,7 @@ export function AssetFormPage() {
         assignedToId: editingAsset.assignedToId || '',
         status: editingAsset.status,
         notes: editingAsset.notes || '',
+        images: editingAsset.images || '',
         fuelType: editingAsset.fuelType || undefined,
         fuelCapacity: editingAsset.fuelCapacity ?? undefined,
         fuelLocation: editingAsset.fuelLocation || '',

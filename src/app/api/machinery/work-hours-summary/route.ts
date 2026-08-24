@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { Prisma } from "@prisma/client";
 import { requirePermission } from "@/lib/permissions";
-import { buildAccessScope, withScope, APPROVED } from "@/lib/access-control";
+import { buildAccessScope, buildAggregateScope, withScope } from "@/lib/access-control";
 
 export async function GET(request: NextRequest) {
   const result = await requirePermission(request, "machinery:view");
@@ -69,8 +69,8 @@ export async function GET(request: NextRequest) {
     // Fetch all timesheets with their machineryRateId for these machinery
     const timesheets = await db.timesheet.findMany({
       where: withScope(
-        { machineryId: { in: machineryIds }, approvalStatus: APPROVED },
-        await buildAccessScope(user, "timesheet")
+        { machineryId: { in: machineryIds } },
+        await buildAggregateScope(user, "timesheet")
       ),
       select: {
         machineryId: true,

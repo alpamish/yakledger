@@ -30,6 +30,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import {
   Popover,
   PopoverContent,
@@ -51,7 +52,7 @@ import {
 import type { MachineryFormData, MachineryStatus, FuelType, MachineryRate, MachineryRateFormData, Machinery } from '@/types/contractor';
 import { useMachineryStore } from '@/hooks/use-machinery-store';
 import { contractorsApi, machineryApi } from '@/services/contractor-api';
-import { Check, ChevronDown, Loader2, Plus, Pencil, Trash2, Upload, X, ImageIcon, RotateCw, RotateCcw } from 'lucide-react';
+import { Check, ChevronDown, Loader2, Plus, Pencil, Trash2, Upload, X, ImageIcon, RotateCw, RotateCcw, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { rotateCanvas } from '@/lib/image-utils';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -76,6 +77,14 @@ const formSchema = z.object({
   workHoursPerDay: z.coerce.number().int().min(1, 'Min 1').max(24, 'Max 24').default(9),
   contractStartDate: z.string().optional().nullable(),
   contractEndDate: z.string().optional().nullable(),
+}).superRefine((data, ctx) => {
+  if (data.hourlyRate <= 0 && data.dailyRate <= 0 && data.monthlyRate <= 0) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['monthlyRate'],
+      message: 'At least one rate (hourly, daily, or monthly) is required',
+    });
+  }
 });
 
 type FormValues = z.infer<typeof formSchema>;
@@ -209,6 +218,13 @@ export function MachineryForm() {
   const monthlyRate = form.watch('monthlyRate');
   const contractDays = form.watch('contractDaysPerMonth');
   const workHours = form.watch('workHoursPerDay');
+
+  const newContractorId = form.watch('assignedContractorId');
+  const isReassigning = isEditing &&
+    !!editingMachinery?.assignedContractorId &&
+    editingMachinery.assignedContractorId !== newContractorId;
+  const timesheetCount = editingMachinery?._count?.timesheets ?? 0;
+  const fuelUsageCount = editingMachinery?._count?.fuelUsages ?? 0;
 
   useEffect(() => {
     if (monthlyRate > 0 && contractDays > 0) {
@@ -477,7 +493,7 @@ export function MachineryForm() {
               )} />
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <FormField control={form.control} name="plateNumber" render={({ field }) => (
                 <FormItem>
                   <FormLabel>Plate Number</FormLabel>
@@ -489,34 +505,6 @@ export function MachineryForm() {
                 <FormItem>
                   <FormLabel>Model</FormLabel>
                   <FormControl><Input placeholder="e.g., 2023, CAT 320" {...field} value={field.value ?? ''} /></FormControl>
-                  <FormMessage />
-                </FormItem>
-              )} />
-              <FormField control={form.control} name="driverName" render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Driver Name</FormLabel>
-                  <FormControl><Input placeholder="Full name of the driver" {...field} value={field.value ?? ''} /></FormControl>
-                  <FormMessage />
-                </FormItem>
-              )} />
-              <FormField control={form.control} name="driverFatherName" render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Driver's Father Name</FormLabel>
-                  <FormControl><Input placeholder="e.g., Mohammad" {...field} value={field.value ?? ''} /></FormControl>
-                  <FormMessage />
-                </FormItem>
-              )} />
-              <FormField control={form.control} name="driverPhoneNumber" render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Driver's Phone Number</FormLabel>
-                  <FormControl><Input placeholder="e.g., 0700123456" {...field} value={field.value ?? ''} /></FormControl>
-                  <FormMessage />
-                </FormItem>
-              )} />
-              <FormField control={form.control} name="driverNationalId" render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Driver's ID Number</FormLabel>
-                  <FormControl><Input placeholder="e.g., 12345678" {...field} value={field.value ?? ''} /></FormControl>
                   <FormMessage />
                 </FormItem>
               )} />
@@ -621,9 +609,197 @@ export function MachineryForm() {
               </FormItem>
             )} />
 
+            {isReassigning && (timesheetCount > 0 || fuelUsageCount > 0) && (
+              <Alert variant="destructive">
+                <AlertCircle className="h-4 w-4" />
+                <AlertTitle>Contractor reassignment warning</AlertTitle>
+                <AlertDescription>
+                  This machinery has {timesheetCount} timesheet record{timesheetCount === 1 ? '' : 's'}
+                  {fuelUsageCount > 0 && (
+                    <>
+                      {timesheetCount > 0 ? ' and ' : ''}
+                      {fuelUsageCount} fuel usage record{fuelUsageCount === 1 ? '' : 's'}
+                    </>
+                  )}
+                  {' '}under the current contractor. Changing the assigned contractor will not update those existing records.
+                </AlertDescription>
+              </Alert>
+            )}
+
+            {/* Driver Information */}
+            <div className="border-t pt-4 mt-4">
+              <h3 className="text-sm font-semibold text-muted-foreground mb-3">Driver Information</h3>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <FormField control={form.control} name="driverName" render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Driver Name</FormLabel>
+                  <FormControl><Input placeholder="Full name of the driver" {...field} value={field.value ?? ''} /></FormControl>
+                  <FormMessage />
+                </FormItem>
+              )} />
+              <FormField control={form.control} name="driverFatherName" render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Driver's Father Name</FormLabel>
+                  <FormControl><Input placeholder="e.g., Mohammad" {...field} value={field.value ?? ''} /></FormControl>
+                  <FormMessage />
+                </FormItem>
+              )} />
+              <FormField control={form.control} name="driverPhoneNumber" render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Driver's Phone Number</FormLabel>
+                  <FormControl><Input placeholder="e.g., 0700123456" {...field} value={field.value ?? ''} /></FormControl>
+                  <FormMessage />
+                </FormItem>
+              )} />
+              <FormField control={form.control} name="driverNationalId" render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Driver's ID Number</FormLabel>
+                  <FormControl><Input placeholder="e.g., 12345678" {...field} value={field.value ?? ''} /></FormControl>
+                  <FormMessage />
+                </FormItem>
+              )} />
+            </div>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <ImageIcon className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
+                  Driver's National ID
+                </CardTitle>
+                <CardDescription>Upload front and back of the driver's national ID</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {m?.id ? (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {/* Front Image */}
+                    <div className="flex flex-col items-center gap-3">
+                      <p className="text-sm font-medium">Front Side</p>
+                      {m.driverIdImageFront ? (
+                        <div className="relative w-full">
+                          <img
+                            src={m.driverIdImageFront}
+                            alt="ID Front"
+                            className="w-full h-48 rounded-lg border object-contain bg-muted cursor-pointer hover:opacity-90 transition-opacity"
+                            onClick={(e) => { e.stopPropagation(); openImagePreview(m.driverIdImageFront!, 'Front ID'); }}
+                            title="Click to preview full image"
+                          />
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="mt-2 w-full"
+                            onClick={() => { setIdImageSide('front'); setShowIdImageDialog(true); }}
+                          >
+                            <Upload className="h-4 w-4 mr-2" />
+                            Update Front
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="mt-2 w-full"
+                            onClick={() => handleRemoveIdImage('front')}
+                            disabled={idImageToRemove === 'front'}
+                          >
+                            {idImageToRemove === 'front' ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <X className="h-4 w-4 mr-2" />
+                            )}
+                            Remove Front
+                          </Button>
+                        </div>
+                      ) : (
+                        <label
+                          htmlFor="driver-id-front-upload"
+                          className="flex flex-col items-center justify-center w-full h-48 border-2 border-dashed rounded-lg cursor-pointer hover:bg-muted/50 transition-colors"
+                        >
+                          {isUploadingFront ? (
+                            <>
+                              <Loader2 className="h-8 w-8 text-emerald-600 animate-spin mb-2" />
+                              <span className="text-sm text-muted-foreground">Uploading...</span>
+                            </>
+                          ) : (
+                            <>
+                              <ImageIcon className="h-8 w-8 text-muted-foreground mb-2" />
+                              <span className="text-sm text-muted-foreground">Click to upload</span>
+                              <span className="text-xs text-muted-foreground mt-1">JPEG, PNG (max 10MB)</span>
+                            </>
+                          )}
+                        </label>
+                      )}
+                    </div>
+
+                    {/* Back Image */}
+                    <div className="flex flex-col items-center gap-3">
+                      <p className="text-sm font-medium">Back Side</p>
+                      {m.driverIdImageBack ? (
+                        <div className="relative w-full">
+                          <img
+                            src={m.driverIdImageBack}
+                            alt="ID Back"
+                            className="w-full h-48 rounded-lg border object-contain bg-muted cursor-pointer hover:opacity-90 transition-opacity"
+                            onClick={(e) => { e.stopPropagation(); openImagePreview(m.driverIdImageBack!, 'Back ID'); }}
+                            title="Click to preview full image"
+                          />
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="mt-2 w-full"
+                            onClick={() => { setIdImageSide('back'); setShowIdImageDialog(true); }}
+                          >
+                            <Upload className="h-4 w-4 mr-2" />
+                            Update Back
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="mt-2 w-full"
+                            onClick={() => handleRemoveIdImage('back')}
+                            disabled={idImageToRemove === 'back'}
+                          >
+                            {idImageToRemove === 'back' ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <X className="h-4 w-4 mr-2" />
+                            )}
+                            Remove Back
+                          </Button>
+                        </div>
+                      ) : (
+                        <label
+                          htmlFor="driver-id-back-upload"
+                          className="flex flex-col items-center justify-center w-full h-48 border-2 border-dashed rounded-lg cursor-pointer hover:bg-muted/50 transition-colors"
+                        >
+                          {isUploadingBack ? (
+                            <>
+                              <Loader2 className="h-8 w-8 text-emerald-600 animate-spin mb-2" />
+                              <span className="text-sm text-muted-foreground">Uploading...</span>
+                            </>
+                          ) : (
+                            <>
+                              <ImageIcon className="h-8 w-8 text-muted-foreground mb-2" />
+                              <span className="text-sm text-muted-foreground">Click to upload</span>
+                              <span className="text-xs text-muted-foreground mt-1">JPEG, PNG (max 10MB)</span>
+                            </>
+                          )}
+                        </label>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">Save the machinery first to enable driver ID document upload.</p>
+                )}
+              </CardContent>
+            </Card>
+
             {/* Rates & Contract */}
             <div className="border-t pt-4 mt-4">
               <h3 className="text-sm font-semibold text-muted-foreground mb-3">Rates & Contract</h3>
+              <p className="text-xs text-muted-foreground mb-3">
+                At least one rate (hourly, daily, or monthly) is required. A default rate tier
+                ('Default') is created automatically from these rates.
+              </p>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -677,6 +853,25 @@ export function MachineryForm() {
                 <FormItem>
                   <FormLabel>Contract End Date</FormLabel>
                   <FormControl><Input type="date" {...field} value={field.value ?? ''} /></FormControl>
+                  <FormMessage />
+                </FormItem>
+              )} />
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <FormField control={form.control} name="contractDaysPerMonth" render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Contract Days Per Month</FormLabel>
+                  <FormControl><Input type="number" step="1" min="1" max="31" {...field} /></FormControl>
+                  <p className="text-xs text-muted-foreground">Default: 28 days</p>
+                  <FormMessage />
+                </FormItem>
+              )} />
+              <FormField control={form.control} name="workHoursPerDay" render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Work Hours Per Day</FormLabel>
+                  <FormControl><Input type="number" step="1" min="1" max="24" {...field} /></FormControl>
+                  <p className="text-xs text-muted-foreground">Default: 9 hours. Used for overtime & rate calc.</p>
                   <FormMessage />
                 </FormItem>
               )} />
@@ -824,161 +1019,6 @@ export function MachineryForm() {
                 </DialogFooter>
               </DialogContent>
             </Dialog>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <FormField control={form.control} name="contractDaysPerMonth" render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Contract Days Per Month</FormLabel>
-                  <FormControl><Input type="number" step="1" min="1" max="31" {...field} /></FormControl>
-                  <p className="text-xs text-muted-foreground">Default: 28 days</p>
-                  <FormMessage />
-                </FormItem>
-              )} />
-              <FormField control={form.control} name="workHoursPerDay" render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Work Hours Per Day</FormLabel>
-                  <FormControl><Input type="number" step="1" min="1" max="24" {...field} /></FormControl>
-                  <p className="text-xs text-muted-foreground">Default: 9 hours. Used for overtime & rate calc.</p>
-                  <FormMessage />
-                </FormItem>
-              )} />
-            </div>
-
-            {/* Driver ID Documents */}
-            <div className="border-t pt-4 mt-4">
-              <h3 className="text-sm font-semibold text-muted-foreground mb-3">Driver ID Documents</h3>
-            </div>
-
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-base">
-                  <ImageIcon className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
-                  Driver's National ID
-                </CardTitle>
-                <CardDescription>Upload front and back of the driver's national ID</CardDescription>
-              </CardHeader>
-              <CardContent>
-                {m?.id ? (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    {/* Front Image */}
-                    <div className="flex flex-col items-center gap-3">
-                      <p className="text-sm font-medium">Front Side</p>
-                      {m.driverIdImageFront ? (
-                        <div className="relative w-full">
-                          <img
-                            src={m.driverIdImageFront}
-                            alt="ID Front"
-                            className="w-full h-48 rounded-lg border object-contain bg-muted cursor-pointer hover:opacity-90 transition-opacity"
-                            onClick={(e) => { e.stopPropagation(); openImagePreview(m.driverIdImageFront!, 'Front ID'); }}
-                            title="Click to preview full image"
-                          />
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="mt-2 w-full"
-                            onClick={() => { setIdImageSide('front'); setShowIdImageDialog(true); }}
-                          >
-                            <Upload className="h-4 w-4 mr-2" />
-                            Update Front
-                          </Button>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="mt-2 w-full"
-                            onClick={() => handleRemoveIdImage('front')}
-                            disabled={idImageToRemove === 'front'}
-                          >
-                            {idImageToRemove === 'front' ? (
-                              <Loader2 className="h-4 w-4 animate-spin" />
-                            ) : (
-                              <X className="h-4 w-4 mr-2" />
-                            )}
-                            Remove Front
-                          </Button>
-                        </div>
-                      ) : (
-                        <label
-                          htmlFor="driver-id-front-upload"
-                          className="flex flex-col items-center justify-center w-full h-48 border-2 border-dashed rounded-lg cursor-pointer hover:bg-muted/50 transition-colors"
-                        >
-                          {isUploadingFront ? (
-                            <>
-                              <Loader2 className="h-8 w-8 text-emerald-600 animate-spin mb-2" />
-                              <span className="text-sm text-muted-foreground">Uploading...</span>
-                            </>
-                          ) : (
-                            <>
-                              <ImageIcon className="h-8 w-8 text-muted-foreground mb-2" />
-                              <span className="text-sm text-muted-foreground">Click to upload</span>
-                              <span className="text-xs text-muted-foreground mt-1">JPEG, PNG (max 10MB)</span>
-                            </>
-                          )}
-                        </label>
-                      )}
-                    </div>
-
-                    {/* Back Image */}
-                    <div className="flex flex-col items-center gap-3">
-                      <p className="text-sm font-medium">Back Side</p>
-                      {m.driverIdImageBack ? (
-                        <div className="relative w-full">
-                          <img
-                            src={m.driverIdImageBack}
-                            alt="ID Back"
-                            className="w-full h-48 rounded-lg border object-contain bg-muted cursor-pointer hover:opacity-90 transition-opacity"
-                            onClick={(e) => { e.stopPropagation(); openImagePreview(m.driverIdImageBack!, 'Back ID'); }}
-                            title="Click to preview full image"
-                          />
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="mt-2 w-full"
-                            onClick={() => { setIdImageSide('back'); setShowIdImageDialog(true); }}
-                          >
-                            <Upload className="h-4 w-4 mr-2" />
-                            Update Back
-                          </Button>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="mt-2 w-full"
-                            onClick={() => handleRemoveIdImage('back')}
-                            disabled={idImageToRemove === 'back'}
-                          >
-                            {idImageToRemove === 'back' ? (
-                              <Loader2 className="h-4 w-4 animate-spin" />
-                            ) : (
-                              <X className="h-4 w-4 mr-2" />
-                            )}
-                            Remove Back
-                          </Button>
-                        </div>
-                      ) : (
-                        <label
-                          htmlFor="driver-id-back-upload"
-                          className="flex flex-col items-center justify-center w-full h-48 border-2 border-dashed rounded-lg cursor-pointer hover:bg-muted/50 transition-colors"
-                        >
-                          {isUploadingBack ? (
-                            <>
-                              <Loader2 className="h-8 w-8 text-emerald-600 animate-spin mb-2" />
-                              <span className="text-sm text-muted-foreground">Uploading...</span>
-                            </>
-                          ) : (
-                            <>
-                              <ImageIcon className="h-8 w-8 text-muted-foreground mb-2" />
-                              <span className="text-sm text-muted-foreground">Click to upload</span>
-                              <span className="text-xs text-muted-foreground mt-1">JPEG, PNG (max 10MB)</span>
-                            </>
-                          )}
-                        </label>
-                      )}
-                    </div>
-                  </div>
-                ) : (
-                  <p className="text-sm text-muted-foreground">Save the machinery first to enable driver ID document upload.</p>
-                )}
-              </CardContent>
-            </Card>
 
             <DialogFooter className="pt-4">
               <Button type="button" variant="outline" onClick={closeForm} disabled={isLoading}>

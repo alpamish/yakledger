@@ -16,6 +16,11 @@ export async function GET(request: NextRequest) {
       withScope(extra, fuelTxnScope);
 
     if (containerId) {
+      const container = await db.asset.findUnique({
+        where: { id: containerId },
+        select: { id: true, name: true, fuelType: true, fuelCapacity: true, fuelLocation: true, isMainContainer: true },
+      });
+
       const transactions = await db.fuelTransaction.findMany({
         where: scopedFuelWhere({
           OR: [
@@ -32,6 +37,7 @@ export async function GET(request: NextRequest) {
       let totalIssued = 0;
 
       for (const t of transactions) {
+        if (container?.fuelType && t.fuelType !== container.fuelType) continue;
         if (t.type === "PURCHASE" && t.containerId === containerId) {
           totalPurchased += t.quantity;
           balance += t.quantity;
@@ -46,11 +52,6 @@ export async function GET(request: NextRequest) {
           balance -= t.quantity;
         }
       }
-
-      const container = await db.asset.findUnique({
-        where: { id: containerId },
-        select: { id: true, name: true, fuelType: true, fuelCapacity: true, fuelLocation: true, isMainContainer: true },
-      });
 
       const usagePercent = container?.fuelCapacity && container.fuelCapacity > 0
         ? Math.round((balance / container.fuelCapacity) * 100)
@@ -81,20 +82,21 @@ export async function GET(request: NextRequest) {
       _sum: { quantity: true },
     });
 
-    const stockMap: Record<string, { purchased: number; issued: number; transferredIn: number; transferredOut: number }> = {};
+    const stockMap: Record<string, { purchased: number; issued: number }> = {};
     for (const f of fuelPurchases) {
       const key = f.fuelType;
-      if (!stockMap[key]) stockMap[key] = { purchased: 0, issued: 0, transferredIn: 0, transferredOut: 0 };
+      if (!stockMap[key]) stockMap[key] = { purchased: 0, issued: 0 };
       if (f.type === "PURCHASE") stockMap[key].purchased += f._sum.quantity || 0;
       if (f.type === "ISSUE") stockMap[key].issued += f._sum.quantity || 0;
-      if (f.type === "TRANSFER") stockMap[key].transferredOut += f._sum.quantity || 0;
+      // TRANSFER rows are internal moves between containers — they do not
+      // change the company's overall stock, so they are excluded here.
     }
 
     const stock = Object.entries(stockMap).map(([fuelType, v]) => ({
       fuelType,
       totalPurchased: v.purchased,
       totalIssued: v.issued,
-      balance: v.purchased - v.issued - v.transferredOut,
+      balance: v.purchased - v.issued,
     }));
 
     const containers = await db.asset.findMany({
@@ -120,6 +122,7 @@ export async function GET(request: NextRequest) {
         let totalIssued = 0;
 
         for (const t of containerTransactions) {
+          if (c.fuelType && t.fuelType !== c.fuelType) continue;
           if (t.type === "PURCHASE" && t.containerId === c.id) {
             totalPurchased += t.quantity;
             balance += t.quantity;

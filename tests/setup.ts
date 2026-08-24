@@ -2,7 +2,9 @@ import { execSync } from "node:child_process";
 import { db } from "@/lib/db";
 
 // Ensure the test schema is present (idempotent; creates the file on first run).
-execSync("npx prisma db push --schema=prisma/schema.prisma --skip-generate", {
+// --accept-data-loss: schema changes (e.g. new unique constraints) that would
+// otherwise prompt for confirmation in a non-interactive shell must be allowed.
+execSync("npx prisma db push --schema=prisma/schema.prisma --skip-generate --accept-data-loss", {
   stdio: "ignore",
   env: { ...process.env },
 });

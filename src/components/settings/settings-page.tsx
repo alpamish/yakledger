@@ -23,6 +23,16 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
@@ -30,9 +40,13 @@ import { Badge } from "@/components/ui/badge";
 import { LoadingSpinner } from "@/components/common/loading-spinner";
 import { settingsApi, type AppSettings } from "@/services/settings";
 import { syncApi } from "@/services/sync-api";
+import { backupApi } from "@/services/backup";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { usePermissions } from "@/hooks/use-permissions";
+import type { BackupManifest } from "@/lib/backup";
+import { useExpenseStore } from "@/hooks/use-expense-store";
+import { DatabaseBackup, History, RotateCcw } from "lucide-react";
 
 const settingsSchema = z.object({
   companyName: z.string().min(1, "Company name is required"),
@@ -48,8 +62,8 @@ type SettingsFormValues = z.infer<typeof settingsSchema>;
 
 export function SettingsPage() {
   const { canView, canEdit } = usePermissions();
+  const isAdmin = useExpenseStore((s) => s.user)?.role === "ADMIN";
 
-  if (!canView('settings')) return null;
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
@@ -67,6 +81,14 @@ export function SettingsPage() {
   } | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncProgress, setSyncProgress] = useState<string | null>(null);
+
+  // Backup & Restore (admin only)
+  const [backups, setBackups] = useState<BackupManifest[]>([]);
+  const [isBackupBusy, setIsBackupBusy] = useState(false);
+  const [isRestoring, setIsRestoring] = useState<string | null>(null);
+  const [restoreTarget, setRestoreTarget] = useState<string | null>(null);
+  const [restorePassword, setRestorePassword] = useState("");
+  const [restorePwError, setRestorePwError] = useState<string | null>(null);
 
   const form = useForm<SettingsFormValues>({
     resolver: zodResolver(settingsSchema),
@@ -121,10 +143,18 @@ export function SettingsPage() {
     } catch {}
   }, []);
 
+  const fetchBackups = useCallback(async () => {
+    try {
+      const res = await backupApi.list();
+      if (res.success && res.data) setBackups(res.data);
+    } catch {}
+  }, []);
+
   useEffect(() => {
     fetchSettings();
     fetchSyncStatus();
-  }, [fetchSettings, fetchSyncStatus]);
+    if (isAdmin) fetchBackups();
+  }, [fetchSettings, fetchSyncStatus, fetchBackups, isAdmin]);
 
   const onSubmit = async (values: SettingsFormValues) => {
     setIsSaving(true);
@@ -201,6 +231,61 @@ export function SettingsPage() {
       setIsSyncing(false);
     }
   }, []);
+
+  const handleBackup = useCallback(async () => {
+    setIsBackupBusy(true);
+    try {
+      const res = await backupApi.create("manual");
+      if (res.success) {
+        toast.success("Backup created and verified");
+        fetchBackups();
+      } else {
+        toast.error(res.error ?? "Backup failed");
+      }
+    } catch {
+      toast.error("Backup failed");
+    } finally {
+      setIsBackupBusy(false);
+    }
+  }, [fetchBackups]);
+
+  const handleRestore = useCallback((file: string) => {
+    setRestorePassword("");
+    setRestorePwError(null);
+    setRestoreTarget(file);
+  }, []);
+
+  const confirmRestore = useCallback(async () => {
+    if (!restoreTarget) return;
+    if (!restorePassword) {
+      setRestorePwError("Enter your password to confirm");
+      return;
+    }
+    setIsRestoring(restoreTarget);
+    try {
+      const res = await backupApi.restore(restoreTarget, restorePassword);
+      if (res.success) {
+        toast.success("Database restored — reloading…");
+        // The live DB was swapped; reload so React Query cache reflects it.
+        setTimeout(() => window.location.reload(), 600);
+        return;
+      }
+      if (
+        res.error?.toLowerCase().includes("password") ||
+        res.error?.toLowerCase().includes("invalid")
+      ) {
+        setRestorePwError(res.error ?? "Invalid password");
+      } else {
+        toast.error(res.error ?? "Restore failed");
+      }
+    } catch {
+      toast.error("Restore failed");
+    } finally {
+      setIsRestoring(null);
+    }
+  }, [restoreTarget, restorePassword]);
+
+  if (!canView('settings')) return null;
 
   if (isLoading) {
     return (
@@ -484,6 +569,147 @@ export function SettingsPage() {
               </div>
             </CardContent>
           </Card>
+
+          {/* Backup & Restore (admin only) */}
+          {isAdmin && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <DatabaseBackup className="size-5 text-emerald-600" />
+                  Backup &amp; Restore
+                </CardTitle>
+                <CardDescription>
+                  Crash-consistent, verified snapshots of the live database.
+                  Restores always take a guard backup first, so no data is lost.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex items-center gap-3">
+                  <Button
+                    onClick={handleBackup}
+                    disabled={isBackupBusy}
+                    variant="outline"
+                    size="sm"
+                  >
+                    {isBackupBusy ? (
+                      <Loader2 className="size-3.5 animate-spin mr-1.5" />
+                    ) : (
+                      <DatabaseBackup className="size-3.5 mr-1.5" />
+                    )}
+                    {isBackupBusy ? "Backing up..." : "Create Backup"}
+                  </Button>
+                  <span className="text-xs text-muted-foreground">
+                    Latest snapshot is kept as{" "}
+                    <code className="rounded bg-muted px-1">latest.sqlite.gz</code>{" "}
+                    with integrity checks.
+                  </span>
+                </div>
+
+                <div className="rounded-lg border">
+                  <div className="flex items-center gap-2 border-b px-3 py-2 text-sm font-medium">
+                    <History className="size-4 text-emerald-600" />
+                    Available Backups ({backups.length})
+                  </div>
+                  {backups.length === 0 ? (
+                    <p className="px-3 py-4 text-sm text-muted-foreground">
+                      No backups yet. Create one above.
+                    </p>
+                  ) : (
+                    <ul className="max-h-64 divide-y overflow-y-auto">
+                      {backups.map((b) => (
+                        <li
+                          key={b.name}
+                          className="flex items-center justify-between gap-3 px-3 py-2"
+                        >
+                          <div className="min-w-0">
+                            <p className="truncate font-mono text-xs">{b.name}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {format(new Date(b.createdAt), "MMM d, yyyy HH:mm")}
+                              {" · "}
+                              {b.integrity === "verified" ? "verified" : "unverified"}
+                              {" · "}
+                              {((b.compressedSize ?? 0) / 1024).toFixed(1)} KB
+                            </p>
+                          </div>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            disabled={isRestoring === b.name}
+                            onClick={() => handleRestore(b.name)}
+                          >
+                            {isRestoring === b.name ? (
+                              <Loader2 className="size-3.5 animate-spin mr-1.5" />
+                            ) : (
+                              <RotateCcw className="size-3.5 mr-1.5" />
+                            )}
+                            Restore
+                          </Button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Restore confirmation: warns of data loss + requires password */}
+          <AlertDialog open={restoreTarget !== null} onOpenChange={(o) => !o && setRestoreTarget(null)}>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Restore database?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This will <span className="font-semibold text-destructive">replace the current database</span>.
+                  Existing live data will be overwritten. A guard backup is taken
+                  automatically first, so this can be undone — but only proceed if
+                  you intend to roll back to the selected backup.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <div className="space-y-2 py-2">
+                <Label htmlFor="restore-password" className="text-sm">
+                  Confirm with your password
+                </Label>
+                <Input
+                  id="restore-password"
+                  type="password"
+                  autoComplete="current-password"
+                  value={restorePassword}
+                  onChange={(e) => {
+                    setRestorePassword(e.target.value);
+                    setRestorePwError(null);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") confirmRestore();
+                  }}
+                  placeholder="Your account password"
+                />
+                {restorePwError && (
+                  <p className="text-xs text-destructive">{restorePwError}</p>
+                )}
+                {restoreTarget && (
+                  <p className="truncate font-mono text-xs text-muted-foreground">
+                    Source: {restoreTarget}
+                  </p>
+                )}
+              </div>
+              <AlertDialogFooter>
+                <AlertDialogCancel disabled={!!isRestoring}>Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={(e) => {
+                    e.preventDefault();
+                    confirmRestore();
+                  }}
+                  disabled={!!isRestoring}
+                  className="bg-destructive text-white hover:bg-destructive/90"
+                >
+                  {isRestoring ? (
+                    <Loader2 className="size-4 animate-spin mr-1.5" />
+                  ) : null}
+                  {isRestoring ? "Restoring..." : "Restore"}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
 
           {/* Save Button */}
           {canEdit('settings') && (

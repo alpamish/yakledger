@@ -17,6 +17,7 @@ import {
   UserCog,
   BadgeCheck,
   Wallet,
+  Droplets,
 } from 'lucide-react';
 
 import {
@@ -37,32 +38,46 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { usePermissions } from '@/hooks/use-permissions';
 import Image from 'next/image';
 
-export type NavSection = 'dashboard' | 'projectCost' | 'expenses' | 'employees' | 'payroll' | 'wallets' | 'contractors' | 'timesheets' | 'fuelUsage' | 'machinery' | 'reports' | 'cashAdvance' | 'approvals' | 'settings' | 'assets' | 'users';
+export type NavSection = 'dashboard' | 'projectCost' | 'expenses' | 'employees' | 'payroll' | 'wallets' | 'contractors' | 'timesheets' | 'fuelUsage' | 'fuelStock' | 'machinery' | 'reports' | 'cashAdvance' | 'approvals' | 'settings' | 'assets' | 'users';
 
 interface NavItem {
   id: NavSection;
   label: string;
   icon: React.ComponentType<{ className?: string }>;
   permission: string;
+  group: 'main' | 'finance' | 'people' | 'operations' | 'system';
 }
 
 const allNavItems: NavItem[] = [
-  { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, permission: 'dashboard:view' },
-  { id: 'projectCost', label: 'Project Cost', icon: Calculator, permission: 'projectCost:view' },
-  { id: 'expenses', label: 'Expenses', icon: Receipt, permission: 'expenses:view' },
-  { id: 'employees', label: 'Employees', icon: Users, permission: 'employees:view' },
-  { id: 'payroll', label: 'Payroll', icon: Wallet, permission: 'employees:payroll:view' },
-  { id: 'wallets', label: 'Wallets', icon: Wallet, permission: 'wallets:view' },
-  { id: 'contractors', label: 'Contractors', icon: HardHat, permission: 'contractors:view' },
-  { id: 'timesheets', label: 'Timesheets', icon: Clock, permission: 'timesheets:view' },
-  { id: 'fuelUsage', label: 'Fuel Usage', icon: Fuel, permission: 'fuelUsage:view' },
-  { id: 'machinery', label: 'Machinery', icon: Truck, permission: 'machinery:view' },
-  { id: 'assets', label: 'Assets', icon: Package, permission: 'assets:view' },
-  { id: 'cashAdvance', label: 'Cash & Advances', icon: HandCoins, permission: 'cashAdvance:view' },
-  { id: 'approvals', label: 'Approvals', icon: BadgeCheck, permission: 'expenses:approve' },
-  { id: 'reports', label: 'Reports', icon: BarChart3, permission: 'reports:view' },
-  { id: 'settings', label: 'Settings', icon: Settings, permission: 'settings:view' },
-  { id: 'users', label: 'Users', icon: UserCog, permission: 'users:view' },
+  { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, permission: 'dashboard:view', group: 'main' },
+
+  { id: 'expenses', label: 'Expenses', icon: Receipt, permission: 'expenses:view', group: 'finance' },
+  { id: 'cashAdvance', label: 'Cash & Advances', icon: HandCoins, permission: 'cashAdvance:view', group: 'finance' },
+  { id: 'wallets', label: 'Wallets', icon: Wallet, permission: 'wallets:view', group: 'finance' },
+  { id: 'projectCost', label: 'Project Cost', icon: Calculator, permission: 'projectCost:view', group: 'finance' },
+  { id: 'reports', label: 'Reports', icon: BarChart3, permission: 'reports:view', group: 'finance' },
+
+  { id: 'employees', label: 'Employees', icon: Users, permission: 'employees:view', group: 'people' },
+  { id: 'payroll', label: 'Payroll', icon: Wallet, permission: 'employees:payroll:view', group: 'people' },
+  { id: 'contractors', label: 'Contractors', icon: HardHat, permission: 'contractors:view', group: 'people' },
+  { id: 'timesheets', label: 'Timesheets', icon: Clock, permission: 'timesheets:view', group: 'people' },
+
+  { id: 'fuelUsage', label: 'Fuel Usage', icon: Fuel, permission: 'fuelUsage:view', group: 'operations' },
+  { id: 'fuelStock', label: 'Fuel Stock', icon: Droplets, permission: 'fuelUsage:view', group: 'operations' },
+  { id: 'machinery', label: 'Machinery', icon: Truck, permission: 'machinery:view', group: 'operations' },
+  { id: 'assets', label: 'Assets', icon: Package, permission: 'assets:view', group: 'operations' },
+
+  { id: 'approvals', label: 'Approvals', icon: BadgeCheck, permission: 'expenses:approve', group: 'system' },
+  { id: 'settings', label: 'Settings', icon: Settings, permission: 'settings:view', group: 'system' },
+  { id: 'users', label: 'Users', icon: UserCog, permission: 'users:view', group: 'system' },
+];
+
+const navGroups: { key: NavItem['group']; label: string }[] = [
+  { key: 'main', label: 'Main' },
+  { key: 'finance', label: 'Finance' },
+  { key: 'people', label: 'People' },
+  { key: 'operations', label: 'Operations' },
+  { key: 'system', label: 'System' },
 ];
 
 interface SidebarNavProps {
@@ -129,38 +144,44 @@ export function SidebarNav({
 
       {/* Navigation */}
       <SidebarContent>
-        <SidebarGroup>
-          <SidebarGroupLabel className="text-sidebar-foreground/50">
-            Navigation
-          </SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {navItems.map((item) => (
-                <SidebarMenuItem key={item.id}>
-                  <SidebarMenuButton
-                    isActive={activeSection === item.id}
-                    onClick={() => onSectionChange(item.id)}
-                    tooltip={item.label}
-                    className={
-                      activeSection === item.id
-                        ? 'bg-emerald-600/20 text-emerald-400 hover:bg-emerald-600/30 hover:text-emerald-400 font-medium'
-                        : 'text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground'
-                    }
-                  >
-                    <item.icon
-                      className={
-                        activeSection === item.id
-                          ? 'text-emerald-400'
-                          : 'text-sidebar-foreground/50'
-                      }
-                    />
-                    <span>{item.label}</span>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+        {navGroups.map((group) => {
+          const items = navItems.filter((item) => item.group === group.key);
+          if (items.length === 0) return null;
+          return (
+            <SidebarGroup key={group.key}>
+              <SidebarGroupLabel className="text-sidebar-foreground/50">
+                {group.label}
+              </SidebarGroupLabel>
+              <SidebarGroupContent>
+                <SidebarMenu>
+                  {items.map((item) => (
+                    <SidebarMenuItem key={item.id}>
+                      <SidebarMenuButton
+                        isActive={activeSection === item.id}
+                        onClick={() => onSectionChange(item.id)}
+                        tooltip={item.label}
+                        className={
+                          activeSection === item.id
+                            ? 'bg-emerald-600/20 text-emerald-400 hover:bg-emerald-600/30 hover:text-emerald-400 font-medium'
+                            : 'text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground'
+                        }
+                      >
+                        <item.icon
+                          className={
+                            activeSection === item.id
+                              ? 'text-emerald-400'
+                              : 'text-sidebar-foreground/50'
+                          }
+                        />
+                        <span>{item.label}</span>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  ))}
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </SidebarGroup>
+          );
+        })}
       </SidebarContent>
 
       <SidebarSeparator />

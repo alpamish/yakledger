@@ -3,6 +3,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/permissions";
 import { resolveApprovalStatusOnCreate, APPROVED } from "@/lib/access-control";
+import { ensureSufficientStock, ensureContainerFuelTypeMatches, InsufficientStockError } from "@/lib/fuel-stock";
 
 const FUEL_TYPE_VALUES = [
   "DIESEL", "GASOLINE", "LPG", "CNG", "OTHER",
@@ -55,17 +56,21 @@ export async function POST(request: NextRequest) {
     const created = await db.$transaction(async (tx) => {
       let globalFuelTransactionId: string | null = null;
 
-      // If a global container is specified, resolve the average price once
-      let avgPrice = 0;
-      let firstFuelType = records[0]?.fuelType;
-      if (containerId && firstFuelType) {
-        const aggregation = await tx.fuelTransaction.aggregate({
-          where: { type: 'PURCHASE', fuelType: firstFuelType, containerId },
+      // If a global container is specified, resolve the average purchase price
+      // per fuel type (records may mix fuel types).
+      const fuelTypes = Array.from(new Set(records.map((r) => r.fuelType)));
+      const avgPriceByType: Record<string, number> = {};
+      if (containerId && fuelTypes.length > 0) {
+        const aggregations = await tx.fuelTransaction.groupBy({
+          by: ["fuelType"],
+          where: { type: 'PURCHASE', containerId, fuelType: { in: fuelTypes } },
           _sum: { quantity: true, totalCost: true },
         });
-        const totalQty = aggregation._sum?.quantity || 0;
-        const purchaseCost = aggregation._sum?.totalCost || 0;
-        avgPrice = totalQty > 0 ? purchaseCost / totalQty : 0;
+        for (const a of aggregations) {
+          const totalQty = a._sum?.quantity || 0;
+          const purchaseCost = a._sum?.totalCost || 0;
+          avgPriceByType[a.fuelType] = totalQty > 0 ? purchaseCost / totalQty : 0;
+        }
       }
 
       const results: Awaited<ReturnType<typeof tx.fuelUsage.create>>[] = [];
@@ -77,6 +82,10 @@ export async function POST(request: NextRequest) {
         let fuelTransactionId: string | null = null;
 
         if (containerId) {
+          await ensureContainerFuelTypeMatches(tx, containerId, record.fuelType);
+          await ensureSufficientStock(tx, containerId, record.quantity, record.fuelType);
+
+          const avgPrice = avgPriceByType[record.fuelType] ?? 0;
           const fuelTxn = await tx.fuelTransaction.create({
             data: {
               type: 'ISSUE',
@@ -138,6 +147,9 @@ export async function POST(request: NextRequest) {
       { status: 201 }
     );
   } catch (error) {
+    if (error instanceof InsufficientStockError) {
+      return NextResponse.json({ success: false, error: error.message }, { status: 400 });
+    }
     console.error("Bulk create fuel usage error:", error);
     return NextResponse.json(
       { success: false, error: "Failed to create fuel usage records" },

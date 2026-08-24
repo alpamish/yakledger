@@ -1,17 +1,28 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/permissions";
+import { buildAccessScope, buildListScope, withScope } from "@/lib/access-control";
 import { format } from "date-fns";
 
 export async function POST(request: NextRequest) {
   try {
     const result = await requirePermission(request, "contractors:view");
     if ("status" in result) return result;
+    const user = result.user;
+
+    const [machineryScope, timesheetScope, expenseScope, machineryRateScope] =
+      await Promise.all([
+        buildAccessScope(user, "machinery"),
+        buildListScope(user, "timesheet"),
+        buildListScope(user, "expense"),
+        buildAccessScope(user, "machineryRate"),
+      ]);
 
     const { dateFrom, dateTo } = await request.json();
 
     // Fetch all machinery with contractor info
     const machineryList = await db.machinery.findMany({
+      where: machineryScope,
       include: {
         assignedContractor: {
           select: {
@@ -49,7 +60,7 @@ export async function POST(request: NextRequest) {
     }
 
     const timesheets = await db.timesheet.findMany({
-      where: timesheetWhere,
+      where: withScope(timesheetWhere, timesheetScope),
       select: {
         id: true,
         machineryId: true,
@@ -67,7 +78,7 @@ export async function POST(request: NextRequest) {
     }
 
     const expenses = await db.expense.findMany({
-      where: expenseWhere,
+      where: withScope(expenseWhere, expenseScope),
       select: {
         id: true,
         paidToContractorId: true,
@@ -82,7 +93,7 @@ export async function POST(request: NextRequest) {
 
     // Fetch all default MachineryRates for the machinery list
     const defaultRates = await db.machineryRate.findMany({
-      where: { machineryId: { in: machineryIds }, isDefault: true },
+      where: withScope({ machineryId: { in: machineryIds }, isDefault: true }, machineryRateScope),
       select: { machineryId: true, hourlyRate: true, rateName: true },
     });
     const rateByMachinery = new Map<string, { hourlyRate: number }>(defaultRates.map((r) => [r.machineryId, { hourlyRate: r.hourlyRate }]));

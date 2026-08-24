@@ -173,6 +173,9 @@ describe("wallet.service → ledger", () => {
 
 describe("wallet.service → deduct / addBack", () => {
   it("deductFromWallet reduces balance; reverseLastDeduction restores it", async () => {
+    // Recompute first so the stored balance reflects the derived state
+    // (including any expenses created by earlier tests in this file).
+    await walletService.recomputeBalance(employeeId);
     const before = (await walletService.getAccount(employeeId))!.currentBalance;
     await walletService.deductFromWallet(employeeId, 75, TEST_ADMIN.id);
     let after = (await walletService.getAccount(employeeId))!.currentBalance;

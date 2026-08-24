@@ -61,6 +61,9 @@ export function FuelTransferForm({ onSuccess, initialData }: FuelTransferFormPro
 
   const sourceId = form.watch('sourceContainerId');
   const source = containers.find((c) => c.id === sourceId);
+  const quantity = form.watch('quantity');
+  const available = (source?.balance ?? 0) + (isEditing ? (initialData?.quantity ?? 0) : 0);
+  const overAvailable = quantity > 0 && quantity > available;
 
   useEffect(() => {
     fuelApi.getContainers().then((res) => {
@@ -70,6 +73,15 @@ export function FuelTransferForm({ onSuccess, initialData }: FuelTransferFormPro
 
   const onSubmit = async (data: TransferFormValues) => {
     try {
+      if (source) {
+        const avail = source.balance + (isEditing ? (initialData?.quantity ?? 0) : 0);
+        if (data.quantity > avail) {
+          form.setError('quantity', {
+            message: `Only ${avail.toFixed(1)}L available in ${source.name}`,
+          });
+          return;
+        }
+      }
       const payload = {
         type: 'TRANSFER' as const,
         fuelType: source?.fuelType || 'DIESEL',
@@ -127,8 +139,8 @@ export function FuelTransferForm({ onSuccess, initialData }: FuelTransferFormPro
         />
 
         {source && (
-          <p className="text-sm text-muted-foreground -mt-2">
-            Available balance: <span className="font-semibold">{source.balance.toFixed(1)}L</span>
+          <p className={`text-sm -mt-2 ${overAvailable ? 'text-destructive font-medium' : 'text-muted-foreground'}`}>
+            Available balance: <span className="font-semibold">{available.toFixed(1)}L</span>
             {source.fuelType && ` (${FUEL_TYPE_LABELS[source.fuelType as keyof typeof FUEL_TYPE_LABELS]})`}
           </p>
         )}

@@ -53,6 +53,7 @@ import { EmptyState } from "@/components/common/empty-state";
 import { PayrollActions } from "@/components/payroll/payroll-actions";
 import { PayrollGenerateDialog } from "@/components/payroll/payroll-generate-dialog";
 import { EmployeeFinancialSummaryTab } from "@/components/employee/employee-financial-summary-tab";
+import { EmployeeExpensesTab } from "@/components/employee/employee-expenses-tab";
 import {
   FileText,
   User,
@@ -89,6 +90,7 @@ export function EmployeeHrProfile({ employee }: { employee: Employee }) {
   const canManageLeave = hasPermission("employees:leave:manage");
   const canViewPayroll = hasPermission("employees:payroll:view");
   const canManagePayroll = hasPermission("employees:payroll:manage");
+  const canViewExpenses = hasPermission("expenses:view");
 
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<any>({});
@@ -162,6 +164,7 @@ export function EmployeeHrProfile({ employee }: { employee: Employee }) {
           <TabsTrigger value="leave">Leave</TabsTrigger>
           {canViewPayroll && <TabsTrigger value="payroll">Payroll</TabsTrigger>}
           {canViewPayroll && <TabsTrigger value="summary">Financial Summary</TabsTrigger>}
+          {canViewExpenses && <TabsTrigger value="expenses">Expenses</TabsTrigger>}
           <TabsTrigger value="assignments">Assignments</TabsTrigger>
           <TabsTrigger value="activity">Activity</TabsTrigger>
         </TabsList>
@@ -229,6 +232,12 @@ export function EmployeeHrProfile({ employee }: { employee: Employee }) {
             {canViewPayroll && (
               <TabsContent value="summary">
                 <EmployeeFinancialSummaryTab employeeId={employee.id} />
+              </TabsContent>
+            )}
+
+            {canViewExpenses && (
+              <TabsContent value="expenses">
+                <EmployeeExpensesTab employeeId={employee.id} />
               </TabsContent>
             )}
 

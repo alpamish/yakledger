@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { requirePermission, checkUserPermission } from "@/lib/permissions";
-import { buildAccessScope, withScope, APPROVED } from "@/lib/access-control";
+import { buildAccessScope, buildListScope, buildAggregateScope, withScope } from "@/lib/access-control";
 import { sanitizeSalaryFields } from "@/services/hr.service";
 
 const DEPARTMENT_VALUES = [
@@ -57,6 +57,10 @@ export async function GET(
 
     const { id } = await params;
 
+    const expenseListScope = await buildListScope(user, "expense");
+    const expenseScope = await buildAggregateScope(user, "expense");
+    const attendanceScope = await buildAggregateScope(user, "attendance");
+
     const employee = await db.employee.findFirst({
       where: withScope({ id }, await buildAccessScope(user, "employee")),
       include: {
@@ -64,11 +68,13 @@ export async function GET(
           select: { id: true, email: true, name: true, role: true, avatar: true },
         },
         expensesPaidBy: {
+          where: expenseListScope,
           select: { id: true, title: true, amount: true, category: true, expenseDate: true, notes: true },
           orderBy: { expenseDate: "desc" },
           take: 20,
         },
         expensesPaidTo: {
+          where: expenseListScope,
           select: { id: true, title: true, amount: true, category: true, expenseDate: true, notes: true },
           orderBy: { expenseDate: "desc" },
           take: 20,
@@ -87,10 +93,6 @@ export async function GET(
     }
 
     // Calculate totals
-    const expenseScope = withScope(
-      { approvalStatus: APPROVED },
-      await buildAccessScope(user, "expense")
-    );
 
     const totalExpensesPaidBy = await db.expense.aggregate({
       where: { ...expenseScope, paidById: id },
@@ -114,8 +116,8 @@ export async function GET(
 
     const overtimeAgg = await db.attendance.aggregate({
       where: withScope(
-        { employeeId: id, approvalStatus: APPROVED },
-        await buildAccessScope(user, "attendance")
+        { employeeId: id },
+        attendanceScope
       ),
       _sum: { overtimeHours: true },
     });

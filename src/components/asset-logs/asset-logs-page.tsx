@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useAssetStore } from '@/hooks/use-asset-store';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useLiveRefresh } from '@/hooks/use-live-refresh';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -101,6 +102,8 @@ export function AssetLogsPage() {
     fetchAssetLogs();
     fetchLogStats();
   }, [fetchAssetLogs, fetchLogStats]);
+
+  useLiveRefresh(loadData, 15_000);
 
   useEffect(() => {
     loadData();

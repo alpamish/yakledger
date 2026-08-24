@@ -1,5 +1,6 @@
 import { db } from "./db";
 import { walletService } from "@/services/wallet.service";
+import { companyWalletService } from "@/services/company-wallet.service";
 
 export interface ApprovalEntityConfig {
   model: string;
@@ -30,9 +31,17 @@ export async function applyWalletEffect(
   try {
     if (cfg.type === "expense") {
       const paidById = record.paidById as string | null;
+      const deductFromWallet = record.deductFromWallet as boolean | null | undefined;
+      const walletId = record.walletId as string | null;
       const amount = record.amount as number;
-      if (paidById && amount) {
-        await walletService.deductFromWallet(paidById, amount, userId);
+      const id = record.id as string;
+      if (paidById && amount && deductFromWallet !== false) {
+        await walletService.reconcileForExpense(paidById);
+      }
+      if (walletId && amount && id) {
+        await db.$transaction((tx) =>
+          companyWalletService.deductForExpense(tx, walletId, amount, userId, id)
+        );
       }
     } else if (cfg.type === "cashTransaction") {
       const employeeId = record.employeeId as string;

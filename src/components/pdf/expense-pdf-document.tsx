@@ -49,7 +49,7 @@ const formatDescription = (desc: string | null | undefined): string => {
     const parsed = JSON.parse(desc);
     if (Array.isArray(parsed) && parsed.length > 0) {
       const names = parsed
-        .map((item: any) => (typeof item.itemName === "string" ? item.itemName.trim() : ""))
+        .map((item: any) => (item && typeof item.itemName === "string" ? item.itemName.trim() : ""))
         .filter(Boolean);
       if (names.length === 1) return `1 item: ${names[0]}`;
       if (names.length <= 3) return `${names.length} items: ${names.join(", ")}`;
@@ -573,7 +573,7 @@ function ReportFooter({
 // ─── Main Document ─────────────────────────────────────────────
 function ExpensePDFDocument({ expenses, filters, companyName = "YakhshiLedger" }: ExpensePDFDocumentProps) {
   const validExpenses = (Array.isArray(expenses) ? expenses : []).filter(
-    (e): e is Expense => Boolean(e && e.id)
+    (e): e is Expense => Boolean(e && typeof e === "object" && e.id)
   );
   const grandTotal = validExpenses.reduce((sum, e) => sum + e.amount, 0);
   const generatedDate = format(new Date(), "MMMM d, yyyy");

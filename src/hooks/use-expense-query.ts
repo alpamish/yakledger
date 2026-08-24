@@ -3,7 +3,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { expensesApi } from '@/services/api';
 import { useExpenseStore } from '@/hooks/use-expense-store';
-import type { Expense, ExpenseFormData, ExpenseFilters } from '@/types/expense';
+import type { Expense, ExpenseFormData, ExpenseFilters, BulkExpenseRecord } from '@/types/expense';
 
 const EXPENSE_LIST_KEY = 'expenses' as const;
 
@@ -49,6 +49,17 @@ export function useCreateExpense() {
 
   return useMutation({
     mutationFn: (data: ExpenseFormData) => expensesApi.create(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [EXPENSE_LIST_KEY] });
+    },
+  });
+}
+
+export function useBulkCreateExpenses() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (records: BulkExpenseRecord[]) => expensesApi.bulkCreate(records),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [EXPENSE_LIST_KEY] });
     },

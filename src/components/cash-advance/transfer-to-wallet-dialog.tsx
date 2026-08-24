@@ -21,7 +21,19 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Loader2 } from 'lucide-react';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover';
+import {
+  Command,
+  CommandEmpty,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from '@/components/ui/command';
+import { Loader2, ChevronDown, Check } from 'lucide-react';
 
 interface CompanyWallet {
   id: string;
@@ -34,6 +46,8 @@ interface CompanyWallet {
 interface EmployeeOption {
   id: string;
   name: string;
+  jobTitle?: string;
+  department?: string;
 }
 
 interface Props {
@@ -61,6 +75,7 @@ export function TransferToWalletDialog({
 
   const [selectedWalletId, setSelectedWalletId] = React.useState(walletId ?? '');
   const [selectedEmployeeId, setSelectedEmployeeId] = React.useState(employeeId ?? '');
+  const [employeePopoverOpen, setEmployeePopoverOpen] = React.useState(false);
   const [amount, setAmount] = React.useState('');
   const [note, setNote] = React.useState('');
   const [submitting, setSubmitting] = React.useState(false);
@@ -87,7 +102,12 @@ export function TransferToWalletDialog({
         if (empRes?.data) {
           setEmployees(
             empRes.data
-              .map((a: any) => ({ id: a.employeeId ?? a.id, name: a.employee?.fullName ?? 'Unknown' }))
+              .map((a: any) => ({
+                id: a.employeeId ?? a.id,
+                name: a.employee?.fullName ?? 'Unknown',
+                jobTitle: a.employee?.jobTitle,
+                department: a.employee?.department,
+              }))
               .filter((e: EmployeeOption) => e.id && e.name !== 'Unknown')
           );
         }
@@ -152,23 +172,61 @@ export function TransferToWalletDialog({
         <form onSubmit={handleSubmit} className="space-y-4">
           {!employeeId && (
             <div className="space-y-2">
-              <Label htmlFor="emp">Employee</Label>
-              <Select
-                value={selectedEmployeeId || undefined}
-                onValueChange={setSelectedEmployeeId}
-                disabled={loadingOptions}
-              >
-                <SelectTrigger id="emp" className="w-full">
-                  <SelectValue placeholder="Select employee..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {employees.map((emp) => (
-                    <SelectItem key={emp.id} value={emp.id}>
-                      {emp.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Label>Employee</Label>
+              <Popover open={employeePopoverOpen} onOpenChange={setEmployeePopoverOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    role="combobox"
+                    disabled={loadingOptions}
+                    className="w-full justify-between font-normal"
+                  >
+                    {selectedEmployeeId
+                      ? employees.find((e) => e.id === selectedEmployeeId)?.name ?? 'Select employee...'
+                      : 'Search employee...'}
+                    <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[400px] p-0" align="start">
+                  <Command>
+                    <CommandInput placeholder="Search employee by name..." />
+                    <CommandList>
+                      <CommandEmpty>No employee found.</CommandEmpty>
+                      {loadingOptions ? (
+                        <div className="flex items-center justify-center py-4">
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        </div>
+                      ) : employees.length === 0 ? (
+                        <div className="px-2 py-4 text-center text-sm text-muted-foreground">
+                          No employees with a cash account
+                        </div>
+                      ) : (
+                        employees.map((emp) => (
+                          <CommandItem
+                            key={emp.id}
+                            value={emp.id}
+                            keywords={[emp.name, emp.jobTitle, emp.department].filter(
+                              (k): k is string => Boolean(k)
+                            )}
+                            onSelect={() => {
+                              setSelectedEmployeeId(emp.id);
+                              setEmployeePopoverOpen(false);
+                            }}
+                          >
+                            <Check
+                              className="mr-2 h-4 w-4"
+                              style={{ opacity: selectedEmployeeId === emp.id ? 1 : 0 }}
+                            />
+                            {emp.name}
+                            {emp.jobTitle ? ` — ${emp.jobTitle}` : ''}
+                          </CommandItem>
+                        ))
+                      )}
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
             </div>
           )}
           {employeeId && (

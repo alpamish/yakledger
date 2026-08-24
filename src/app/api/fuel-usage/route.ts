@@ -3,7 +3,8 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/permissions";
 import { Prisma } from "@prisma/client";
-import { buildAccessScope, withScope, resolveApprovalStatusOnCreate, APPROVED } from "@/lib/access-control";
+import { buildListScope, withScope, resolveApprovalStatusOnCreate, APPROVED } from "@/lib/access-control";
+import { ensureSufficientStock, ensureContainerFuelTypeMatches, InsufficientStockError } from "@/lib/fuel-stock";
 
 const FUEL_TYPE_VALUES = [
   "DIESEL", "GASOLINE", "LPG", "CNG", "OTHER",
@@ -21,6 +22,7 @@ const createFuelUsageSchema = z.object({
   receiptAttachment: z.string().optional().nullable(),
   linkedExpenseId: z.string().optional().nullable(),
   containerId: z.string().optional().nullable(),
+  billable: z.boolean().optional().default(false),
   notes: z.string().optional().nullable(),
 });
 
@@ -94,7 +96,7 @@ export async function GET(request: NextRequest) {
     const sortField = validSortFields.includes(sortBy) ? sortBy : "date";
     const order = sortOrder === "asc" ? "asc" : "desc";
 
-    const scopedWhere = withScope(where, await buildAccessScope(user, "fuelUsage"));
+    const scopedWhere = withScope(where, await buildListScope(user, "fuelUsage"));
 
     const [fuelUsages, total] = await Promise.all([
       db.fuelUsage.findMany({
@@ -181,8 +183,11 @@ export async function POST(request: NextRequest) {
       const approvalStatus = resolveApprovalStatusOnCreate(user);
 
       if (data.containerId) {
+        await ensureContainerFuelTypeMatches(tx, data.containerId, data.fuelType);
+        await ensureSufficientStock(tx, data.containerId, data.quantity, data.fuelType);
+
         const aggregation = await tx.fuelTransaction.aggregate({
-          where: { type: 'PURCHASE', fuelType: data.fuelType },
+          where: { type: 'PURCHASE', fuelType: data.fuelType, containerId: data.containerId },
           _sum: { quantity: true, totalCost: true },
         });
         const totalQty = aggregation._sum?.quantity || 0;
@@ -219,6 +224,7 @@ export async function POST(request: NextRequest) {
           receiptAttachment: data.receiptAttachment ?? null,
           linkedExpenseId: data.linkedExpenseId ?? null,
           fuelTransactionId,
+          billable: data.billable,
           notes: data.notes ?? null,
           createdBy: user.id,
           approvalStatus,
@@ -235,7 +241,7 @@ export async function POST(request: NextRequest) {
         action: "CREATE",
         entity: "FuelUsage",
         entityId: fuelUsage.id,
-        details: `Created fuel usage record: ${data.quantity} ${data.fuelType} for $${totalCost}${data.containerId ? ' (deducted from container)' : ''}`,
+        details: `Created fuel usage record: ${data.quantity} ${data.fuelType} for AFN ${totalCost}${data.containerId ? ' (deducted from container)' : ''}`,
         userId: user.id,
       },
     });
@@ -249,6 +255,9 @@ export async function POST(request: NextRequest) {
       { status: 201 }
     );
   } catch (error) {
+    if (error instanceof InsufficientStockError) {
+      return NextResponse.json({ success: false, error: error.message }, { status: 400 });
+    }
     console.error("Create fuel usage error:", error);
     return NextResponse.json(
       { success: false, error: "Failed to create fuel usage record" },

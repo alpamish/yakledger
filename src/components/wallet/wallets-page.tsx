@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { walletApi } from "@/services/wallet-api";
 import { formatMinor } from "@/lib/money";
 import { toast } from "sonner";
@@ -30,6 +30,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
   Dialog,
   DialogContent,
@@ -41,7 +42,7 @@ import { LoadingSpinner } from "@/components/common/loading-spinner";
 import { EmptyState } from "@/components/common/empty-state";
 import { usePermissions } from "@/hooks/use-permissions";
 import { TransferToWalletDialog } from "@/components/cash-advance/transfer-to-wallet-dialog";
-import { Plus, Wallet, ArrowLeftRight, ArrowDownToLine, Pencil, Power, PiggyBank, Eye } from "lucide-react";
+import { Plus, Wallet, ArrowLeftRight, ArrowDownToLine, Pencil, Power, PiggyBank, Eye, ChevronLeft, ChevronRight } from "lucide-react";
 
 function fmt(amount: number, currency = "AFN") {
   return formatMinor(Math.round(amount * 100), currency);
@@ -62,6 +63,7 @@ export function WalletsPage() {
   const [loading, setLoading] = useState(true);
   const [dialog, setDialog] = useState<DialogState>(null);
   const [selected, setSelected] = useState<any>(null);
+  const [tab, setTab] = useState("wallets");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -124,6 +126,13 @@ export function WalletsPage() {
         </Card>
       </div>
 
+      <Tabs value={tab} onValueChange={setTab}>
+        <TabsList>
+          <TabsTrigger value="wallets">Wallets</TabsTrigger>
+          <TabsTrigger value="transactions">Transactions</TabsTrigger>
+        </TabsList>
+
+      <TabsContent value="wallets" className="mt-4">
       <Card>
         <CardHeader>
           <CardTitle>Wallets</CardTitle>
@@ -251,6 +260,12 @@ export function WalletsPage() {
           )}
         </CardContent>
       </Card>
+      </TabsContent>
+
+      <TabsContent value="transactions" className="mt-4">
+        <WalletTransactionsTab />
+      </TabsContent>
+      </Tabs>
 
       <CreateWalletDialog
         open={dialog === "create"}
@@ -320,10 +335,301 @@ const TX_TYPE_LABELS: Record<string, string> = {
   FUNDING: "Funding",
   ADJUSTMENT: "Adjustment",
   PAYROLL: "Payroll payment",
+  EXPENSE: "Expense payment",
   REVERSAL: "Reversal",
   TRANSFER_OUT: "Transfer out",
   TRANSFER_IN: "Transfer in",
 };
+
+const PAGE_SIZES = [10, 25, 50, 100];
+
+function WalletTransactionsTab() {
+  const [wallets, setWallets] = useState<any[]>([]);
+  const [data, setData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+
+  const [walletId, setWalletId] = useState("");
+  const [type, setType] = useState("");
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+
+  useEffect(() => {
+    walletApi
+      .list()
+      .then((res) => setWallets(res.data ?? []))
+      .catch(() => setWallets([]));
+  }, []);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await walletApi.transactions({
+        walletId: walletId || undefined,
+        type: type || undefined,
+        from: from || undefined,
+        to: to || undefined,
+        search: search.trim() || undefined,
+        page,
+        pageSize,
+      });
+      if (res.success) setData(res.data);
+    } catch (e: any) {
+      toast.error(e?.message || "Failed to load transactions");
+    } finally {
+      setLoading(false);
+    }
+  }, [walletId, type, from, to, search, page, pageSize]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const rows: any[] = data?.data ?? [];
+  const total = data?.total ?? 0;
+  const totalPages = data?.totalPages ?? 1;
+
+  const pageNumbers = useMemo(() => {
+    const pages: number[] = [];
+    const current = page;
+    if (totalPages <= 7) {
+      for (let i = 1; i <= totalPages; i++) pages.push(i);
+    } else {
+      pages.push(1);
+      if (current > 3) pages.push(-1);
+      for (let i = Math.max(2, current - 1); i <= Math.min(totalPages - 1, current + 1); i++) {
+        pages.push(i);
+      }
+      if (current < totalPages - 2) pages.push(-1);
+      pages.push(totalPages);
+    }
+    return pages;
+  }, [totalPages, page]);
+
+  const startIndex = total === 0 ? 0 : (page - 1) * pageSize + 1;
+  const endIndex = Math.min(page * pageSize, total);
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Transactions</CardTitle>
+        <CardDescription>Ledger entries across all company wallets.</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="flex flex-wrap items-end gap-3">
+          <div className="space-y-1.5">
+            <Label>Wallet</Label>
+            <Select
+              value={walletId || undefined}
+              onValueChange={(v) => {
+                setWalletId(v === "__all" ? "" : v);
+                setPage(1);
+              }}
+            >
+              <SelectTrigger className="w-[200px]">
+                <SelectValue placeholder="All wallets" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__all">All wallets</SelectItem>
+                {wallets.map((w) => (
+                  <SelectItem key={w.id} value={w.id}>
+                    {w.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Type</Label>
+            <Select
+              value={type || undefined}
+              onValueChange={(v) => {
+                setType(v === "__all" ? "" : v);
+                setPage(1);
+              }}
+            >
+              <SelectTrigger className="w-[180px]">
+                <SelectValue placeholder="All types" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__all">All types</SelectItem>
+                {Object.entries(TX_TYPE_LABELS).map(([k, v]) => (
+                  <SelectItem key={k} value={k}>
+                    {v}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <Label>From</Label>
+            <Input
+              type="date"
+              className="w-[160px]"
+              value={from}
+              onChange={(e) => {
+                setFrom(e.target.value);
+                setPage(1);
+              }}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label>To</Label>
+            <Input
+              type="date"
+              className="w-[160px]"
+              value={to}
+              onChange={(e) => {
+                setTo(e.target.value);
+                setPage(1);
+              }}
+            />
+          </div>
+          <div className="min-w-[200px] flex-1 space-y-1.5">
+            <Label>Search note</Label>
+            <Input
+              placeholder="Search note..."
+              value={search}
+              onChange={(e) => {
+                setSearch(e.target.value);
+                setPage(1);
+              }}
+            />
+          </div>
+          <Button
+            variant="outline"
+            onClick={() => {
+              setWalletId("");
+              setType("");
+              setFrom("");
+              setTo("");
+              setSearch("");
+              setPage(1);
+            }}
+          >
+            Reset
+          </Button>
+        </div>
+
+        {loading ? (
+          <div className="py-10">
+            <LoadingSpinner text="Loading transactions..." />
+          </div>
+        ) : rows.length === 0 ? (
+          <EmptyState
+            icon={Wallet}
+            title="No transactions"
+            description="No ledger entries match the current filters."
+          />
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Date</TableHead>
+                <TableHead>Wallet</TableHead>
+                <TableHead>Type</TableHead>
+                <TableHead>Amount</TableHead>
+                <TableHead>Note</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {rows.map((t) => (
+                <TableRow key={t.id}>
+                  <TableCell className="whitespace-nowrap text-sm">{fmtDate(t.createdAt)}</TableCell>
+                  <TableCell className="font-medium">{t.wallet?.name ?? "—"}</TableCell>
+                  <TableCell>{TX_TYPE_LABELS[t.type] ?? t.type}</TableCell>
+                  <TableCell
+                    className={`font-mono font-semibold ${
+                      t.amount < 0 ? "text-red-600" : "text-green-600"
+                    }`}
+                  >
+                    {t.amount < 0 ? "−" : "+"}
+                    {formatMinor(Math.round(Math.abs(t.amount) * 100), t.wallet?.currency)}
+                  </TableCell>
+                  <TableCell className="text-sm text-muted-foreground">
+                    {t.note || (t.payrollId ? "Linked to payroll" : "—")}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+
+        {total > 0 && (
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+            <div className="text-sm text-muted-foreground">
+              Showing <span className="font-medium text-foreground">{startIndex}</span> to{" "}
+              <span className="font-medium text-foreground">{endIndex}</span> of{" "}
+              <span className="font-medium text-foreground">{total}</span> results
+            </div>
+            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-muted-foreground">Rows:</span>
+                <select
+                  value={pageSize}
+                  onChange={(e) => {
+                    setPageSize(Number(e.target.value));
+                    setPage(1);
+                  }}
+                  className="h-8 rounded-md border bg-transparent px-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+                >
+                  {PAGE_SIZES.map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex items-center gap-1">
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="h-8 w-8"
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  disabled={page <= 1}
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                  <span className="sr-only">Previous page</span>
+                </Button>
+                {pageNumbers.map((pg, idx) =>
+                  pg === -1 ? (
+                    <span key={`ellipsis-${idx}`} className="px-2 text-muted-foreground">
+                      ...
+                    </span>
+                  ) : (
+                    <Button
+                      key={pg}
+                      variant={pg === page ? "default" : "outline"}
+                      size="icon"
+                      className={`h-8 w-8 ${
+                        pg === page ? "bg-emerald-600 hover:bg-emerald-700 text-white" : ""
+                      }`}
+                      onClick={() => setPage(pg)}
+                    >
+                      {pg}
+                    </Button>
+                  )
+                )}
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="h-8 w-8"
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={page >= totalPages}
+                >
+                  <ChevronRight className="h-4 w-4" />
+                  <span className="sr-only">Next page</span>
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
 
 function WalletTransactionsDialog({
   open,

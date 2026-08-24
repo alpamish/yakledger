@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/permissions";
-import { buildAccessScope, withScope, resolveApprovalStatusOnEdit, APPROVED } from "@/lib/access-control";
+import { buildAccessScope, buildListScope, withScope, resolveApprovalStatusOnEdit, APPROVED } from "@/lib/access-control";
 
 const updateAssetLogSchema = z.object({
   date: z.string().optional(),
@@ -36,7 +36,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 
     const { id } = await params;
     const log = await db.assetLog.findFirst({
-      where: withScope({ id }, await buildAccessScope(user, "assetLog")),
+      where: withScope({ id }, await buildListScope(user, "assetLog")),
       include: {
         asset: { select: { id: true, name: true, category: true, plateNumber: true } },
         operator: { select: { id: true, fullName: true } },

@@ -55,6 +55,7 @@ export async function GET(request: NextRequest) {
         let totalIssued = 0;
 
         for (const t of transactions) {
+          if (c.fuelType && t.fuelType !== c.fuelType) continue;
           if (t.type === "PURCHASE" && t.containerId === c.id) {
             totalPurchased += t.quantity;
             balance += t.quantity;

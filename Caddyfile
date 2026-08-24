@@ -1,4 +1,6 @@
 :81 {
+	encode zstd gzip
+
 	@transform_port_query {
 		query XTransformPort=*
 	}

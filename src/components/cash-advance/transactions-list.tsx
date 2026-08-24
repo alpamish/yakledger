@@ -94,7 +94,7 @@ export function TransactionsList() {
     const cashEntries: CombinedEntry[] = transactions.map((t) => ({
       id: `txn-${t.id}`,
       type: t.type,
-      amount: t.type === 'ADVANCE' ? t.amount : -t.amount,
+      amount: (t.type === 'ADVANCE' || t.type === 'SALARY_PAYMENT' || t.type === 'ADJUSTMENT') ? t.amount : -t.amount,
       createdAt: t.createdAt,
       description: `${t.employee?.fullName ?? 'Unknown'}${t.note ? ` — ${t.note}` : ''}`,
       approvalStatus: t.approvalStatus,

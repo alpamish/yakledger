@@ -1,9 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
-import { requirePermission } from "@/lib/permissions";
+import { requirePermission, checkUserPermission } from "@/lib/permissions";
 import { Prisma } from "@prisma/client";
 import { buildAccessScope, withScope, resolveApprovalStatusOnCreate, APPROVED } from "@/lib/access-control";
+import { ensureSufficientStock, InsufficientStockError } from "@/lib/fuel-stock";
+import { createPurchaseExpense } from "@/services/purchase-expense.service";
+import { PAYMENT_METHODS } from "@/types/expense";
 
 const createFuelTransactionSchema = z.object({
   type: z.enum(["PURCHASE", "TRANSFER", "ISSUE"]),
@@ -18,6 +21,12 @@ const createFuelTransactionSchema = z.object({
   contractorId: z.string().optional().nullable(),
   machineryId: z.string().optional().nullable(),
   issuedToName: z.string().optional().nullable(),
+  billable: z.boolean().optional().default(false),
+  createExpense: z.boolean().optional().default(false),
+  paymentMethod: z.enum(PAYMENT_METHODS).optional().nullable(),
+  paidBy: z.string().optional().nullable(),
+  payNow: z.boolean().optional().default(false),
+  walletId: z.string().optional().nullable(),
   notes: z.string().optional().nullable(),
   date: z.string().optional(),
 });
@@ -28,6 +37,7 @@ const transactionIncludes = {
   destinationContainer: { select: { id: true, name: true, fuelLocation: true } },
   contractor: { select: { id: true, contractorName: true } },
   machinery: { select: { id: true, machineryName: true, plateNumber: true } },
+  expenses: { select: { id: true, amount: true, approvalStatus: true, walletId: true } },
 };
 
 export async function GET(request: NextRequest) {
@@ -116,14 +126,54 @@ export async function POST(request: NextRequest) {
 
     const data = parsed.data;
 
+    if (data.createExpense) {
+      const hasExpensePermission = await checkUserPermission(user.id, user.role, "expenses:create");
+      if (!hasExpensePermission) {
+        return NextResponse.json({ success: false, error: "Forbidden: insufficient permissions to record an expense" }, { status: 403 });
+      }
+      if (data.type !== "PURCHASE") {
+        return NextResponse.json({ success: false, error: "Expense can only be linked to a fuel purchase" }, { status: 400 });
+      }
+      if (!data.totalCost || data.totalCost <= 0) {
+        return NextResponse.json({ success: false, error: "Total cost is required to record this purchase as an expense" }, { status: 400 });
+      }
+      if (!data.paymentMethod) {
+        return NextResponse.json({ success: false, error: "Payment method is required when recording this purchase as an expense" }, { status: 400 });
+      }
+    }
+
+    if (data.type === "TRANSFER") {
+      if (!data.containerId || !data.destinationContainerId) {
+        return NextResponse.json(
+          { success: false, error: "Both source and destination containers are required for a transfer" },
+          { status: 400 }
+        );
+      }
+      if (data.containerId === data.destinationContainerId) {
+        return NextResponse.json(
+          { success: false, error: "Source and destination containers must be different" },
+          { status: 400 }
+        );
+      }
+    }
+
     const transaction = await db.$transaction(async (tx) => {
       const approvalStatus = resolveApprovalStatusOnCreate(user);
       const approvedById = approvalStatus === APPROVED ? user.id : null;
       const approvedAt = approvalStatus === APPROVED ? new Date() : null;
 
+      // Never draw a container below zero.
+      if (data.type === "ISSUE" || data.type === "TRANSFER") {
+        await ensureSufficientStock(tx, data.containerId, data.quantity, data.fuelType);
+      }
+
       if (data.type === 'ISSUE' && !data.unitPrice && !data.totalCost) {
         const aggregation = await tx.fuelTransaction.aggregate({
-          where: { type: 'PURCHASE', fuelType: data.fuelType },
+          where: {
+            type: 'PURCHASE',
+            fuelType: data.fuelType,
+            ...(data.containerId ? { containerId: data.containerId } : {}),
+          },
           _sum: { quantity: true, totalCost: true },
         });
         const totalQty = aggregation._sum?.quantity || 0;
@@ -167,11 +217,27 @@ export async function POST(request: NextRequest) {
             totalCost: data.totalCost ?? 0,
             date: created.date,
             fuelTransactionId: created.id,
+            billable: data.billable,
             createdBy: user.id,
             approvalStatus,
             approvedById,
             approvedAt,
           },
+        });
+      }
+
+      if (data.createExpense) {
+        const createdExpense = await createPurchaseExpense(tx, user, {
+          title: `Fuel purchase — ${data.quantity}L ${data.fuelType}${data.supplier ? ` (${data.supplier})` : ""}`,
+          category: "FUEL",
+          amount: data.totalCost ?? 0,
+          paymentMethod: data.paymentMethod!,
+          paidTo: data.supplier || "Fuel supplier",
+          paidBy: data.paidBy || user.name || user.email || "Company",
+          expenseDate: created.date,
+          notes: data.notes ?? null,
+          walletId: data.payNow ? data.walletId ?? null : null,
+          fuelTransactionId: created.id,
         });
       }
 
@@ -190,6 +256,9 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ success: true, data: transaction, message: "Fuel transaction created successfully" }, { status: 201 });
   } catch (error) {
+    if (error instanceof InsufficientStockError) {
+      return NextResponse.json({ success: false, error: error.message }, { status: 400 });
+    }
     console.error("Create fuel transaction error:", error);
     return NextResponse.json({ success: false, error: "Failed to create fuel transaction" }, { status: 500 });
   }

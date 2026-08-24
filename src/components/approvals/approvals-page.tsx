@@ -28,7 +28,10 @@ import {
 
 import { approvalsApi } from '@/services/api';
 import { usePermissions } from '@/hooks/use-permissions';
+import { emitRefresh } from '@/lib/live-refresh';
 import type { ApprovalItem, ApprovalStatus } from '@/types/expense';
+
+const PAGE_SIZE = 50;
 
 const ENTITY_LABELS: Record<string, string> = {
   expense: 'Expense',
@@ -61,6 +64,9 @@ export function ApprovalsPage() {
   const [entity, setEntity] = useState<string>('all');
   const [items, setItems] = useState<ApprovalItem[]>([]);
   const [counts, setCounts] = useState<Record<string, number>>({});
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [actingId, setActingId] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -71,19 +77,32 @@ export function ApprovalsPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await approvalsApi.getAll({ status, entity: entity === 'all' ? undefined : entity });
+      const res = await approvalsApi.getAll({ status, entity: entity === 'all' ? undefined : entity, page, pageSize: PAGE_SIZE });
       setItems(res.data?.items ?? []);
       setCounts(res.data?.counts ?? {});
+      setTotal(res.data?.total ?? 0);
+      setTotalPages(res.data?.totalPages ?? 1);
     } catch {
       toast.error('Failed to load approvals');
     } finally {
       setLoading(false);
     }
-  }, [status, entity]);
+  }, [status, entity, page]);
 
   useEffect(() => {
     load();
   }, [load]);
+
+  const changeEntity = (key: string) => {
+    setEntity(key);
+    setPage(1);
+  };
+
+  const changeStatus = (value: ApprovalStatus) => {
+    setStatus(value);
+    setPage(1);
+    setSelected(new Set());
+  };
 
   const entityTabs = useMemo(() => {
     const tabs: { key: string; label: string; count: number }[] = [
@@ -106,6 +125,7 @@ export function ApprovalsPage() {
         toast.success('Record rejected');
       }
       load();
+      emitRefresh();
     } catch {
       toast.error(action === 'approve' ? 'Failed to approve record' : 'Failed to reject record');
     } finally {
@@ -146,6 +166,7 @@ export function ApprovalsPage() {
       toast.success(`${approved} approved${skipped > 0 ? `, ${skipped} skipped` : ''}`);
       setSelected(new Set());
       load();
+      emitRefresh();
     } catch {
       toast.error('Failed to approve selected records');
     } finally {
@@ -177,7 +198,7 @@ export function ApprovalsPage() {
             key={tab.key}
             variant={entity === tab.key ? 'default' : 'outline'}
             size="sm"
-            onClick={() => setEntity(tab.key)}
+            onClick={() => changeEntity(tab.key)}
             className={entity === tab.key ? 'bg-emerald-600 hover:bg-emerald-700' : ''}
           >
             {tab.label}
@@ -189,7 +210,7 @@ export function ApprovalsPage() {
       </div>
 
       <div className="flex items-center gap-2">
-        <Select value={status} onValueChange={(v) => setStatus(v as ApprovalStatus)}>
+        <Select value={status} onValueChange={(v) => changeStatus(v as ApprovalStatus)}>
           <SelectTrigger className="w-[160px]">
             <SelectValue placeholder="Status" />
           </SelectTrigger>
@@ -217,7 +238,7 @@ export function ApprovalsPage() {
         <CardHeader>
           <CardTitle>{status === 'PENDING' ? 'Awaiting Approval' : `${status.charAt(0) + status.slice(1).toLowerCase()} Records`}</CardTitle>
           <CardDescription>
-            {items.length} record{items.length === 1 ? '' : 's'}
+            {total} record{total === 1 ? '' : 's'}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -248,6 +269,7 @@ export function ApprovalsPage() {
                     <TableHead>Type</TableHead>
                     <TableHead>Details</TableHead>
                     <TableHead>Amount</TableHead>
+                    <TableHead>Hours</TableHead>
                     <TableHead>Date</TableHead>
                     <TableHead>Submitted By</TableHead>
                     {status === 'REJECTED' && <TableHead>Note</TableHead>}
@@ -277,6 +299,7 @@ export function ApprovalsPage() {
                       </TableCell>
                       <TableCell className="max-w-[300px] truncate">{item.summary}</TableCell>
                       <TableCell>{formatAmount(item.amount)}</TableCell>
+                      <TableCell>{item.totalHours !== undefined ? `${item.totalHours} h` : '—'}</TableCell>
                       <TableCell>{item.date ? new Date(item.date).toLocaleDateString() : '—'}</TableCell>
                       <TableCell>{item.createdBy?.name ?? 'Unknown'}</TableCell>
                       {status === 'REJECTED' && (
@@ -310,6 +333,37 @@ export function ApprovalsPage() {
                   ))}
                 </TableBody>
               </Table>
+            </div>
+          )}
+
+          {total > PAGE_SIZE && (
+            <div className="flex items-center justify-between mt-4 text-xs text-muted-foreground">
+              <span>
+                Showing {((page - 1) * PAGE_SIZE) + 1}–{Math.min(page * PAGE_SIZE, total)} of {total}
+              </span>
+              <div className="flex items-center gap-1">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 text-xs"
+                  disabled={page <= 1 || loading}
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                >
+                  Previous
+                </Button>
+                <span className="px-2">
+                  {page} / {totalPages}
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 text-xs"
+                  disabled={page >= totalPages || loading}
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                >
+                  Next
+                </Button>
+              </div>
             </div>
           )}
         </CardContent>

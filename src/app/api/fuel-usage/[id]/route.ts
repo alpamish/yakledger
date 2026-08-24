@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { requirePermission, isAdminUser } from "@/lib/permissions";
-import { buildAccessScope, withScope, resolveApprovalStatusOnEdit, APPROVED } from "@/lib/access-control";
+import { buildAccessScope, buildListScope, withScope, resolveApprovalStatusOnEdit, APPROVED } from "@/lib/access-control";
+import { ensureSufficientStock, InsufficientStockError } from "@/lib/fuel-stock";
 
 const FUEL_TYPE_VALUES = [
   "DIESEL", "GASOLINE", "LPG", "CNG", "OTHER",
@@ -19,8 +20,56 @@ const updateFuelUsageSchema = z.object({
   fuelStation: z.string().optional().nullable(),
   receiptAttachment: z.string().optional().nullable(),
   linkedExpenseId: z.string().optional().nullable(),
+  billable: z.boolean().optional(),
   notes: z.string().optional().nullable(),
 });
+
+// GET /api/fuel-usage/[id] - Get single fuel usage record
+export async function GET(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const result = await requirePermission(request, "fuelUsage:view");
+    if ("status" in result) return result;
+    const user = result.user;
+
+    const { id } = await params;
+
+    const fuelUsage = await db.fuelUsage.findFirst({
+      where: withScope({ id }, await buildListScope(user, "fuelUsage")),
+      include: {
+        contractor: {
+          select: { id: true, contractorName: true, contractorType: true },
+        },
+        machinery: {
+          select: { id: true, machineryName: true, machineryType: true, plateNumber: true },
+        },
+        linkedExpense: {
+          select: { id: true, title: true, amount: true, category: true },
+        },
+        fuelTransaction: {
+          select: { id: true, type: true, quantity: true, unitPrice: true, totalCost: true, containerId: true },
+        },
+      },
+    });
+
+    if (!fuelUsage) {
+      return NextResponse.json(
+        { success: false, error: "Fuel usage record not found" },
+        { status: 404 }
+      );
+    }
+
+    return NextResponse.json({ success: true, data: fuelUsage });
+  } catch (error) {
+    console.error("Get fuel usage error:", error);
+    return NextResponse.json(
+      { success: false, error: "Failed to fetch fuel usage record" },
+      { status: 500 }
+    );
+  }
+}
 
 // PUT /api/fuel-usage/[id] - Update fuel usage
 export async function PUT(
@@ -111,6 +160,27 @@ export async function PUT(
 
       // If linked to a FuelTransaction, update it too
       if (existing.fuelTransactionId) {
+        const txn = await tx.fuelTransaction.findUnique({
+          where: { id: existing.fuelTransactionId },
+          select: { type: true, containerId: true, unitPrice: true, fuelType: true },
+        });
+
+        // Never over-draw the source container when the quantity/fuelType changes.
+        if (
+          txn &&
+          txn.type === "ISSUE" &&
+          txn.containerId &&
+          (data.quantity !== undefined || data.fuelType !== undefined)
+        ) {
+          await ensureSufficientStock(
+            tx,
+            txn.containerId,
+            data.quantity ?? existing.quantity,
+            data.fuelType ?? txn.fuelType,
+            existing.fuelTransactionId
+          );
+        }
+
         const txnUpdateData: Record<string, unknown> = {};
         if (data.quantity !== undefined) txnUpdateData.quantity = data.quantity;
         if (data.fuelType !== undefined) txnUpdateData.fuelType = data.fuelType;
@@ -120,10 +190,6 @@ export async function PUT(
 
         // Recalculate transaction totalCost if quantity changed
         if (data.quantity !== undefined) {
-          const txn = await tx.fuelTransaction.findUnique({
-            where: { id: existing.fuelTransactionId },
-            select: { unitPrice: true },
-          });
           if (txn) {
             txnUpdateData.totalCost = txn.unitPrice ? txn.unitPrice * data.quantity : 0;
           }
@@ -157,6 +223,9 @@ export async function PUT(
       message: "Fuel usage record updated successfully",
     });
   } catch (error) {
+    if (error instanceof InsufficientStockError) {
+      return NextResponse.json({ success: false, error: error.message }, { status: 400 });
+    }
     console.error("Update fuel usage error:", error);
     return NextResponse.json(
       { success: false, error: "Failed to update fuel usage record" },
@@ -203,7 +272,7 @@ export async function DELETE(
         action: "DELETE",
         entity: "FuelUsage",
         entityId: id,
-        details: `Deleted fuel usage record: ${fuelUsage.quantity} ${fuelUsage.fuelType} ($${fuelUsage.totalCost})${fuelUsage.fuelTransactionId ? ' and linked stock transaction' : ''}`,
+        details: `Deleted fuel usage record: ${fuelUsage.quantity} ${fuelUsage.fuelType} (AFN ${fuelUsage.totalCost})${fuelUsage.fuelTransactionId ? ' and linked stock transaction' : ''}`,
         userId: user.id,
       },
     });

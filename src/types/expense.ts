@@ -13,6 +13,7 @@ export const CATEGORIES = [
   "OFFICE_EXPENSE",
   "REWARD",
   "BONUS",
+  "MEDICATION",
   "MISCELLANEOUS",
 ] as const;
 
@@ -26,19 +27,14 @@ export const PAYMENT_METHODS = [
   "OTHER",
 ] as const;
 
-export const ROLES = ["ADMIN", "MANAGER", "USER", "WATCHER", "TIMESHEET_USER"] as const;
-
 export type Category = (typeof CATEGORIES)[number];
 export type PaymentMethod = (typeof PAYMENT_METHODS)[number];
-export type Role = (typeof ROLES)[number];
 
-export const ROLE_LABELS: Record<Role, string> = {
-  ADMIN: "Administrator",
-  MANAGER: "Manager",
-  USER: "User",
-  WATCHER: "Watcher",
-  TIMESHEET_USER: "Timesheet User",
-};
+import { ROLES, ROLE_LABELS } from "@/lib/permission-catalog";
+import type { Role } from "@/lib/permission-catalog";
+
+export { ROLES, ROLE_LABELS };
+export type { Role };
 
 // ─── Permission System Types ──────────────────────────────────────────────────
 
@@ -81,6 +77,7 @@ export interface ApprovalItem {
   id: string;
   summary: string;
   amount?: number;
+  totalHours?: number;
   date?: string;
   status: ApprovalStatus;
   approvalNote: string | null;
@@ -213,6 +210,8 @@ export interface Expense {
   paidToId?: string | null;
   paidToContractorId?: string | null;
   paidByContractorId?: string | null;
+  walletId?: string | null;
+  deductFromWallet?: boolean;
   createdAt: string;
   updatedAt: string;
   approvalStatus?: ApprovalStatus;
@@ -228,21 +227,44 @@ export interface Expense {
 
 export interface ExpenseFormData {
   title: string;
-  description?: string;
+  description?: string | null;
   category: Category;
   amount: number;
   paymentMethod: PaymentMethod;
   paidTo: string;
   paidBy: string;
   expenseDate: string;
-  attachment?: string;
-  tags?: string;
-  notes?: string;
+  attachment?: string | null;
+  tags?: string | null;
+  notes?: string | null;
   currency?: string;
-  paidById?: string;
-  paidToId?: string;
-  paidToContractorId?: string;
-  paidByContractorId?: string;
+  paidById?: string | null;
+  paidToId?: string | null;
+  paidToContractorId?: string | null;
+  paidByContractorId?: string | null;
+  walletId?: string | null;
+  deductFromWallet?: boolean;
+}
+
+export interface BulkExpenseRecord {
+  title: string;
+  description?: string | null;
+  category: Category;
+  amount: number;
+  paymentMethod: PaymentMethod;
+  paidTo: string;
+  paidBy: string;
+  expenseDate: string;
+  attachment?: string | null;
+  tags?: string | null;
+  notes?: string | null;
+  currency?: string;
+  paidById?: string | null;
+  paidToId?: string | null;
+  paidToContractorId?: string | null;
+  paidByContractorId?: string | null;
+  walletId?: string | null;
+  deductFromWallet?: boolean;
 }
 
 export interface ExpenseFilters {
@@ -417,6 +439,7 @@ export const CATEGORY_LABELS: Record<Category, string> = {
   OFFICE_EXPENSE: "Office Expense",
   REWARD: "Reward",
   BONUS: "Bonus",
+  MEDICATION: "Medication",
   MISCELLANEOUS: "Miscellaneous",
 };
 
@@ -443,5 +466,6 @@ export const CATEGORY_COLORS: Record<Category, string> = {
   OFFICE_EXPENSE: "#6366f1",
   REWARD: "#ec4899",
   BONUS: "#f59e0b",
+  MEDICATION: "#14b8a6",
   MISCELLANEOUS: "#78716c",
 };

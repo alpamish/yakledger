@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/permissions";
-import { buildAccessScope, withScope, APPROVED } from "@/lib/access-control";
+import { buildAccessScope, buildAggregateScope, withScope } from "@/lib/access-control";
 
 const WARNING_THRESHOLD = 0.05;
 const CRITICAL_THRESHOLD = 0.15;
@@ -93,17 +93,16 @@ export async function GET(request: NextRequest) {
     }
 
     const fuelQueryFilter = withScope(
-      { ...dateFilter, approvalStatus: APPROVED },
-      await buildAccessScope(user, "fuelUsage")
+      dateFilter,
+      await buildAggregateScope(user, "fuelUsage")
     );
 
     const timesheetDateFilter = withScope(
       {
         date: { gte: startDate, lt: endDate } as Record<string, unknown>,
         machineryId: { in: machineryIds } as { in: string[] },
-        approvalStatus: APPROVED,
       },
-      await buildAccessScope(user, "timesheet")
+      await buildAggregateScope(user, "timesheet")
     );
 
     const [fuelUsageRecords, timesheetRecords] = await Promise.all([
@@ -111,6 +110,7 @@ export async function GET(request: NextRequest) {
         where: fuelQueryFilter,
         select: {
           machineryId: true,
+          fuelType: true,
           date: true,
           quantity: true,
           totalCost: true,
@@ -130,6 +130,8 @@ export async function GET(request: NextRequest) {
 
     const fuelByMachMonth = new Map<string, FuelMonthlyGroup>();
     const machDaysWithFuel = new Map<string, Set<string>>();
+    const fuelTypeByMach = new Map<string, Map<string, number>>();
+    const fuelTypeByMonth = new Map<string, Map<string, number>>();
 
     for (const r of fuelUsageRecords) {
       if (!r.machineryId) continue;
@@ -150,6 +152,20 @@ export async function GET(request: NextRequest) {
           recordCount: 1,
         });
       }
+
+      let typeMap = fuelTypeByMach.get(r.machineryId);
+      if (!typeMap) {
+        typeMap = new Map();
+        fuelTypeByMach.set(r.machineryId, typeMap);
+      }
+      typeMap.set(r.fuelType, (typeMap.get(r.fuelType) ?? 0) + r.quantity);
+
+      let monthTypeMap = fuelTypeByMonth.get(month);
+      if (!monthTypeMap) {
+        monthTypeMap = new Map();
+        fuelTypeByMonth.set(month, monthTypeMap);
+      }
+      monthTypeMap.set(r.fuelType, (monthTypeMap.get(r.fuelType) ?? 0) + r.quantity);
 
       let days = machDaysWithFuel.get(r.machineryId);
       if (!days) {
@@ -194,6 +210,12 @@ export async function GET(request: NextRequest) {
       year: number;
       monthlyData: Record<string, unknown>[];
       anomalies: Record<string, unknown>[];
+      fuelTypeDistribution: Array<{ fuelType: string; totalLiters: number }>;
+      fuelTypeByMonth: Array<{
+        month: string;
+        monthLabel: string;
+        fuelTypes: Array<{ fuelType: string; totalLiters: number }>;
+      }>;
     }> = [];
 
     for (const mach of allMachinery) {
@@ -314,6 +336,10 @@ export async function GET(request: NextRequest) {
         ? ((mach as Record<string, unknown>).assignedContractor as Record<string, unknown>).contractorName as string
         : null;
 
+      const typeDistribution = Array.from((fuelTypeByMach.get(mach.id) ?? new Map()).entries())
+        .map(([fuelType, totalLiters]) => ({ fuelType, totalLiters }))
+        .sort((a, b) => b.totalLiters - a.totalLiters);
+
       results.push({
         machinery: {
           id: mach.id,
@@ -328,6 +354,16 @@ export async function GET(request: NextRequest) {
         year: currentYear,
         monthlyData,
         anomalies,
+        fuelTypeDistribution: typeDistribution,
+        fuelTypeByMonth: Array.from(fuelTypeByMonth.entries())
+          .map(([month, m]) => ({
+            month: getMonthKey(currentYear, Number(month)),
+            monthLabel: getMonthLabel(Number(month)),
+            fuelTypes: Array.from(m.entries())
+              .map(([fuelType, totalLiters]) => ({ fuelType, totalLiters }))
+              .sort((a, b) => b.totalLiters - a.totalLiters),
+          }))
+          .sort((a, b) => a.month.localeCompare(b.month)),
       });
 
     }

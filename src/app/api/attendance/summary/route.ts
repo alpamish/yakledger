@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/permissions";
-import { buildAccessScope, withScope, APPROVED } from "@/lib/access-control";
+import { buildAggregateScope, withScope } from "@/lib/access-control";
 
 // GET /api/attendance/summary?employeeId=X&dateFrom=Y&dateTo=Z
 export async function GET(request: NextRequest) {
@@ -31,10 +31,7 @@ export async function GET(request: NextRequest) {
     }
 
     const records = await db.attendance.findMany({
-      where: withScope(
-        { ...where, approvalStatus: APPROVED },
-        await buildAccessScope(user, "attendance")
-      ),
+      where: withScope(where, await buildAggregateScope(user, "attendance")),
       select: { status: true, overtimeHours: true },
     });
 

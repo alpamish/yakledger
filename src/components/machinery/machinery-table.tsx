@@ -76,13 +76,14 @@ import {
 } from 'lucide-react';
 
 interface MachineryTableProps {
+  onViewDetail: (machinery: Machinery) => void;
   onTimesheet: (machinery: Machinery) => void;
   onEdit: (machinery: Machinery) => void;
   onDelete: (machinery: Machinery) => void;
   onBulkFarsiTimesheet?: (ids: string[]) => void;
 }
 
-export function MachineryTable({ onTimesheet, onEdit, onDelete, onBulkFarsiTimesheet }: MachineryTableProps) {
+export function MachineryTable({ onViewDetail, onTimesheet, onEdit, onDelete, onBulkFarsiTimesheet }: MachineryTableProps) {
   const { canEdit, canDelete } = usePermissions();
   const machinery = useMachineryStore((s) => s.machinery);
   const selectedIds = useMachineryStore((s) => s.selectedIds);
@@ -287,6 +288,10 @@ export function MachineryTable({ onTimesheet, onEdit, onDelete, onBulkFarsiTimes
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={() => onViewDetail(row.original)}>
+                <Eye className="mr-2 h-4 w-4" />
+                View Details
+              </DropdownMenuItem>
               <DropdownMenuItem onClick={() => onTimesheet(row.original)}>
                 <FileText className="mr-2 h-4 w-4 text-emerald-600" />
                 Timesheet Form
@@ -316,7 +321,7 @@ export function MachineryTable({ onTimesheet, onEdit, onDelete, onBulkFarsiTimes
         size: 50,
       },
     ],
-    [machinery, selectedIds, toggleSelect, selectAll, clearSelection, onTimesheet, onEdit, onDelete, canEdit, canDelete]
+    [machinery, selectedIds, toggleSelect, selectAll, clearSelection, onViewDetail, onTimesheet, onEdit, onDelete, canEdit, canDelete]
   );
 
   const table = useReactTable({

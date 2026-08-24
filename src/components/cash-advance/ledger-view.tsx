@@ -286,7 +286,7 @@ export function LedgerView() {
 
                 <div className="flex items-center justify-between border-t pt-2 mt-2 font-semibold">
                   <span>Balance</span>
-                  <span className={balance >= 0 ? 'text-emerald-600' : 'text-red-600'}>
+                  <span className={balance > 0 ? 'text-red-600' : balance < 0 ? 'text-emerald-600' : ''}>
                     {balance.toLocaleString()} AFN
                   </span>
                 </div>

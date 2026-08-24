@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/permissions";
-import { buildAccessScope, withScope, APPROVED } from "@/lib/access-control";
+import { buildAccessScope, buildAggregateScope, withScope } from "@/lib/access-control";
 
 const WARNING_THRESHOLD = 0.05;
 const CRITICAL_THRESHOLD = 0.15;
@@ -73,10 +73,9 @@ export async function GET(request: NextRequest) {
       where: withScope(
         {
           machineryId,
-          approvalStatus: APPROVED,
           date: { gte: startDate, lt: endDate },
         },
-        await buildAccessScope(user, "fuelUsage")
+        await buildAggregateScope(user, "fuelUsage")
       ),
       select: {
         date: true,
@@ -90,10 +89,9 @@ export async function GET(request: NextRequest) {
       where: withScope(
         {
           machineryId,
-          approvalStatus: APPROVED,
           date: { gte: startDate, lt: endDate },
         },
-        await buildAccessScope(user, "timesheet")
+        await buildAggregateScope(user, "timesheet")
       ),
       select: {
         date: true,

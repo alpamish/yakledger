@@ -70,6 +70,12 @@ export default function ExpenseItemsModal({
   const [localItems, setLocalItems] = useState<ExpenseItem[]>([]);
   const tableContainerRef = useRef<HTMLDivElement>(null);
 
+  const cellRefs = useRef<Map<string, HTMLTableCellElement>>(new Map());
+  const focusAfterRender = useRef<{ row: number; col: string } | null>(null);
+
+  // Editable columns navigable with arrow keys, in render order.
+  const navigableColumnIds = ['itemName', 'quantity', 'unit', 'unitPrice'];
+
   useEffect(() => {
     if (open) {
       idCounter = 0;
@@ -110,6 +116,87 @@ export default function ExpenseItemsModal({
   const addRow = useCallback(() => {
     setLocalItems((prev) => [...prev, createEmptyRow()]);
   }, []);
+
+  // Focus the first editable cell of a newly added row after it renders.
+  useEffect(() => {
+    const target = focusAfterRender.current;
+    if (!target) return;
+    focusAfterRender.current = null;
+    const key = `${target.row}-${target.col}`;
+    const cell = cellRefs.current.get(key);
+    if (!cell) return;
+    const focusable = cell.querySelector<HTMLElement>(
+      'input, button, [tabindex]:not([tabindex="-1"])'
+    );
+    if (!focusable) return;
+    const raf = requestAnimationFrame(() => focusable.focus());
+    return () => cancelAnimationFrame(raf);
+  }, [localItems.length]);
+
+  const handleCellKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) return;
+
+    const td = (e.target as HTMLElement).closest<HTMLTableCellElement>('[data-cell-key]');
+    if (!td) return;
+    const cellKey = td.dataset.cellKey;
+    if (!cellKey) return;
+
+    const [rowStr, colId] = cellKey.split('-');
+    const rowIndex = parseInt(rowStr, 10);
+    const colIndex = navigableColumnIds.indexOf(colId);
+    if (colIndex === -1) return;
+
+    // For text inputs, let the caret move unless it is at a boundary.
+    if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && e.target instanceof HTMLInputElement) {
+      const input = e.target;
+      if (e.key === 'ArrowLeft' && (input.selectionStart ?? 0) !== 0) return;
+      if (e.key === 'ArrowRight' && (input.selectionEnd ?? 0) !== input.value.length) return;
+    }
+
+    // Prevent Select dropdowns from opening/stealing the key.
+    e.preventDefault();
+    e.stopPropagation();
+
+    let targetRow = rowIndex;
+    let targetCol = colIndex;
+
+    switch (e.key) {
+      case 'ArrowUp':
+        targetRow = Math.max(0, rowIndex - 1);
+        break;
+      case 'ArrowDown':
+        targetRow = rowIndex + 1;
+        break;
+      case 'ArrowLeft':
+        targetCol = Math.max(0, colIndex - 1);
+        break;
+      case 'ArrowRight':
+        targetCol = Math.min(navigableColumnIds.length - 1, colIndex + 1);
+        break;
+    }
+
+    // ArrowDown past the last row auto-adds a row and focuses it.
+    if (e.key === 'ArrowDown' && targetRow >= localItems.length) {
+      addRow();
+      focusAfterRender.current = {
+        row: localItems.length,
+        col: navigableColumnIds[colIndex],
+      };
+      return;
+    }
+
+    targetRow = Math.min(targetRow, localItems.length - 1);
+    if (targetRow === rowIndex && targetCol === colIndex) return;
+
+    const targetKey = `${targetRow}-${navigableColumnIds[targetCol]}`;
+    const targetCell = cellRefs.current.get(targetKey);
+    if (!targetCell) return;
+
+    const focusable = targetCell.querySelector<HTMLElement>(
+      'input, button, [tabindex]:not([tabindex="-1"])'
+    );
+    focusable?.focus();
+  }, [localItems.length, addRow]);
 
   const grandTotal = useMemo(
     () => localItems.reduce((sum, item) => sum + item.total, 0),
@@ -369,7 +456,17 @@ export default function ExpenseItemsModal({
                       className="group hover:bg-muted/30"
                     >
                       {row.getVisibleCells().map((cell) => (
-                        <TableCell key={cell.id} className="py-1.5 px-2">
+                        <TableCell
+                          key={cell.id}
+                          data-cell-key={`${row.index}-${cell.column.id}`}
+                          ref={(el) => {
+                            const key = `${row.index}-${cell.column.id}`;
+                            if (el) cellRefs.current.set(key, el);
+                            else cellRefs.current.delete(key);
+                          }}
+                          onKeyDown={handleCellKeyDown}
+                          className="py-1.5 px-2"
+                        >
                           {flexRender(
                             cell.column.columnDef.cell,
                             cell.getContext()

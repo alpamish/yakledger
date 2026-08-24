@@ -20,7 +20,8 @@ async function apply(
   amount: number,
   createdBy: string,
   note?: string,
-  payrollId?: string | null
+  payrollId?: string | null,
+  expenseId?: string | null
 ) {
   await tx.walletTransaction.create({
     data: {
@@ -29,6 +30,7 @@ async function apply(
       amount,
       note: note ?? null,
       payrollId: payrollId ?? null,
+      expenseId: expenseId ?? null,
       createdBy,
     },
   });
@@ -62,6 +64,42 @@ export const companyWalletService = {
         transactions: { orderBy: { createdAt: "desc" } },
       },
     });
+  },
+
+  async listTransactions(params: {
+    walletId?: string;
+    type?: string;
+    from?: string;
+    to?: string;
+    search?: string;
+    page?: number;
+    pageSize?: number;
+  }) {
+    const page = Math.max(1, params.page ?? 1);
+    const pageSize = Math.min(100, Math.max(1, params.pageSize ?? 20));
+
+    const where: Prisma.WalletTransactionWhereInput = {};
+    if (params.walletId) where.walletId = params.walletId;
+    if (params.type) where.type = params.type;
+    if (params.from || params.to) {
+      where.createdAt = {};
+      if (params.from) (where.createdAt as Prisma.DateTimeFilter).gte = new Date(params.from);
+      if (params.to) (where.createdAt as Prisma.DateTimeFilter).lte = new Date(params.to);
+    }
+    if (params.search) where.note = { contains: params.search };
+
+    const [data, total] = await Promise.all([
+      db.walletTransaction.findMany({
+        where,
+        include: { wallet: { select: { id: true, name: true, currency: true } } },
+        orderBy: { createdAt: "desc" },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+      db.walletTransaction.count({ where }),
+    ]);
+
+    return { data, total, page, pageSize, totalPages: Math.ceil(total / pageSize) };
   },
 
   async create(data: {
@@ -208,6 +246,51 @@ export const companyWalletService = {
       throw new Error(`Wallet "${wallet.name}" is inactive`);
     }
     return apply(tx, walletId, "TRANSFER_IN", amount, createdBy, note ?? "Transfer in from employee");
+  },
+
+  /**
+   * Deduct `amount` from a wallet for an approved expense. Call inside the
+   * expense create/update transaction. Validates the wallet is active and has
+   * sufficient balance; throws otherwise so the expense is not saved.
+   */
+  async deductForExpense(
+    tx: Tx,
+    walletId: string,
+    amount: number,
+    createdBy: string,
+    expenseId: string,
+    note?: string
+  ) {
+    if (amount <= 0) throw new Error("Amount must be positive");
+    const wallet = await tx.wallet.findUnique({ where: { id: walletId } });
+    if (!wallet) throw new Error("Selected wallet not found");
+    if (!wallet.isActive) {
+      throw new Error(`Wallet "${wallet.name}" is inactive`);
+    }
+    if (wallet.balance < amount) {
+      throw new Error(
+        `Insufficient balance in wallet "${wallet.name}" (${wallet.balance} ${wallet.currency}). Fund it before deducting this expense.`
+      );
+    }
+    await apply(tx, walletId, "EXPENSE", -amount, createdBy, note ?? "Expense payment", null, expenseId);
+  },
+
+  /**
+   * Credit a wallet back for an expense that was previously deducted (e.g.
+   * the expense was edited or deleted). Call inside the expense update/delete
+   * transaction so it stays atomic with the expense mutation.
+   */
+  async reverseExpenseDeduction(
+    tx: Tx,
+    walletId: string,
+    amount: number,
+    createdBy: string,
+    expenseId: string
+  ) {
+    if (amount <= 0) return;
+    const wallet = await tx.wallet.findUnique({ where: { id: walletId } });
+    if (!wallet) return;
+    await apply(tx, walletId, "REVERSAL", amount, createdBy, "Expense reverted", null, expenseId);
   },
 
   async recomputeBalance(id: string) {

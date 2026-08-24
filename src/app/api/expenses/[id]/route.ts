@@ -3,6 +3,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/permissions";
 import { walletService } from "@/services/wallet.service";
+import { companyWalletService } from "@/services/company-wallet.service";
 import {
   buildAccessScope,
   withScope,
@@ -29,6 +30,7 @@ const updateExpenseSchema = z.object({
       "OFFICE_EXPENSE",
       "REWARD",
       "BONUS",
+      "MEDICATION",
       "MISCELLANEOUS",
     ])
     .optional(),
@@ -55,7 +57,86 @@ const updateExpenseSchema = z.object({
   paidToId: z.string().optional().nullable(),
   paidToContractorId: z.string().optional().nullable(),
   paidByContractorId: z.string().optional().nullable(),
+  walletId: z.string().optional().nullable(),
+  deductFromWallet: z.boolean().optional(),
 });
+
+// GET /api/expenses/[id] - Fetch a single expense
+export async function GET(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const result = await requirePermission(request, "expenses:view");
+    if ("status" in result) return result;
+    const user = result.user;
+
+    const { id } = await params;
+
+    const scope = await buildAccessScope(user, "expense");
+
+    const expense = await db.expense.findFirst({
+      where: withScope({ id }, scope),
+      include: {
+        creator: {
+          select: {
+            id: true,
+            email: true,
+            name: true,
+            role: true,
+            avatar: true,
+          },
+        },
+        paidByEmployee: {
+          select: {
+            id: true,
+            fullName: true,
+            jobTitle: true,
+            department: true,
+          },
+        },
+        paidToEmployee: {
+          select: {
+            id: true,
+            fullName: true,
+            jobTitle: true,
+            department: true,
+          },
+        },
+        paidToContractor: {
+          select: {
+            id: true,
+            contractorName: true,
+            fatherName: true,
+            contractorType: true,
+          },
+        },
+        paidByContractor: {
+          select: {
+            id: true,
+            contractorName: true,
+            contractorType: true,
+          },
+        },
+      },
+    });
+
+    if (!expense) {
+      return NextResponse.json(
+        { success: false, error: "Expense not found" },
+        { status: 404 }
+      );
+    }
+
+    return NextResponse.json({ success: true, data: expense });
+  } catch (error) {
+    console.error("GET /api/expenses/[id] error:", error);
+    return NextResponse.json(
+      { success: false, error: "Failed to fetch expense" },
+      { status: 500 }
+    );
+  }
+}
 
 // PUT /api/expenses/[id] - Update an expense
 export async function PUT(
@@ -109,6 +190,22 @@ export async function PUT(
 
     const data = parsed.data;
 
+    // Company wallet and employee-wallet deductions are mutually exclusive.
+    // Guard against the resulting state (existing values combined with incoming).
+    const effectiveWalletId =
+      data.walletId !== undefined ? data.walletId : existingExpense.walletId;
+    const effectiveDeductFromWallet =
+      data.deductFromWallet !== undefined ? data.deductFromWallet : existingExpense.deductFromWallet;
+    if (effectiveWalletId && effectiveDeductFromWallet !== false) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Select either a company wallet or an employee wallet deduction, not both.",
+        },
+        { status: 400 }
+      );
+    }
+
     // Build update data object
     const updateData: Record<string, unknown> = {};
     if (data.title !== undefined) updateData.title = data.title;
@@ -127,6 +224,8 @@ export async function PUT(
     if (data.paidToId !== undefined) updateData.paidToId = data.paidToId;
     if (data.paidToContractorId !== undefined) updateData.paidToContractorId = data.paidToContractorId;
     if (data.paidByContractorId !== undefined) updateData.paidByContractorId = data.paidByContractorId;
+    if (data.walletId !== undefined) updateData.walletId = data.walletId;
+    if (data.deductFromWallet !== undefined) updateData.deductFromWallet = data.deductFromWallet;
 
     const newApprovalStatus = resolveApprovalStatusOnEdit(user, existingExpense.approvalStatus);
     updateData.approvalStatus = newApprovalStatus;
@@ -171,41 +270,73 @@ export async function PUT(
       return updated;
     });
 
-    // Wallet adjustments only ever apply to approved expenses.
+    // Wallet adjustments only ever apply to approved expenses. Employee-paid
+    // expenses reduce the employee wallet via the derived balance formula, so
+    // only the company-wallet ledger needs adjusting here.
     const oldPaidById = existingExpense.paidById;
     const newPaidById = data.paidById !== undefined ? data.paidById : oldPaidById;
+    const oldDeductFromWallet = existingExpense.deductFromWallet;
+    const newDeductFromWallet = data.deductFromWallet !== undefined ? data.deductFromWallet : oldDeductFromWallet;
     const oldAmount = existingExpense.amount;
     const newAmount = data.amount !== undefined ? data.amount : oldAmount;
+    const oldWalletId = existingExpense.walletId;
+    const newWalletId = data.walletId !== undefined ? data.walletId : oldWalletId;
 
     if (wasApproved && !staysApproved) {
-      // Re-submission: refund the wallet; deduction re-applies on re-approval.
-      if (oldPaidById) {
-        try { await walletService.addBackToWallet(oldPaidById, oldAmount, user.id); }
-        catch (e) { console.warn("Wallet refund on re-submission failed:", e); }
+      // Re-submission: refund the company wallet; deduction re-applies on
+      // re-approval.
+      if (oldWalletId) {
+        try {
+          await db.$transaction((tx) =>
+            companyWalletService.reverseExpenseDeduction(tx, oldWalletId, oldAmount, user.id, id)
+          );
+        } catch (e) { console.warn("Company wallet refund on re-submission failed:", e); }
       }
     } else if (wasApproved && staysApproved) {
-      // Refund the old employee if paidById changed
-      if (oldPaidById && oldPaidById !== newPaidById) {
-        try { await walletService.addBackToWallet(oldPaidById, oldAmount, user.id); }
-        catch (e) { console.warn("Wallet refund on paidById change failed:", e); }
+      // Company wallet: refund old wallet if changed, then deduct new wallet.
+      if (oldWalletId && oldWalletId !== newWalletId) {
+        try {
+          await db.$transaction((tx) =>
+            companyWalletService.reverseExpenseDeduction(tx, oldWalletId, oldAmount, user.id, id)
+          );
+        } catch (e) { console.warn("Company wallet refund on wallet change failed:", e); }
       }
-
-      if (newPaidById) {
-        if (!oldPaidById || oldPaidById !== newPaidById) {
-          // Deduct full amount for a newly assigned employee
-          try { await walletService.deductFromWallet(newPaidById, newAmount, user.id); }
-          catch (e) { console.warn("Wallet deduction on paidById change failed:", e); }
+      if (newWalletId) {
+        if (!oldWalletId || oldWalletId !== newWalletId) {
+          try {
+            await db.$transaction((tx) =>
+              companyWalletService.deductForExpense(tx, newWalletId, newAmount, user.id, id)
+            );
+          } catch (e) { console.warn("Company wallet deduction on wallet change failed:", e); }
         } else {
-          // Same employee — adjust by the diff only
           const diff = newAmount - oldAmount;
           if (diff > 0) {
-            try { await walletService.deductFromWallet(newPaidById, diff, user.id); }
-            catch (e) { console.warn("Wallet deduction on update failed:", e); }
+            try {
+              await db.$transaction((tx) =>
+                companyWalletService.deductForExpense(tx, newWalletId, diff, user.id, id)
+              );
+            } catch (e) { console.warn("Company wallet deduction on update failed:", e); }
           } else if (diff < 0) {
-            try { await walletService.addBackToWallet(newPaidById, Math.abs(diff), user.id); }
-            catch (e) { console.warn("Wallet add-back on update failed:", e); }
+            try {
+              await db.$transaction((tx) =>
+                companyWalletService.reverseExpenseDeduction(tx, newWalletId, Math.abs(diff), user.id, id)
+              );
+            } catch (e) { console.warn("Company wallet add-back on update failed:", e); }
           }
         }
+      }
+    }
+
+    // Reconcile employee wallets that may have changed (paidById changed, the
+    // deduction flag changed, or the amount changed). Only relevant for
+    // approved expenses.
+    if (wasApproved || staysApproved) {
+      const affected = new Set<string>();
+      if (oldDeductFromWallet !== false && oldPaidById) affected.add(oldPaidById);
+      if (newDeductFromWallet !== false && newPaidById) affected.add(newPaidById);
+      for (const empId of affected) {
+        try { await walletService.reconcileForExpense(empId); }
+        catch (e) { console.warn("Wallet reconcile on update failed:", e); }
       }
     }
 
@@ -262,7 +393,22 @@ export async function DELETE(
       );
     }
 
+    // If expense was approved and deducted from a company wallet, credit it back.
+    // Done inside the transaction BEFORE deleting the expense so the reversal
+    // transaction can still reference the expenseId.
+    const walletToRefund = existingExpense.approvalStatus === APPROVED ? existingExpense.walletId : null;
+
     await db.$transaction(async (tx) => {
+      if (walletToRefund) {
+        await companyWalletService.reverseExpenseDeduction(
+          tx,
+          walletToRefund,
+          existingExpense.amount,
+          user.id,
+          id
+        );
+      }
+
       await tx.auditLog.create({
         data: {
           action: "DELETE",
@@ -278,13 +424,15 @@ export async function DELETE(
       });
     });
 
-    // If expense was approved and paid by an employee, add back to their wallet (best-effort)
-    if (existingExpense.approvalStatus === APPROVED && existingExpense.paidById) {
-      try {
-        await walletService.addBackToWallet(existingExpense.paidById, existingExpense.amount, user.id);
-      } catch (walletErr) {
-        console.warn("Wallet add-back failed:", walletErr);
-      }
+    // Reconcile the paying employee's wallet (deleting the expense removes it
+    // from the derived balance).
+    if (
+      existingExpense.approvalStatus === APPROVED &&
+      existingExpense.paidById &&
+      existingExpense.deductFromWallet !== false
+    ) {
+      try { await walletService.reconcileForExpense(existingExpense.paidById); }
+      catch (e) { console.warn("Wallet reconcile on delete failed:", e); }
     }
 
     return NextResponse.json({

@@ -31,6 +31,7 @@ import {
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   FUEL_TYPES,
   FUEL_TYPE_LABELS,
@@ -53,6 +54,7 @@ const formSchema = z.object({
   date: z.string().min(1, 'Date is required'),
   fuelStation: z.string().optional().nullable(),
   containerId: z.string().optional(),
+  billable: z.boolean().optional().default(false),
   notes: z.string().optional().nullable(),
 });
 
@@ -92,6 +94,7 @@ export function FuelUsageForm({ open, onOpenChange, editingFuelUsage, onSuccess 
       date: format(new Date(), 'yyyy-MM-dd'),
       fuelStation: '',
       containerId: '',
+      billable: false,
       notes: '',
     },
   });
@@ -129,6 +132,7 @@ export function FuelUsageForm({ open, onOpenChange, editingFuelUsage, onSuccess 
           date: format(new Date(editingFuelUsage.date), 'yyyy-MM-dd'),
           fuelStation: editingFuelUsage.fuelStation ?? '',
           containerId: '',
+          billable: editingFuelUsage.billable ?? false,
           notes: editingFuelUsage.notes ?? '',
         });
       } else {
@@ -142,6 +146,7 @@ export function FuelUsageForm({ open, onOpenChange, editingFuelUsage, onSuccess 
           date: format(new Date(), 'yyyy-MM-dd'),
           fuelStation: '',
           containerId: '',
+          billable: false,
           notes: '',
         });
       }
@@ -178,6 +183,7 @@ export function FuelUsageForm({ open, onOpenChange, editingFuelUsage, onSuccess 
         ...values,
         fuelStation: values.fuelStation || undefined,
         containerId: values.containerId || undefined,
+        billable: values.billable,
         notes: values.notes || undefined,
       };
 
@@ -200,6 +206,7 @@ export function FuelUsageForm({ open, onOpenChange, editingFuelUsage, onSuccess 
           date: format(new Date(), 'yyyy-MM-dd'),
           fuelStation: values.fuelStation ?? '',
           containerId: '',
+          billable: false,
           notes: '',
         });
       }
@@ -399,6 +406,21 @@ export function FuelUsageForm({ open, onOpenChange, editingFuelUsage, onSuccess 
               <FormItem>
                 <FormLabel>Notes</FormLabel>
                 <FormControl><Textarea placeholder="Additional notes..." rows={2} {...field} value={field.value ?? ''} /></FormControl>
+                <FormMessage />
+              </FormItem>
+            )} />
+
+            <FormField control={form.control} name="billable" render={({ field }) => (
+              <FormItem className="flex flex-row items-start space-x-3 space-y-0">
+                <FormControl>
+                  <Checkbox checked={field.value} onCheckedChange={field.onChange} />
+                </FormControl>
+                <div className="space-y-1 leading-none">
+                  <FormLabel>Billable to contractor (paid later)</FormLabel>
+                  <p className="text-xs text-muted-foreground">
+                    Marks this fuel usage as a contractor obligation to be paid later.
+                  </p>
+                </div>
                 <FormMessage />
               </FormItem>
             )} />

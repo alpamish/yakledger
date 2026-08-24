@@ -37,6 +37,52 @@ describe("permissions (role defaults)", () => {
       expect(await checkUserPermission("ghost", "GHOST", perm)).toBe(false);
     }
   });
+
+  it("TIMESHEET_USER gets create/edit plus machinery reference access", async () => {
+    expect(await checkUserPermission("u_ts", "TIMESHEET_USER", "timesheets:create")).toBe(true);
+    expect(await checkUserPermission("u_ts", "TIMESHEET_USER", "timesheets:edit")).toBe(true);
+    expect(await checkUserPermission("u_ts", "TIMESHEET_USER", "content:machinery")).toBe(true);
+    expect(await checkUserPermission("u_ts", "TIMESHEET_USER", "content:machinery-rates")).toBe(true);
+    expect(await checkUserPermission("u_ts", "TIMESHEET_USER", "contractors:view")).toBe(true);
+    // Employee reference list is OR-gated with employees:view; no content:employees dep.
+    expect(await checkUserPermission("u_ts", "TIMESHEET_USER", "content:employees")).toBe(false);
+    expect(await checkUserPermission("u_ts", "TIMESHEET_USER", "expenses:create")).toBe(false);
+    expect(await checkUserPermission("u_ts", "TIMESHEET_USER", "expenses:view")).toBe(false);
+  });
+
+  it("EXPENSE_USER gets expense create/edit plus contractor/wallet refs", async () => {
+    expect(await checkUserPermission("u_exp", "EXPENSE_USER", "expenses:create")).toBe(true);
+    expect(await checkUserPermission("u_exp", "EXPENSE_USER", "expenses:edit")).toBe(true);
+    expect(await checkUserPermission("u_exp", "EXPENSE_USER", "content:contractors")).toBe(true);
+    expect(await checkUserPermission("u_exp", "EXPENSE_USER", "wallets:view")).toBe(true);
+    expect(await checkUserPermission("u_exp", "EXPENSE_USER", "cashAdvance:view")).toBe(true);
+    expect(await checkUserPermission("u_exp", "EXPENSE_USER", "timesheets:create")).toBe(false);
+    expect(await checkUserPermission("u_exp", "EXPENSE_USER", "expenses:approve")).toBe(false);
+  });
+
+  it("DATA_ENTRY gets expenses/timesheets/fuelUsage/attendance entry", async () => {
+    expect(await checkUserPermission("u_de", "DATA_ENTRY", "expenses:create")).toBe(true);
+    expect(await checkUserPermission("u_de", "DATA_ENTRY", "timesheets:create")).toBe(true);
+    expect(await checkUserPermission("u_de", "DATA_ENTRY", "fuelUsage:create")).toBe(true);
+    expect(await checkUserPermission("u_de", "DATA_ENTRY", "employees:attendance:manage")).toBe(true);
+    expect(await checkUserPermission("u_de", "DATA_ENTRY", "content:fuel-containers")).toBe(true);
+    expect(await checkUserPermission("u_de", "DATA_ENTRY", "content:machinery")).toBe(true);
+    expect(await checkUserPermission("u_de", "DATA_ENTRY", "wallets:view")).toBe(true);
+    expect(await checkUserPermission("u_de", "DATA_ENTRY", "expenses:approve")).toBe(false);
+    expect(await checkUserPermission("u_de", "DATA_ENTRY", "expenses:delete")).toBe(false);
+  });
+
+  it("reference dependencies resolve transitively via dependencies", async () => {
+    expect(await checkUserPermission("u_dep", "USER", "content:contractors")).toBe(true);
+    expect(await checkUserPermission("u_dep", "USER", "content:machinery")).toBe(true);
+    expect(await checkUserPermission("u_dep", "USER", "content:machinery-rates")).toBe(true);
+    expect(await checkUserPermission("u_dep", "USER", "content:fuel-containers")).toBe(true);
+    // USER has expenses:create, so the expense reference deps (wallets, cashAdvance) apply.
+    expect(await checkUserPermission("u_dep", "USER", "wallets:view")).toBe(true);
+    // But WATCHER has no create/edit perms, so no reference deps are granted.
+    expect(await checkUserPermission("u_dep", "WATCHER", "wallets:view")).toBe(false);
+    expect(await checkUserPermission("u_dep", "WATCHER", "content:contractors")).toBe(false);
+  });
 });
 
 describe("permissions (overrides)", () => {

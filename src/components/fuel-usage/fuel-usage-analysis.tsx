@@ -52,7 +52,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Command, CommandEmpty, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
 import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
-import { shamsiToGregorian } from '@/lib/shamsi';
+import { shamsiToGregorian, getShamsiMonthName } from '@/lib/shamsi';
 
 type DateMode = 'miladi' | 'shamsi';
 
@@ -556,6 +556,7 @@ export function FuelUsageAnalysis() {
           <FuelAnalysisCharts
             analysisData={analysisData}
             selectedMachineryName={selectedMachineryName}
+            dateMode={dateMode}
           />
 
           {/* Anomaly Alert Summary */}
@@ -663,7 +664,9 @@ export function FuelUsageAnalysis() {
                             }
                           >
                             <TableCell className="font-medium sticky left-0 bg-background z-10">
-                              {d.monthLabel}
+                              {dateMode === 'shamsi'
+                                ? (getShamsiMonthName(parseInt(d.month.split('-')[1], 10) - 1) || d.monthLabel)
+                                : d.monthLabel}
                               <span className="text-xs text-muted-foreground ml-1">
                                 ({entry.info.machineryName}{entry.info.plateNumber ? ` [${entry.info.plateNumber}]` : ''})
                               </span>

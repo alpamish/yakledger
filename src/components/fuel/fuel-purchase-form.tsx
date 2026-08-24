@@ -25,6 +25,9 @@ import {
 } from '@/components/ui/select';
 import { FUEL_TYPES, FUEL_TYPE_LABELS } from '@/types/contractor';
 import { fuelApi } from '@/services/asset-api';
+import { walletApi } from '@/services/wallet-api';
+import { PAYMENT_METHODS, PAYMENT_METHOD_LABELS } from '@/types/expense';
+import { Checkbox } from '@/components/ui/checkbox';
 import type { FuelTransaction, FuelContainer } from '@/types/asset';
 import { toast } from 'sonner';
 
@@ -36,6 +39,11 @@ const purchaseSchema = z.object({
   supplier: z.string().optional(),
   containerId: z.string().min(1, 'Destination container is required'),
   notes: z.string().optional(),
+  createExpense: z.boolean().optional().default(false),
+  paymentMethod: z.string().optional(),
+  paidBy: z.string().optional(),
+  payNow: z.boolean().optional().default(false),
+  walletId: z.string().optional(),
 });
 
 type PurchaseFormValues = z.infer<typeof purchaseSchema>;
@@ -47,6 +55,7 @@ interface FuelPurchaseFormProps {
 
 export function FuelPurchaseForm({ onSuccess, initialData }: FuelPurchaseFormProps) {
   const [containers, setContainers] = useState<FuelContainer[]>([]);
+  const [wallets, setWallets] = useState<{ id: string; name: string; balance: number; currency: string }[]>([]);
   const isEditing = !!initialData;
 
   const form = useForm<PurchaseFormValues>({
@@ -58,6 +67,11 @@ export function FuelPurchaseForm({ onSuccess, initialData }: FuelPurchaseFormPro
       supplier: initialData?.supplier || '',
       containerId: initialData?.containerId || '',
       notes: initialData?.notes || '',
+      createExpense: false,
+      paymentMethod: 'CASH',
+      paidBy: '',
+      payNow: false,
+      walletId: '',
     },
   });
 
@@ -71,6 +85,12 @@ export function FuelPurchaseForm({ onSuccess, initialData }: FuelPurchaseFormPro
       }
     });
   }, [form]);
+
+  useEffect(() => {
+    walletApi.list().then((res) => {
+      if (res.data) setWallets(res.data);
+    }).catch(() => {});
+  }, []);
 
   const totalCost = form.watch('quantity') * (form.watch('unitPrice') || 0);
   const selectedContainerId = form.watch('containerId');
@@ -93,6 +113,11 @@ export function FuelPurchaseForm({ onSuccess, initialData }: FuelPurchaseFormPro
         supplier: data.supplier || undefined,
         containerId: data.containerId,
         notes: data.notes || undefined,
+        createExpense: data.createExpense,
+        paymentMethod: data.createExpense ? data.paymentMethod : undefined,
+        paidBy: data.createExpense ? data.paidBy || undefined : undefined,
+        payNow: data.createExpense ? data.payNow : undefined,
+        walletId: data.createExpense && data.payNow ? data.walletId || undefined : undefined,
         date: isEditing && initialData?.date ? initialData.date : new Date().toISOString(),
       };
       if (isEditing && initialData) {
@@ -221,6 +246,129 @@ export function FuelPurchaseForm({ onSuccess, initialData }: FuelPurchaseFormPro
             </FormItem>
           )}
         />
+
+        <div className="border rounded-lg p-4 space-y-4 bg-muted/30">
+          <FormField
+            control={form.control}
+            name="createExpense"
+            render={({ field }) => (
+              <FormItem className="flex flex-row items-start space-x-3 space-y-0">
+                <FormControl>
+                  <Checkbox
+                    checked={field.value}
+                    onCheckedChange={field.onChange}
+                    disabled={isEditing}
+                  />
+                </FormControl>
+                <div className="space-y-1 leading-none">
+                  <FormLabel>Record this purchase as an expense</FormLabel>
+                  <p className="text-xs text-muted-foreground">
+                    Adds the purchase to the expenses ledger. Only approved expenses count toward balances.
+                  </p>
+                </div>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          {form.watch('createExpense') && (
+            <>
+              <FormField
+                control={form.control}
+                name="paymentMethod"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Payment Method</FormLabel>
+                    <Select onValueChange={field.onChange} value={field.value}>
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select payment method" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {PAYMENT_METHODS.map((m) => (
+                          <SelectItem key={m} value={m}>
+                            {PAYMENT_METHOD_LABELS[m]}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="paidBy"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Paid By</FormLabel>
+                    <FormControl>
+                      <Input placeholder="Who paid (defaults to current user)" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="payNow"
+                render={({ field }) => (
+                  <FormItem className="flex flex-row items-start space-x-3 space-y-0">
+                    <FormControl>
+                      <Checkbox
+                        checked={field.value}
+                        onCheckedChange={field.onChange}
+                      />
+                    </FormControl>
+                    <div className="space-y-1 leading-none">
+                      <FormLabel>Pay now from wallet</FormLabel>
+                      <p className="text-xs text-muted-foreground">
+                        Leave unchecked to record as unpaid (pay later).
+                      </p>
+                    </div>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              {form.watch('payNow') && (
+                <FormField
+                  control={form.control}
+                  name="walletId"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Company Wallet</FormLabel>
+                      <Select onValueChange={field.onChange} value={field.value || ''}>
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select wallet" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {wallets.length === 0 ? (
+                            <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                              No wallets found
+                            </div>
+                          ) : (
+                            wallets.map((w) => (
+                              <SelectItem key={w.id} value={w.id}>
+                                {w.name} ({w.balance.toLocaleString()} {w.currency})
+                              </SelectItem>
+                            ))
+                          )}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              )}
+            </>
+          )}
+        </div>
 
         <Button type="submit" className="w-full bg-emerald-600 hover:bg-emerald-700 text-white">
           {isEditing ? 'Update Purchase' : 'Record Purchase'}
