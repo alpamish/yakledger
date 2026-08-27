@@ -81,6 +81,8 @@ import {
   RotateCw,
   RotateCcw,
   Eye,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
@@ -132,6 +134,10 @@ export function ContractorProfile({ contractorId }: { contractorId?: string }) {
   const [expenseSearch, setExpenseSearch] = useState('');
   const [timesheetSearch, setTimesheetSearch] = useState('');
   const [fuelSearch, setFuelSearch] = useState('');
+
+  // Pagination state for expenses tab
+  const [expensePage, setExpensePage] = useState(1);
+  const EXPENSE_PAGE_SIZE = 20;
 
   // Machinery detail modal state
   const [detailMachinery, setDetailMachinery] = useState<Machinery | null>(null);
@@ -234,6 +240,13 @@ export function ContractorProfile({ contractorId }: { contractorId?: string }) {
       (EXP_CATEGORY_LABELS[exp.category as Category] ?? exp.category).toLowerCase().includes(q)
     );
   });
+
+  // Pagination for expenses
+  const expenseTotalPages = Math.ceil(filteredExpenses.length / EXPENSE_PAGE_SIZE);
+  const paginatedExpenses = filteredExpenses.slice(
+    (expensePage - 1) * EXPENSE_PAGE_SIZE,
+    expensePage * EXPENSE_PAGE_SIZE
+  );
 
   const filteredTimesheets = timesheets.filter((ts) => {
     if (!timesheetSearch) return true;
@@ -1217,7 +1230,7 @@ export function ContractorProfile({ contractorId }: { contractorId?: string }) {
             <Input
               placeholder="Search expenses..."
               value={expenseSearch}
-              onChange={(e) => setExpenseSearch(e.target.value)}
+              onChange={(e) => { setExpenseSearch(e.target.value); setExpensePage(1); }}
               className="pl-9"
             />
           </div>
@@ -1238,7 +1251,7 @@ export function ContractorProfile({ contractorId }: { contractorId?: string }) {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {filteredExpenses.map((exp) => {
+                      {paginatedExpenses.map((exp) => {
                         const catColor = EXP_CATEGORY_COLORS[exp.category as Category] ?? '#78716c';
                         return (
                           <TableRow key={exp.id}>
@@ -1267,6 +1280,37 @@ export function ContractorProfile({ contractorId }: { contractorId?: string }) {
               )}
             </CardContent>
           </Card>
+
+          {/* Pagination */}
+          {filteredExpenses.length > EXPENSE_PAGE_SIZE && (
+            <div className="flex items-center justify-between mt-4">
+              <div className="text-sm text-muted-foreground">
+                Showing {(expensePage - 1) * EXPENSE_PAGE_SIZE + 1} to{' '}
+                {Math.min(expensePage * EXPENSE_PAGE_SIZE, filteredExpenses.length)} of{' '}
+                {filteredExpenses.length} expenses
+              </div>
+              <div className="flex items-center gap-1">
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="h-8 w-8"
+                  onClick={() => setExpensePage(p => p - 1)}
+                  disabled={expensePage <= 1}
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="h-8 w-8"
+                  onClick={() => setExpensePage(p => p + 1)}
+                  disabled={expensePage >= expenseTotalPages}
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          )}
         </TabsContent>
 
         {/* ─── Timesheets Tab ──────────────────────────────────── */}
@@ -1683,7 +1727,7 @@ export function ContractorProfile({ contractorId }: { contractorId?: string }) {
                   <div>
                     <p className="text-xs text-muted-foreground">Total Expenses Paid</p>
                     <p className="text-lg font-bold">{formatCurrency(finTabTotalExpenses)}</p>
-                    <p className="text-[10px] text-muted-foreground">{finTabExpenseList.length} expense(s)</p>
+                    <p className="text-[10px] text-muted-foreground">{c._count?.expensesPaidTo ?? finTabExpenseList.length} expense(s)</p>
                   </div>
                 </div>
               </CardContent>

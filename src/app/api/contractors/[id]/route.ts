@@ -89,7 +89,6 @@ export async function GET(
             paidBy: true,
           },
           orderBy: { expenseDate: "desc" },
-          take: 20,
         },
         machinery: {
           where: machineryScope,
@@ -97,7 +96,7 @@ export async function GET(
         },
         _count: {
           select: {
-            expensesPaidTo: { where: expenseScope },
+            expensesPaidTo: { where: expenseListScope },
             timesheets: { where: timesheetScope },
             fuelUsages: { where: fuelUsageScope },
             machinery: { where: machineryScope },
