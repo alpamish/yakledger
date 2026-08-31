@@ -214,6 +214,7 @@ export function ReportsPage() {
   const [empListDateFrom, setEmpListDateFrom] = useState('');
   const [empListDateTo, setEmpListDateTo] = useState('');
   const [allEmployees, setAllEmployees] = useState<Employee[]>([]);
+  const [empSummaryPdfLoading, setEmpSummaryPdfLoading] = useState(false);
 
   // ─── Fuel Report State ────────────────────────────
   const [fuelDateFrom, setFuelDateFrom] = useState('');
@@ -491,6 +492,42 @@ export function ReportsPage() {
       setEmpListIsExcelGenerating(false);
     }
   }, [allEmployees, empListWithSalary, empListActiveOnly, empListDateFrom, empListDateTo]);
+
+  const handleEmpSummaryPdf = useCallback(async () => {
+    setEmpSummaryPdfLoading(true);
+    try {
+      const res = await employeesApi.financialSummary([]);
+      const reportData = res.data;
+      if (!reportData || !reportData.employees || reportData.employees.length === 0) {
+        toast.error('No employee data available for summary');
+        return;
+      }
+      const { default: EmployeeSummaryPDFDocument } = await import('@/components/pdf/employee-summary-pdf-document');
+      const blob = await pdf(
+        <EmployeeSummaryPDFDocument
+          data={reportData.employees}
+          totals={reportData.totals}
+          companyName={companyName}
+          dateFrom={empListDateFrom || undefined}
+          dateTo={empListDateTo || undefined}
+        />
+      ).toBlob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `employee-summary-${format(new Date(), 'yyyy-MM-dd')}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      toast.success('Employee Summary report downloaded');
+    } catch (err) {
+      console.error('PDF generation failed:', err);
+      toast.error('Failed to generate Employee Summary report');
+    } finally {
+      setEmpSummaryPdfLoading(false);
+    }
+  }, [companyName, empListDateFrom, empListDateTo]);
 
   const handleCtrDownloadPDF = useCallback(async () => {
     if (!selectedContractor) return;
@@ -2528,6 +2565,37 @@ export function ReportsPage() {
                     </Button>
                   )}
                 </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Employee Summary Report */}
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <BarChart3 className="h-5 w-5 text-emerald-600" />
+                  <div>
+                    <p className="text-sm font-medium">Employee Summary Report</p>
+                    <p className="text-xs text-muted-foreground">All employees financial overview — salary, payments, rewards, and net balance</p>
+                  </div>
+                </div>
+                {hasPermission('reports:generatePdf') && (
+                  <Button
+                    variant="default"
+                    size="sm"
+                    className="h-8 bg-emerald-600 hover:bg-emerald-700 text-white"
+                    onClick={handleEmpSummaryPdf}
+                    disabled={empSummaryPdfLoading}
+                  >
+                    {empSummaryPdfLoading ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />
+                    ) : (
+                      <FileDown className="h-3.5 w-3.5 mr-1" />
+                    )}
+                    {empSummaryPdfLoading ? 'Generating...' : 'Download PDF'}
+                  </Button>
+                )}
               </div>
             </CardContent>
           </Card>

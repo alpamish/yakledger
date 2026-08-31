@@ -19,15 +19,12 @@ export async function POST(request: NextRequest) {
 
     const { ids } = await request.json();
 
-    if (!Array.isArray(ids) || ids.length === 0) {
-      return NextResponse.json(
-        { success: false, error: "Employee IDs are required" },
-        { status: 400 }
-      );
-    }
+    const employeeWhere = Array.isArray(ids) && ids.length > 0
+      ? withScope({ id: { in: ids } }, employeeScope)
+      : employeeScope;
 
     const employees = await db.employee.findMany({
-      where: withScope({ id: { in: ids } }, employeeScope),
+      where: employeeWhere,
       select: {
         id: true,
         fullName: true,

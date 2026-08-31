@@ -106,28 +106,16 @@ export async function POST(request: NextRequest) {
       timesheetsByMachinery.set(ts.machineryId, existing);
     }
 
-    // Map machineryId -> expenses paid to its contractor
-    const machineryExpensesMap = new Map<string, typeof expenses>();
+    // Pre-compute monthlyWork and totalMoney per machinery (first pass)
+    const machineryMoneyMap = new Map<string, { monthlyWork: { monthLabel: string; totalHours: number; totalWorkDays: number | null; pricePerHour: number; totalPrice: number }[]; totalHours: number; totalMoney: number; computedHourlyRate: number }>();
     for (const m of machineryList) {
-      const ctrId = m.assignedContractorId;
-      const ctrExpenses = expenses.filter((e) => e.paidToContractorId === ctrId);
-      machineryExpensesMap.set(m.id, ctrExpenses);
-    }
-
-    // Build report data
-    const reportData = machineryList.map((m) => {
       const machineryTimesheets = timesheetsByMachinery.get(m.id) ?? [];
-      const machineryPayments = machineryExpensesMap.get(m.id) ?? [];
-
-      // Calculate hourly rate: prefer default MachineryRate, fallback to machinery fields
       const defaultRate = rateByMachinery.get(m.id);
       const computedHourlyRate = defaultRate
         ? defaultRate.hourlyRate
         : (m.dailyRate > 0 ? m.dailyRate / 9 : m.hourlyRate);
 
-      // Group timesheets by year+month
       const monthMap = new Map<string, number>();
-
       for (const ts of machineryTimesheets) {
         const key = format(ts.date, "yyyy-MM");
         const existing = monthMap.get(key) ?? 0;
@@ -153,9 +141,57 @@ export async function POST(request: NextRequest) {
 
       const totalHours = monthlyWork.reduce((s, r) => s + r.totalHours, 0);
       const totalMoney = monthlyWork.reduce((s, r) => s + r.totalPrice, 0);
-      const totalWithdrawals = machineryPayments.reduce((s, e) => s + e.amount, 0);
-      const totalReceivable = totalMoney - totalWithdrawals;
+      machineryMoneyMap.set(m.id, { monthlyWork, totalHours, totalMoney, computedHourlyRate });
+    }
 
+    // Group expenses by contractor and distribute proportionally across machinery
+    const contractorExpensesMap = new Map<string, typeof expenses>();
+    for (const e of expenses) {
+      const ctrId = e.paidToContractorId;
+      if (!ctrId) continue;
+      const existing = contractorExpensesMap.get(ctrId) ?? [];
+      existing.push(e);
+      contractorExpensesMap.set(ctrId, existing);
+    }
+
+    const machineryDistributedExpenses = new Map<string, number>();
+    for (const [ctrId, ctrExpenses] of contractorExpensesMap) {
+      const ctrMachines = machineryList.filter((m) => m.assignedContractorId === ctrId);
+      const ctrTotalMoney = ctrMachines.reduce((s, m) => s + (machineryMoneyMap.get(m.id)?.totalMoney ?? 0), 0);
+      const ctrTotalExpense = ctrExpenses.reduce((s, e) => s + e.amount, 0);
+
+      if (ctrTotalMoney <= 0 || ctrMachines.length === 0) {
+        // No earnings: assign full expense to first machine
+        if (ctrMachines.length > 0) {
+          machineryDistributedExpenses.set(ctrMachines[0].id, ctrTotalExpense);
+        }
+        continue;
+      }
+
+      let runningTotal = 0;
+      for (let i = 0; i < ctrMachines.length; i++) {
+        const m = ctrMachines[i];
+        if (i === ctrMachines.length - 1) {
+          // Last machine gets the remainder to avoid rounding errors
+          machineryDistributedExpenses.set(m.id, ctrTotalExpense - runningTotal);
+        } else {
+          const share = (machineryMoneyMap.get(m.id)?.totalMoney ?? 0) / ctrTotalMoney;
+          const distributed = Math.round(ctrTotalExpense * share * 100) / 100;
+          machineryDistributedExpenses.set(m.id, distributed);
+          runningTotal += distributed;
+        }
+      }
+    }
+
+    // Build report data
+    const reportData = machineryList.map((m) => {
+      const agg = machineryMoneyMap.get(m.id) ?? { monthlyWork: [], totalHours: 0, totalMoney: 0, computedHourlyRate: 0 };
+      const totalWithdrawals = machineryDistributedExpenses.get(m.id) ?? 0;
+      const totalReceivable = agg.totalMoney - totalWithdrawals;
+
+      const machineryPayments = expenses.filter(
+        (e) => e.paidToContractorId === m.assignedContractorId
+      );
       const payments = machineryPayments.map((e) => ({
         date: format(e.expenseDate, "yyyy/MM/dd"),
         giver: e.paidBy,
@@ -169,16 +205,16 @@ export async function POST(request: NextRequest) {
         machineryName: m.machineryName,
         plateNumber: m.plateNumber,
         driverName: m.driverName,
-        hourlyRate: Math.round(computedHourlyRate * 100) / 100,
+        hourlyRate: Math.round(agg.computedHourlyRate * 100) / 100,
         dailyRate: m.dailyRate,
         contractorId: m.assignedContractorId,
         contractorName: m.assignedContractor?.contractorName ?? "",
         workHoursPerDay: m.workHoursPerDay,
         contractDaysPerMonth: m.contractDaysPerMonth,
-        monthlyWork,
+        monthlyWork: agg.monthlyWork,
         summary: {
-          totalHours: Math.round(totalHours * 100) / 100,
-          totalMoney: Math.round(totalMoney * 100) / 100,
+          totalHours: Math.round(agg.totalHours * 100) / 100,
+          totalMoney: Math.round(agg.totalMoney * 100) / 100,
           totalWithdrawals: Math.round(totalWithdrawals * 100) / 100,
           totalReceivable: Math.round(totalReceivable * 100) / 100,
         },
