@@ -296,7 +296,7 @@ export interface FuelUsageFormData {
   fuelStation?: string;
   receiptAttachment?: string;
   linkedExpenseId?: string;
-  containerId?: string;
+  containerId: string;
   billable?: boolean;
   notes?: string;
 }
@@ -339,7 +339,7 @@ export interface BulkFuelUsageRecord {
 
 export interface BulkFuelUsageRequest {
   records: BulkFuelUsageRecord[];
-  containerId?: string;
+  containerId: string;
 }
 
 export interface BulkFuelUsageResponse {
@@ -476,6 +476,7 @@ export interface FuelUsageSummary {
   totalCost: number;
   avgUnitPrice: number;
   recordCount: number;
+  totalIssuedFromStock: number;
   dailyUsage: FuelUsageDailyEntry[];
   byMachineryType: FuelUsageByType[];
   byFuelType: FuelUsageByFuelType[];

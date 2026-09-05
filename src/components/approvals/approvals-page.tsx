@@ -3,7 +3,9 @@
 import * as React from 'react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
-import { CheckCircle2, XCircle, Loader2, Inbox } from 'lucide-react';
+import { CheckCircle2, XCircle, Loader2, Inbox, ExternalLink } from 'lucide-react';
+import ExpenseDetailModal from '@/components/expense/expense-detail-modal';
+import type { Expense } from '@/types/expense';
 
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -26,7 +28,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 
-import { approvalsApi } from '@/services/api';
+import { approvalsApi, expensesApi } from '@/services/api';
 import { usePermissions } from '@/hooks/use-permissions';
 import { emitRefresh } from '@/lib/live-refresh';
 import type { ApprovalItem, ApprovalStatus } from '@/types/expense';
@@ -71,6 +73,9 @@ export function ApprovalsPage() {
   const [actingId, setActingId] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkApproving, setBulkApproving] = useState(false);
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [detailExpense, setDetailExpense] = useState<Expense | null>(null);
+  const [detailLoading, setDetailLoading] = useState<string | null>(null);
 
   const canApproveAny = canApprove('expenses') || canApprove('timesheets') || canApprove('fuelUsage') || canApprove('cashAdvance') || canApprove('employees') || canApprove('assets');
 
@@ -173,6 +178,27 @@ export function ApprovalsPage() {
       setBulkApproving(false);
     }
   };
+
+  const handleRowClick = useCallback(async (item: ApprovalItem) => {
+    if (item.entity !== 'expense') return;
+    const key = `${item.entity}:${item.id}`;
+    setDetailLoading(key);
+    setDetailOpen(true);
+    try {
+      const res = await expensesApi.getById(item.id);
+      if (res.data) {
+        setDetailExpense(res.data);
+      } else {
+        setDetailOpen(false);
+        toast.error('Expense not found');
+      }
+    } catch {
+      setDetailOpen(false);
+      toast.error('Failed to load expense details');
+    } finally {
+      setDetailLoading(null);
+    }
+  }, []);
 
   if (!canApproveAny) {
     return (
@@ -277,8 +303,16 @@ export function ApprovalsPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {items.map((item) => (
-                    <TableRow key={`${item.entity}:${item.id}`}>
+                  {items.map((item) => {
+                    const isExpense = item.entity === 'expense';
+                    const rowKey = `${item.entity}:${item.id}`;
+                    const isLoading = detailLoading === rowKey;
+                    return (
+                    <TableRow
+                      key={rowKey}
+                      className={isExpense ? 'cursor-pointer hover:bg-muted/50' : ''}
+                      onClick={isExpense ? () => handleRowClick(item) : undefined}
+                    >
                       {status === 'PENDING' && (
                         <TableCell>
                           <Checkbox
@@ -297,7 +331,19 @@ export function ApprovalsPage() {
                           {ENTITY_LABELS[item.entity] ?? item.entity}
                         </Badge>
                       </TableCell>
-                      <TableCell className="max-w-[300px] truncate">{item.summary}</TableCell>
+                      <TableCell className="max-w-[300px] truncate">
+                        {isLoading ? (
+                          <span className="flex items-center gap-1.5 text-muted-foreground">
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            Loading...
+                          </span>
+                        ) : (
+                          <span className="flex items-center gap-1.5">
+                            {item.summary}
+                            {isExpense && <ExternalLink className="h-3 w-3 text-muted-foreground/50 shrink-0" />}
+                          </span>
+                        )}
+                      </TableCell>
                       <TableCell>{formatAmount(item.amount)}</TableCell>
                       <TableCell>{item.totalHours !== undefined ? `${item.totalHours} h` : '—'}</TableCell>
                       <TableCell>{item.date ? new Date(item.date).toLocaleDateString() : '—'}</TableCell>
@@ -330,7 +376,8 @@ export function ApprovalsPage() {
                         </TableCell>
                       )}
                     </TableRow>
-                  ))}
+                    );
+                  })}
                 </TableBody>
               </Table>
             </div>
@@ -368,6 +415,23 @@ export function ApprovalsPage() {
           )}
         </CardContent>
       </Card>
+
+      <ExpenseDetailModal
+        open={detailOpen && !!detailExpense}
+        onOpenChange={(o) => {
+          setDetailOpen(o);
+          if (!o) setDetailExpense(null);
+        }}
+        expense={detailExpense}
+        onEdit={() => {
+          setDetailOpen(false);
+          setDetailExpense(null);
+        }}
+        onDelete={() => {
+          setDetailOpen(false);
+          setDetailExpense(null);
+        }}
+      />
     </div>
   );
 }

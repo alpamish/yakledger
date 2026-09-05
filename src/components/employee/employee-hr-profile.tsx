@@ -186,6 +186,7 @@ export function EmployeeHrProfile({ employee }: { employee: Employee }) {
                   current={data.salary?.current}
                   canManage={canManageSalary}
                   onChanged={load}
+                  employeeId={employee.id}
                 />
               </TabsContent>
             )}
@@ -433,11 +434,13 @@ function SalaryTab({
   current,
   canManage,
   onChanged,
+  employeeId,
 }: {
   history: any[];
   current: any;
   canManage: boolean;
   onChanged: () => void;
+  employeeId: string;
 }) {
   const [open, setOpen] = useState(false);
   const [amount, setAmount] = useState("");
@@ -452,7 +455,7 @@ function SalaryTab({
     }
     setSaving(true);
     try {
-      await employeesApi.createSalaryChange(history[0]?.employeeId ?? "", {
+      await employeesApi.createSalaryChange(employeeId, {
         amount: parseFloat(amount),
         effectiveFrom,
         reason,

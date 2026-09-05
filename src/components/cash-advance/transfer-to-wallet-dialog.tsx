@@ -33,7 +33,8 @@ import {
   CommandItem,
   CommandList,
 } from '@/components/ui/command';
-import { Loader2, ChevronDown, Check } from 'lucide-react';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Loader2, ChevronDown, Check, AlertTriangle } from 'lucide-react';
 
 interface CompanyWallet {
   id: string;
@@ -78,6 +79,7 @@ export function TransferToWalletDialog({
   const [employeePopoverOpen, setEmployeePopoverOpen] = React.useState(false);
   const [amount, setAmount] = React.useState('');
   const [note, setNote] = React.useState('');
+  const [force, setForce] = React.useState(false);
   const [submitting, setSubmitting] = React.useState(false);
   const [message, setMessage] = React.useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
@@ -86,6 +88,7 @@ export function TransferToWalletDialog({
     setMessage(null);
     setAmount('');
     setNote('');
+    setForce(false);
     setSelectedWalletId(walletId ?? '');
     setSelectedEmployeeId(employeeId ?? '');
 
@@ -144,6 +147,7 @@ export function TransferToWalletDialog({
         walletId: finalWalletId,
         amount: parsedAmount,
         note: note || undefined,
+        force,
       });
       if (res.success) {
         setMessage({ type: 'success', text: 'Cash transferred to wallet successfully!' });
@@ -285,6 +289,31 @@ export function TransferToWalletDialog({
               value={note}
               onChange={(e) => setNote(e.target.value)}
             />
+          </div>
+
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <Checkbox
+                id="force"
+                checked={force}
+                onCheckedChange={(checked) => setForce(checked === true)}
+              />
+              <label htmlFor="force" className="text-sm font-medium leading-none">
+                Force receive
+              </label>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Receive cash even if the employee has no positive balance. The employee's
+              wallet balance will go negative (company owes them).
+            </p>
+            {force && (
+              <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-2 text-xs text-amber-700 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300">
+                <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                <span>
+                  The employee's balance will go negative, meaning the company will owe them money.
+                </span>
+              </div>
+            )}
           </div>
 
           {message && (

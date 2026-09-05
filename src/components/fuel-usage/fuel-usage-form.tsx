@@ -53,7 +53,7 @@ const formSchema = z.object({
   totalCost: z.coerce.number().min(0, 'Total cost must be positive'),
   date: z.string().min(1, 'Date is required'),
   fuelStation: z.string().optional().nullable(),
-  containerId: z.string().optional(),
+  containerId: z.string().min(1, 'Source container is required'),
   billable: z.boolean().optional().default(false),
   notes: z.string().optional().nullable(),
 });
@@ -182,7 +182,7 @@ export function FuelUsageForm({ open, onOpenChange, editingFuelUsage, onSuccess 
       const data: FuelUsageFormData = {
         ...values,
         fuelStation: values.fuelStation || undefined,
-        containerId: values.containerId || undefined,
+        containerId: values.containerId,
         billable: values.billable,
         notes: values.notes || undefined,
       };
@@ -316,19 +316,18 @@ export function FuelUsageForm({ open, onOpenChange, editingFuelUsage, onSuccess 
               )} />
             </div>
 
-            {/* Row: Source Container (optional) */}
+            {/* Row: Source Container */}
             <div className="grid grid-cols-1 gap-4">
               <FormField control={form.control} name="containerId" render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Source Container (optional)</FormLabel>
-                  <Select onValueChange={(v) => field.onChange(v === 'none' ? '' : v)} value={field.value || 'none'}>
+                  <FormLabel>Source Container *</FormLabel>
+                  <Select onValueChange={field.onChange} value={field.value}>
                     <FormControl>
                       <SelectTrigger>
                         <SelectValue placeholder="Select container to deduct from stock" />
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
-                      <SelectItem value="none">No container (standalone record)</SelectItem>
                       {containers.map((c, idx) => (
                         <SelectItem key={c.id || `container-${idx}`} value={c.id}>
                           {c.name}{c.fuelType ? ` (${FUEL_TYPE_LABELS[c.fuelType as keyof typeof FUEL_TYPE_LABELS] || c.fuelType})` : ''}
@@ -336,7 +335,7 @@ export function FuelUsageForm({ open, onOpenChange, editingFuelUsage, onSuccess 
                       ))}
                     </SelectContent>
                   </Select>
-                  <p className="text-xs text-muted-foreground">If selected, fuel will be deducted from this container&apos;s stock</p>
+                  <p className="text-xs text-muted-foreground">Fuel will be deducted from this container&apos;s stock</p>
                   <FormMessage />
                 </FormItem>
               )} />

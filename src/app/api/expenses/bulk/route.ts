@@ -49,7 +49,10 @@ const bulkExpenseRecordSchema = z.object({
   paidByContractorId: z.string().max(100).optional().nullable(),
   walletId: z.string().max(100).optional().nullable(),
   deductFromWallet: z.boolean().optional().default(true),
-});
+}).refine(
+  (data) => data.walletId || data.paidById,
+  { message: "Select either a company wallet or a paying employee." }
+);
 
 const bulkCreateSchema = z.object({
   records: z.array(bulkExpenseRecordSchema).min(1, "At least one record is required").max(200, "Too many records"),

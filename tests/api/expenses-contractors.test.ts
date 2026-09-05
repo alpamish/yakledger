@@ -297,6 +297,7 @@ describe("/api/expenses — changing paidTo from contractor/employee to External
         paidBy: "Company",
         expenseDate: new Date().toISOString(),
         paidToContractorId: contractor.id,
+        paidById: tokens.employee.id,
       })
     );
     expect(created.status).toBe(201);
@@ -343,6 +344,7 @@ describe("/api/expenses — changing paidTo from contractor/employee to External
         paidBy: "Company",
         expenseDate: new Date().toISOString(),
         paidToId: employee.id,
+        paidById: tokens.employee.id,
       })
     );
     expect(created.status).toBe(201);

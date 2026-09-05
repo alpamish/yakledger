@@ -62,7 +62,7 @@ export function FuelTransferForm({ onSuccess, initialData }: FuelTransferFormPro
   const sourceId = form.watch('sourceContainerId');
   const source = containers.find((c) => c.id === sourceId);
   const quantity = form.watch('quantity');
-  const available = (source?.balance ?? 0) + (isEditing ? (initialData?.quantity ?? 0) : 0);
+  const available = (source?.balance ?? 0) + (isEditing && sourceId === initialData?.containerId ? (initialData?.quantity ?? 0) : 0);
   const overAvailable = quantity > 0 && quantity > available;
 
   useEffect(() => {
@@ -74,7 +74,7 @@ export function FuelTransferForm({ onSuccess, initialData }: FuelTransferFormPro
   const onSubmit = async (data: TransferFormValues) => {
     try {
       if (source) {
-        const avail = source.balance + (isEditing ? (initialData?.quantity ?? 0) : 0);
+        const avail = source.balance + (isEditing && sourceId === initialData?.containerId ? (initialData?.quantity ?? 0) : 0);
         if (data.quantity > avail) {
           form.setError('quantity', {
             message: `Only ${avail.toFixed(1)}L available in ${source.name}`,

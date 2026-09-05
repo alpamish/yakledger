@@ -202,6 +202,7 @@ model User {
   payrollsCreated            Payroll[]            @relation("PayrollCreator")
   payrollsApproved           Payroll[]            @relation("PayrollApprover")
   employeeAuditEvents        EmployeeAuditEvent[]
+  walletUsers                WalletUser[]
 }
 
 model RecordAccess {
@@ -324,6 +325,7 @@ model Employee {
   payrolls              Payroll[]
   payrollLines          PayrollLine[]
   auditEvents           EmployeeAuditEvent[]
+  wallets               WalletEmployee[]
 
   @@index([phoneNumber])
   @@index([email])
@@ -930,8 +932,36 @@ model Wallet {
   cashTransactions CashTransaction[]
   payrolls         Payroll[]
   expenses         Expense[]
+  employees        WalletEmployee[]
+  users            WalletUser[]
 
   @@index([isActive])
+}
+
+model WalletEmployee {
+  id         String   @id @default(cuid())
+  walletId   String
+  employeeId String
+  wallet     Wallet   @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  createdAt  DateTime @default(now())
+
+  @@unique([walletId, employeeId])
+  @@index([walletId])
+  @@index([employeeId])
+}
+
+model WalletUser {
+  id        String   @id @default(cuid())
+  walletId  String
+  userId    String
+  wallet    Wallet   @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([walletId, userId])
+  @@index([walletId])
+  @@index([userId])
 }
 
 model WalletTransaction {

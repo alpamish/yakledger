@@ -27,7 +27,7 @@ interface EmployeeStore {
   selectedEmployee: Employee | null;
 
   // Employee list for dropdowns
-  employeeList: Pick<Employee, "id" | "fullName" | "jobTitle" | "department">[];
+  employeeList: Pick<Employee, "id" | "fullName" | "jobTitle" | "department" | "status">[];
 
   // Error state
   error: string | null;
@@ -301,7 +301,7 @@ export const useEmployeeStore = create<EmployeeStore>((set, get) => ({
 
   fetchEmployeeList: async () => {
     try {
-      const response = await employeesApi.getList("ACTIVE");
+      const response = await employeesApi.getList();
       if (response.data) {
         set({ employeeList: response.data });
       }

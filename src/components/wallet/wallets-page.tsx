@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { walletApi } from "@/services/wallet-api";
+import { employeesApi } from "@/services/api";
+import { getToken } from "@/services/api";
 import { formatMinor } from "@/lib/money";
 import { toast } from "sonner";
 import {
@@ -38,11 +40,23 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
+  Command,
+  CommandInput,
+  CommandList,
+  CommandEmpty,
+  CommandItem,
+} from "@/components/ui/command";
 import { LoadingSpinner } from "@/components/common/loading-spinner";
 import { EmptyState } from "@/components/common/empty-state";
 import { usePermissions } from "@/hooks/use-permissions";
 import { TransferToWalletDialog } from "@/components/cash-advance/transfer-to-wallet-dialog";
-import { Plus, Wallet, ArrowLeftRight, ArrowDownToLine, Pencil, Power, PiggyBank, Eye, ChevronLeft, ChevronRight } from "lucide-react";
+import { Plus, Wallet, ArrowLeftRight, ArrowDownToLine, Pencil, Power, PiggyBank, Eye, ChevronLeft, ChevronRight, ChevronDown, Check, Loader2, X } from "lucide-react";
 
 function fmt(amount: number, currency = "AFN") {
   return formatMinor(Math.round(amount * 100), currency);
@@ -153,12 +167,14 @@ export function WalletsPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Type</TableHead>
-                  <TableHead>Currency</TableHead>
-                  <TableHead>Balance</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Created</TableHead>
+                    <TableHead>Name</TableHead>
+                    <TableHead>Type</TableHead>
+                    <TableHead>Currency</TableHead>
+                    <TableHead>Balance</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Assigned To</TableHead>
+                    <TableHead>Assigned Users</TableHead>
+                    <TableHead>Created</TableHead>
                   {canManage && <TableHead>Actions</TableHead>}
                 </TableRow>
               </TableHeader>
@@ -175,6 +191,42 @@ export function WalletsPage() {
                       <Badge variant={w.isActive ? "default" : "secondary"}>
                         {w.isActive ? "Active" : "Inactive"}
                       </Badge>
+                    </TableCell>
+                    <TableCell>
+                      {w.employees && w.employees.length > 0 ? (
+                        <div className="flex flex-wrap gap-1">
+                          {w.employees.slice(0, 3).map((we: any) => (
+                            <Badge key={we.id} variant="outline" className="text-xs">
+                              {we.employee?.fullName ?? 'Unknown'}
+                            </Badge>
+                          ))}
+                          {w.employees.length > 3 && (
+                            <Badge variant="outline" className="text-xs">
+                              +{w.employees.length - 3}
+                            </Badge>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-muted-foreground text-xs">All</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {w.users && w.users.length > 0 ? (
+                        <div className="flex flex-wrap gap-1">
+                          {w.users.slice(0, 3).map((wu: any) => (
+                            <Badge key={wu.id} variant="outline" className="text-xs">
+                              {wu.user?.name ?? 'Unknown'}
+                            </Badge>
+                          ))}
+                          {w.users.length > 3 && (
+                            <Badge variant="outline" className="text-xs">
+                              +{w.users.length - 3}
+                            </Badge>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-muted-foreground text-xs">All</span>
+                      )}
                     </TableCell>
                     <TableCell>{fmtDate(w.createdAt)}</TableCell>
                     {canManage && (
@@ -735,6 +787,42 @@ function CreateWalletDialog({
   const [currency, setCurrency] = useState("AFN");
   const [initialBalance, setInitialBalance] = useState("");
   const [saving, setSaving] = useState(false);
+  const [employeeIds, setEmployeeIds] = useState<string[]>([]);
+  const [employees, setEmployees] = useState<{ id: string; fullName: string; jobTitle: string }[]>([]);
+  const [loadingEmployees, setLoadingEmployees] = useState(true);
+  const [empPopoverOpen, setEmpPopoverOpen] = useState(false);
+  const [userIds, setUserIds] = useState<string[]>([]);
+  const [users, setUsers] = useState<{ id: string; name: string; email: string }[]>([]);
+  const [loadingUsers, setLoadingUsers] = useState(true);
+  const [userPopoverOpen, setUserPopoverOpen] = useState(false);
+
+  useEffect(() => {
+    if (open) {
+      employeesApi.list().then((res) => {
+        if (res.data) setEmployees(res.data);
+      }).catch(() => {}).finally(() => setLoadingEmployees(false));
+      const token = getToken();
+      fetch("/api/users", {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+        .then((r) => r.json())
+        .then((body) => setUsers(body.data ?? []))
+        .catch(() => {})
+        .finally(() => setLoadingUsers(false));
+    }
+  }, [open]);
+
+  const toggleEmployee = (id: string) => {
+    setEmployeeIds((prev) =>
+      prev.includes(id) ? prev.filter((e) => e !== id) : [...prev, id]
+    );
+  };
+
+  const toggleUser = (id: string) => {
+    setUserIds((prev) =>
+      prev.includes(id) ? prev.filter((u) => u !== id) : [...prev, id]
+    );
+  };
 
   async function save() {
     if (!name.trim()) {
@@ -748,10 +836,13 @@ function CreateWalletDialog({
         type,
         currency,
         initialBalance: initialBalance ? Number(initialBalance) : 0,
+        employeeIds: employeeIds.length > 0 ? employeeIds : undefined,
+        userIds: userIds.length > 0 ? userIds : undefined,
       });
       toast.success("Wallet created");
       setName("");
       setInitialBalance("");
+      setEmployeeIds([]);
       onDone();
     } catch (e: any) {
       toast.error(e?.message || "Failed to create wallet");
@@ -759,6 +850,8 @@ function CreateWalletDialog({
       setSaving(false);
     }
   }
+
+  const selectedEmployees = employees.filter((e) => employeeIds.includes(e.id));
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -800,6 +893,122 @@ function CreateWalletDialog({
               placeholder="0"
             />
           </div>
+          <div className="space-y-1.5">
+            <Label>Assign to Employees (optional)</Label>
+            <Popover open={empPopoverOpen} onOpenChange={setEmpPopoverOpen}>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  role="combobox"
+                  className="w-full justify-between font-normal"
+                >
+                  {selectedEmployees.length > 0
+                    ? `${selectedEmployees.length} employee${selectedEmployees.length > 1 ? 's' : ''} selected`
+                    : 'All employees (no restriction)'}
+                  <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-[400px] p-0">
+                <Command>
+                  <CommandInput placeholder="Search employees..." />
+                  <CommandList>
+                    <CommandEmpty>No employees found.</CommandEmpty>
+                    {loadingEmployees ? (
+                      <div className="flex items-center justify-center py-4">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      </div>
+                    ) : (
+                      employees.map((emp) => (
+                        <CommandItem
+                          key={emp.id}
+                          value={emp.id}
+                          keywords={[emp.fullName, emp.jobTitle]}
+                          onSelect={() => toggleEmployee(emp.id)}
+                        >
+                          <Check
+                            className="mr-2 h-4 w-4"
+                            style={{ opacity: employeeIds.includes(emp.id) ? 1 : 0 }}
+                          />
+                          {emp.fullName} — {emp.jobTitle}
+                        </CommandItem>
+                      ))
+                    )}
+                  </CommandList>
+                </Command>
+              </PopoverContent>
+            </Popover>
+            {selectedEmployees.length > 0 && (
+              <div className="flex flex-wrap gap-1 mt-1">
+                {selectedEmployees.map((emp) => (
+                  <Badge key={emp.id} variant="secondary" className="text-xs gap-1">
+                    {emp.fullName}
+                    <X className="h-3 w-3 cursor-pointer" onClick={() => toggleEmployee(emp.id)} />
+                  </Badge>
+                ))}
+              </div>
+            )}
+            <p className="text-xs text-muted-foreground">
+              Leave empty to allow all employees to use this wallet.
+            </p>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Restrict to Users (optional)</Label>
+            <Popover open={userPopoverOpen} onOpenChange={setUserPopoverOpen}>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  role="combobox"
+                  className="w-full justify-between font-normal"
+                >
+                  {userIds.length > 0
+                    ? `${userIds.length} user${userIds.length > 1 ? 's' : ''} selected`
+                    : 'Admins & Managers only (no restriction)'}
+                  <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-[400px] p-0">
+                <Command>
+                  <CommandInput placeholder="Search users..." />
+                  <CommandList>
+                    <CommandEmpty>No users found.</CommandEmpty>
+                    {loadingUsers ? (
+                      <div className="flex items-center justify-center py-4">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      </div>
+                    ) : (
+                      users.map((u) => (
+                        <CommandItem
+                          key={u.id}
+                          value={u.id}
+                          keywords={[u.name, u.email]}
+                          onSelect={() => toggleUser(u.id)}
+                        >
+                          <Check
+                            className="mr-2 h-4 w-4"
+                            style={{ opacity: userIds.includes(u.id) ? 1 : 0 }}
+                          />
+                          {u.name} — {u.email}
+                        </CommandItem>
+                      ))
+                    )}
+                  </CommandList>
+                </Command>
+              </PopoverContent>
+            </Popover>
+            {userIds.length > 0 && (
+              <div className="flex flex-wrap gap-1 mt-1">
+                {users.filter((u) => userIds.includes(u.id)).map((u) => (
+                  <Badge key={u.id} variant="secondary" className="text-xs gap-1">
+                    {u.name}
+                    <X className="h-3 w-3 cursor-pointer" onClick={() => toggleUser(u.id)} />
+                  </Badge>
+                ))}
+              </div>
+            )}
+            <p className="text-xs text-muted-foreground">
+              Leave empty to allow all users with access to see this wallet.
+            </p>
+          </div>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
@@ -829,14 +1038,52 @@ function EditWalletDialog({
   const [type, setType] = useState("CASH");
   const [currency, setCurrency] = useState("AFN");
   const [saving, setSaving] = useState(false);
+  const [employeeIds, setEmployeeIds] = useState<string[]>([]);
+  const [employees, setEmployees] = useState<{ id: string; fullName: string; jobTitle: string }[]>([]);
+  const [loadingEmployees, setLoadingEmployees] = useState(true);
+  const [empPopoverOpen, setEmpPopoverOpen] = useState(false);
+  const [userIds, setUserIds] = useState<string[]>([]);
+  const [users, setUsers] = useState<{ id: string; name: string; email: string }[]>([]);
+  const [loadingUsers, setLoadingUsers] = useState(true);
+  const [userPopoverOpen, setUserPopoverOpen] = useState(false);
 
   useEffect(() => {
     if (wallet) {
       setName(wallet.name);
       setType(wallet.type || "CASH");
       setCurrency(wallet.currency || "AFN");
+      setEmployeeIds(wallet.employees?.map((e: any) => e.employeeId) ?? []);
+      setUserIds(wallet.users?.map((wu: any) => wu.userId) ?? []);
     }
   }, [wallet]);
+
+  useEffect(() => {
+    if (open) {
+      employeesApi.list().then((res) => {
+        if (res.data) setEmployees(res.data);
+      }).catch(() => {}).finally(() => setLoadingEmployees(false));
+      const token = getToken();
+      fetch("/api/users", {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+        .then((r) => r.json())
+        .then((body) => setUsers(body.data ?? []))
+        .catch(() => {})
+        .finally(() => setLoadingUsers(false));
+    }
+  }, [open]);
+
+  const toggleEmployee = (id: string) => {
+    setEmployeeIds((prev) =>
+      prev.includes(id) ? prev.filter((e) => e !== id) : [...prev, id]
+    );
+  };
+
+  const toggleUser = (id: string) => {
+    setUserIds((prev) =>
+      prev.includes(id) ? prev.filter((u) => u !== id) : [...prev, id]
+    );
+  };
 
   async function save() {
     if (!name.trim()) {
@@ -845,7 +1092,7 @@ function EditWalletDialog({
     }
     setSaving(true);
     try {
-      await walletApi.update(wallet.id, { name: name.trim(), type, currency });
+      await walletApi.update(wallet.id, { name: name.trim(), type, currency, employeeIds, userIds });
       toast.success("Wallet updated");
       onDone();
     } catch (e: any) {
@@ -854,6 +1101,8 @@ function EditWalletDialog({
       setSaving(false);
     }
   }
+
+  const selectedEmployees = employees.filter((e) => employeeIds.includes(e.id));
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -885,6 +1134,122 @@ function EditWalletDialog({
               <Label>Currency</Label>
               <Input value={currency} onChange={(e) => setCurrency(e.target.value)} />
             </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Assign to Employees (optional)</Label>
+            <Popover open={empPopoverOpen} onOpenChange={setEmpPopoverOpen}>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  role="combobox"
+                  className="w-full justify-between font-normal"
+                >
+                  {selectedEmployees.length > 0
+                    ? `${selectedEmployees.length} employee${selectedEmployees.length > 1 ? 's' : ''} selected`
+                    : 'All employees (no restriction)'}
+                  <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-[400px] p-0">
+                <Command>
+                  <CommandInput placeholder="Search employees..." />
+                  <CommandList>
+                    <CommandEmpty>No employees found.</CommandEmpty>
+                    {loadingEmployees ? (
+                      <div className="flex items-center justify-center py-4">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      </div>
+                    ) : (
+                      employees.map((emp) => (
+                        <CommandItem
+                          key={emp.id}
+                          value={emp.id}
+                          keywords={[emp.fullName, emp.jobTitle]}
+                          onSelect={() => toggleEmployee(emp.id)}
+                        >
+                          <Check
+                            className="mr-2 h-4 w-4"
+                            style={{ opacity: employeeIds.includes(emp.id) ? 1 : 0 }}
+                          />
+                          {emp.fullName} — {emp.jobTitle}
+                        </CommandItem>
+                      ))
+                    )}
+                  </CommandList>
+                </Command>
+              </PopoverContent>
+            </Popover>
+            {selectedEmployees.length > 0 && (
+              <div className="flex flex-wrap gap-1 mt-1">
+                {selectedEmployees.map((emp) => (
+                  <Badge key={emp.id} variant="secondary" className="text-xs gap-1">
+                    {emp.fullName}
+                    <X className="h-3 w-3 cursor-pointer" onClick={() => toggleEmployee(emp.id)} />
+                  </Badge>
+                ))}
+              </div>
+            )}
+            <p className="text-xs text-muted-foreground">
+              Leave empty to allow all employees to use this wallet.
+            </p>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Restrict to Users (optional)</Label>
+            <Popover open={userPopoverOpen} onOpenChange={setUserPopoverOpen}>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  role="combobox"
+                  className="w-full justify-between font-normal"
+                >
+                  {userIds.length > 0
+                    ? `${userIds.length} user${userIds.length > 1 ? 's' : ''} selected`
+                    : 'Admins & Managers only (no restriction)'}
+                  <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-[400px] p-0">
+                <Command>
+                  <CommandInput placeholder="Search users..." />
+                  <CommandList>
+                    <CommandEmpty>No users found.</CommandEmpty>
+                    {loadingUsers ? (
+                      <div className="flex items-center justify-center py-4">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      </div>
+                    ) : (
+                      users.map((u) => (
+                        <CommandItem
+                          key={u.id}
+                          value={u.id}
+                          keywords={[u.name, u.email]}
+                          onSelect={() => toggleUser(u.id)}
+                        >
+                          <Check
+                            className="mr-2 h-4 w-4"
+                            style={{ opacity: userIds.includes(u.id) ? 1 : 0 }}
+                          />
+                          {u.name} — {u.email}
+                        </CommandItem>
+                      ))
+                    )}
+                  </CommandList>
+                </Command>
+              </PopoverContent>
+            </Popover>
+            {userIds.length > 0 && (
+              <div className="flex flex-wrap gap-1 mt-1">
+                {users.filter((u) => userIds.includes(u.id)).map((u) => (
+                  <Badge key={u.id} variant="secondary" className="text-xs gap-1">
+                    {u.name}
+                    <X className="h-3 w-3 cursor-pointer" onClick={() => toggleUser(u.id)} />
+                  </Badge>
+                ))}
+              </div>
+            )}
+            <p className="text-xs text-muted-foreground">
+              Leave empty to allow all users with access to see this wallet.
+            </p>
           </div>
         </div>
         <DialogFooter>

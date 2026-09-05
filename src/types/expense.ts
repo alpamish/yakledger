@@ -14,6 +14,10 @@ export const CATEGORIES = [
   "REWARD",
   "BONUS",
   "MEDICATION",
+  "LOG",
+  "RENT",
+  "UTILITIES",
+  "TRAVEL",
   "MISCELLANEOUS",
 ] as const;
 
@@ -41,7 +45,7 @@ export type { Role };
 export const MODULES = [
   "dashboard", "projectCost", "expenses", "employees", "contractors",
   "timesheets", "fuelUsage", "machinery", "assets",
-  "cashAdvance", "reports", "settings", "users",
+  "cashAdvance", "wallets", "reports", "settings", "users",
 ] as const;
 export type Module = (typeof MODULES)[number];
 
@@ -440,6 +444,10 @@ export const CATEGORY_LABELS: Record<Category, string> = {
   REWARD: "Reward",
   BONUS: "Bonus",
   MEDICATION: "Medication",
+  LOG: "Log",
+  RENT: "Rent",
+  UTILITIES: "Utilities",
+  TRAVEL: "Travel",
   MISCELLANEOUS: "Miscellaneous",
 };
 
@@ -467,5 +475,9 @@ export const CATEGORY_COLORS: Record<Category, string> = {
   REWARD: "#ec4899",
   BONUS: "#f59e0b",
   MEDICATION: "#14b8a6",
+  LOG: "#64748b",
+  RENT: "#a855f7",
+  UTILITIES: "#0ea5e9",
+  TRAVEL: "#f43f5e",
   MISCELLANEOUS: "#78716c",
 };

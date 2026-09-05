@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useLiveRefresh } from '@/hooks/use-live-refresh';
+import { subscribeRefresh } from '@/lib/live-refresh';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -71,6 +71,7 @@ import {
   ArrowUp,
   ArrowDown,
   Calendar,
+  DollarSign,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { formatShamsi, gregorianToShamsi, shamsiToGregorian } from '@/lib/shamsi';
@@ -153,7 +154,6 @@ export function FuelUsagePage() {
 
   const [summary, setSummary] = useState<FuelUsageSummary | null>(null);
   const [summaryLoading, setSummaryLoading] = useState(false);
-  const [refreshTick, setRefreshTick] = useState(0);
 
   const [viewMode, setViewMode] = useState<'contractor' | 'asset'>('contractor');
 
@@ -248,7 +248,7 @@ export function FuelUsagePage() {
       })
       .catch(() => {})
       .finally(() => setSummaryLoading(false));
-  }, [summaryFilters, refreshTick]);
+  }, [summaryFilters]);
 
   const activeFilterCount = useMemo(() => {
     let count = 0;
@@ -317,11 +317,13 @@ export function FuelUsagePage() {
     setAssetIssuesPage(1);
   }, [effectiveFilters]);
 
-  useLiveRefresh(() => {
-    setRefreshTick((t) => t + 1);
-    fetchData();
-    fetchAssetIssues();
-  }, 15_000);
+  useEffect(() => {
+    const unsubscribe = subscribeRefresh(() => {
+      fetchData();
+      fetchAssetIssues();
+    });
+    return unsubscribe;
+  }, [fetchData, fetchAssetIssues]);
 
   useEffect(() => {
     fetchData();
@@ -651,7 +653,7 @@ export function FuelUsagePage() {
           ) : summary ? (
             <div className="space-y-4">
               {/* Summary Cards */}
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+              <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
                 <Card className="border-emerald-200 dark:border-emerald-900">
                   <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0">
                     <CardTitle className="text-xs font-medium text-muted-foreground">Total Fuel Used</CardTitle>
@@ -661,6 +663,22 @@ export function FuelUsagePage() {
                     <p className="text-xl font-bold text-emerald-700 dark:text-emerald-400">
                       {summary.totalQuantity.toFixed(1)} <span className="text-xs font-normal">L</span>
                     </p>
+                  </CardContent>
+                </Card>
+                <Card className="border-sky-200 dark:border-sky-900">
+                  <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0">
+                    <CardTitle className="text-xs font-medium text-muted-foreground">Total from Stock</CardTitle>
+                    <Fuel className="h-4 w-4 text-sky-600" />
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-xl font-bold text-sky-700 dark:text-sky-400">
+                      {summary.totalIssuedFromStock.toFixed(1)} <span className="text-xs font-normal">L</span>
+                    </p>
+                    {summary.totalIssuedFromStock !== summary.totalQuantity && (
+                      <p className="text-[10px] text-muted-foreground mt-0.5">
+                        {(summary.totalIssuedFromStock - summary.totalQuantity).toFixed(1)}L issued without contractor
+                      </p>
+                    )}
                   </CardContent>
                 </Card>
                 <Card className="border-blue-200 dark:border-blue-900">
@@ -884,6 +902,42 @@ export function FuelUsagePage() {
           {/* Asset Issues View */}
           {viewMode === 'asset' && (
           <>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              <Card className="border-amber-200 dark:border-amber-900">
+                <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0">
+                  <CardTitle className="text-xs font-medium text-muted-foreground">Total Fuel Issued</CardTitle>
+                  <Truck className="h-4 w-4 text-amber-600" />
+                </CardHeader>
+                <CardContent>
+                  <p className="text-xl font-bold text-amber-700 dark:text-amber-400">
+                    {assetIssues.reduce((sum, t) => sum + t.quantity, 0).toFixed(1)} <span className="text-xs font-normal">L</span>
+                  </p>
+                </CardContent>
+              </Card>
+              <Card className="border-blue-200 dark:border-blue-900">
+                <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0">
+                  <CardTitle className="text-xs font-medium text-muted-foreground">Total Cost</CardTitle>
+                  <DollarSign className="h-4 w-4 text-blue-600" />
+                </CardHeader>
+                <CardContent>
+                  <p className="text-xl font-bold text-blue-700 dark:text-blue-400">
+                    {assetIssues.reduce((sum, t) => sum + (t.totalCost || 0), 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} <span className="text-xs font-normal">AFN</span>
+                  </p>
+                </CardContent>
+              </Card>
+              <Card className="border-violet-200 dark:border-violet-900">
+                <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0">
+                  <CardTitle className="text-xs font-medium text-muted-foreground">Records</CardTitle>
+                  <List className="h-4 w-4 text-violet-600" />
+                </CardHeader>
+                <CardContent>
+                  <p className="text-xl font-bold text-violet-700 dark:text-violet-400">
+                    {assetIssues.length}
+                  </p>
+                </CardContent>
+              </Card>
+            </div>
+
             <Card>
               <CardContent className="p-0">
                 {assetIssuesLoading ? (

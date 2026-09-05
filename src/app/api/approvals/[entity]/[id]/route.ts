@@ -54,29 +54,37 @@ export async function POST(
 
     const newStatus = action === "approve" ? APPROVED : REJECTED;
 
-    const updated = await model.update({
-      where: { id },
-      data: {
-        approvalStatus: newStatus,
-        approvedById: user.id,
-        approvedAt: new Date(),
-        approvalNote: note ?? null,
-      },
-    });
+    const updated = await db.$transaction(async (tx) => {
+      const txModel = tx[cfg.model as keyof typeof tx] as unknown as {
+        update: (args: { where: { id: string }; data: Record<string, unknown> }) => Promise<Record<string, unknown>>;
+      };
 
-    await db.auditLog.create({
-      data: {
-        action: action === "approve" ? "APPROVE" : "REJECT",
-        entity: cfg.auditEntity,
-        entityId: id,
-        details: `${action === "approve" ? "Approved" : "Rejected"} ${entity} ${id}${note ? ` - ${note}` : ""}`,
-        userId: user.id,
-      },
-    });
+      const result = await txModel.update({
+        where: { id },
+        data: {
+          approvalStatus: newStatus,
+          approvedById: user.id,
+          approvedAt: new Date(),
+          approvalNote: note ?? null,
+        },
+      });
 
-    if (action === "approve") {
-      await applyWalletEffect(entity, record, user.id);
-    }
+      await tx.auditLog.create({
+        data: {
+          action: action === "approve" ? "APPROVE" : "REJECT",
+          entity: cfg.auditEntity,
+          entityId: id,
+          details: `${action === "approve" ? "Approved" : "Rejected"} ${entity} ${id}${note ? ` - ${note}` : ""}`,
+          userId: user.id,
+        },
+      });
+
+      if (action === "approve") {
+        await applyWalletEffect(entity, record, user.id, tx);
+      }
+
+      return result;
+    });
 
     return NextResponse.json({
       success: true,

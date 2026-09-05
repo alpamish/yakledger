@@ -32,10 +32,14 @@ export interface WalletInput {
   type?: string;
   currency?: string;
   initialBalance?: number;
+  employeeIds?: string[];
+  userIds?: string[];
 }
 
 export const walletApi = {
   list: (): Promise<ApiResponse<any[]>> => request("/wallets"),
+  listForEmployee: (employeeId: string): Promise<ApiResponse<any[]>> =>
+    request(`/wallets?employeeId=${encodeURIComponent(employeeId)}`),
   get: (id: string): Promise<ApiResponse<any>> => request(`/wallets/${id}`),
   transactions: (params?: {
     walletId?: string;

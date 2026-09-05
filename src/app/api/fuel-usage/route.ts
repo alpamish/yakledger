@@ -21,7 +21,7 @@ const createFuelUsageSchema = z.object({
   fuelStation: z.string().optional().nullable(),
   receiptAttachment: z.string().optional().nullable(),
   linkedExpenseId: z.string().optional().nullable(),
-  containerId: z.string().optional().nullable(),
+  containerId: z.string().min(1, "Source container is required"),
   billable: z.boolean().optional().default(false),
   notes: z.string().optional().nullable(),
 });
@@ -179,37 +179,33 @@ export async function POST(request: NextRequest) {
     } as const;
 
     const fuelUsage = await db.$transaction(async (tx) => {
-      let fuelTransactionId: string | null = null;
       const approvalStatus = resolveApprovalStatusOnCreate(user);
 
-      if (data.containerId) {
-        await ensureContainerFuelTypeMatches(tx, data.containerId, data.fuelType);
-        await ensureSufficientStock(tx, data.containerId, data.quantity, data.fuelType);
+      await ensureContainerFuelTypeMatches(tx, data.containerId, data.fuelType);
+      await ensureSufficientStock(tx, data.containerId, data.quantity, data.fuelType);
 
-        const aggregation = await tx.fuelTransaction.aggregate({
-          where: { type: 'PURCHASE', fuelType: data.fuelType, containerId: data.containerId },
-          _sum: { quantity: true, totalCost: true },
-        });
-        const totalQty = aggregation._sum?.quantity || 0;
-        const purchaseCost = aggregation._sum?.totalCost || 0;
-        const avgPrice = totalQty > 0 ? purchaseCost / totalQty : data.unitPrice;
+      const aggregation = await tx.fuelTransaction.aggregate({
+        where: { type: 'PURCHASE', fuelType: data.fuelType, containerId: data.containerId },
+        _sum: { quantity: true, totalCost: true },
+      });
+      const totalQty = aggregation._sum?.quantity || 0;
+      const purchaseCost = aggregation._sum?.totalCost || 0;
+      const avgPrice = totalQty > 0 ? purchaseCost / totalQty : data.unitPrice;
 
-        const fuelTxn = await tx.fuelTransaction.create({
-          data: {
-            type: 'ISSUE',
-            fuelType: data.fuelType,
-            quantity: data.quantity,
-            unitPrice: avgPrice,
-            totalCost: avgPrice * data.quantity,
-            containerId: data.containerId,
-            contractorId: data.contractorId,
-            machineryId: data.machineryId ?? null,
-            date: new Date(data.date),
-            createdBy: user.id,
-          },
-        });
-        fuelTransactionId = fuelTxn.id;
-      }
+      const fuelTxn = await tx.fuelTransaction.create({
+        data: {
+          type: 'ISSUE',
+          fuelType: data.fuelType,
+          quantity: data.quantity,
+          unitPrice: avgPrice,
+          totalCost: avgPrice * data.quantity,
+          containerId: data.containerId,
+          contractorId: data.contractorId,
+          machineryId: data.machineryId ?? null,
+          date: new Date(data.date),
+          createdBy: user.id,
+        },
+      });
 
       return tx.fuelUsage.create({
         data: {
@@ -223,7 +219,7 @@ export async function POST(request: NextRequest) {
           fuelStation: data.fuelStation ?? null,
           receiptAttachment: data.receiptAttachment ?? null,
           linkedExpenseId: data.linkedExpenseId ?? null,
-          fuelTransactionId,
+          fuelTransactionId: fuelTxn.id,
           billable: data.billable,
           notes: data.notes ?? null,
           createdBy: user.id,
@@ -241,7 +237,7 @@ export async function POST(request: NextRequest) {
         action: "CREATE",
         entity: "FuelUsage",
         entityId: fuelUsage.id,
-        details: `Created fuel usage record: ${data.quantity} ${data.fuelType} for AFN ${totalCost}${data.containerId ? ' (deducted from container)' : ''}`,
+        details: `Created fuel usage record: ${data.quantity} ${data.fuelType} for AFN ${totalCost} (deducted from container)`,
         userId: user.id,
       },
     });

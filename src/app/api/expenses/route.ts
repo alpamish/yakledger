@@ -55,7 +55,10 @@ const createExpenseSchema = z.object({
   paidByContractorId: z.string().max(100).optional().nullable(),
   walletId: z.string().max(100).optional().nullable(),
   deductFromWallet: z.boolean().optional().default(true),
-});
+}).refine(
+  (data) => data.walletId || data.paidById,
+  { message: "Select either a company wallet or a paying employee." }
+);
 
 // GET /api/expenses - Get all expenses with filtering, pagination, sorting
 export async function GET(request: NextRequest) {

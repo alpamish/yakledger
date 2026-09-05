@@ -17,12 +17,15 @@ function createAuditLog(userId: string, entityId: string, action: string, detail
   });
 }
 
-async function getOrCreateAccount(employeeId: string) {
-  let account = await db.employeeCashAccount.findUnique({
+async function getOrCreateAccount(
+  employeeId: string,
+  client: Prisma.TransactionClient | typeof db = db
+) {
+  let account = await client.employeeCashAccount.findUnique({
     where: { employeeId },
   });
   if (!account) {
-    account = await db.employeeCashAccount.create({
+    account = await client.employeeCashAccount.create({
       data: { employeeId },
     });
   }
@@ -349,9 +352,10 @@ export const walletService = {
    * Used when an approved employee-paid expense is created so the wallet
    * reflects the expense even before any cash-advance activity.
    */
-  async reconcileForExpense(employeeId: string) {
-    await getOrCreateAccount(employeeId);
-    return recalculateBalance(employeeId);
+  async reconcileForExpense(employeeId: string, client?: Prisma.TransactionClient) {
+    const cx = client ?? db;
+    await getOrCreateAccount(employeeId, cx);
+    return recalculateBalance(employeeId, cx);
   },
 
   async getLedger(employeeId: string): Promise<LedgerEntry[]> {
@@ -485,6 +489,10 @@ export const walletService = {
    * Transfer cash held by an employee (their wallet balance) into a company
    * wallet. Records an approved RETURN on the employee ledger and credits the
    * company wallet with a TRANSFER_IN, atomically.
+   *
+   * When `force` is true the balance check is skipped, allowing the company to
+   * receive cash even when the employee's balance is zero or negative (the
+   * company already owes them). The employee balance will go further negative.
    */
   async transferToCompanyWallet(
     employeeId: string,
@@ -492,6 +500,7 @@ export const walletService = {
     amount: number,
     user: Actor,
     note?: string,
+    force?: boolean,
   ) {
     if (amount <= 0) throw new Error("Amount must be positive");
 
@@ -502,7 +511,7 @@ export const walletService = {
       if (!account) {
         throw new Error("Employee does not have a wallet");
       }
-      if (account.currentBalance < amount) {
+      if (!force && account.currentBalance < amount) {
         throw new Error("Insufficient employee wallet balance");
       }
 
@@ -540,7 +549,7 @@ export const walletService = {
       user.id,
       txn.id,
       "CREATE",
-      `Cash of ${amount} transferred from employee ${employeeId} to wallet ${walletId}`
+      `Cash of ${amount} transferred from employee ${employeeId} to wallet ${walletId}${force ? " (forced)" : ""}`
     );
 
     return txn;

@@ -43,10 +43,46 @@ async function apply(
   return tx.wallet.update({ where: { id: walletId }, data: { balance } });
 }
 
+const employeeSelect = {
+  id: true,
+  employee: { select: { id: true, fullName: true, jobTitle: true, department: true } },
+};
+
+const userSelect = {
+  id: true,
+  user: { select: { id: true, name: true, email: true, role: true } },
+};
+
+const ADMIN_ROLES = ["ADMIN", "MANAGER"];
+
+function walletInclude() {
+  return {
+    employees: { select: employeeSelect },
+    users: { select: userSelect },
+  };
+}
+
 export const companyWalletService = {
   async list() {
     return db.wallet.findMany({
       orderBy: [{ isActive: "desc" }, { createdAt: "asc" }],
+      include: walletInclude(),
+    });
+  },
+
+  async listForUser(userId: string, role: string) {
+    if (ADMIN_ROLES.includes(role)) {
+      return this.list();
+    }
+    return db.wallet.findMany({
+      where: {
+        OR: [
+          { users: { some: { userId } } },
+          { users: { none: {} } },
+        ],
+      },
+      orderBy: [{ isActive: "desc" }, { createdAt: "asc" }],
+      include: walletInclude(),
     });
   },
 
@@ -54,7 +90,33 @@ export const companyWalletService = {
     return db.wallet.findMany({
       where: { isActive: true },
       orderBy: { createdAt: "asc" },
+      include: walletInclude(),
     });
+  },
+
+  async listActiveForEmployee(employeeId: string) {
+    return db.wallet.findMany({
+      where: {
+        isActive: true,
+        OR: [
+          { employees: { none: {} } },
+          { employees: { some: { employeeId } } },
+        ],
+      },
+      orderBy: { createdAt: "asc" },
+      include: walletInclude(),
+    });
+  },
+
+  async hasUserAccess(walletId: string, userId: string, role: string): Promise<boolean> {
+    if (ADMIN_ROLES.includes(role)) return true;
+    const wallet = await db.wallet.findUnique({
+      where: { id: walletId },
+      include: { users: { select: { userId: true } } },
+    });
+    if (!wallet) return false;
+    if (wallet.users.length === 0) return true;
+    return wallet.users.some((wu) => wu.userId === userId);
   },
 
   async get(id: string) {
@@ -62,12 +124,14 @@ export const companyWalletService = {
       where: { id },
       include: {
         transactions: { orderBy: { createdAt: "desc" } },
+        ...walletInclude(),
       },
     });
   },
 
   async listTransactions(params: {
     walletId?: string;
+    allowedWalletIds?: string[];
     type?: string;
     from?: string;
     to?: string;
@@ -79,7 +143,11 @@ export const companyWalletService = {
     const pageSize = Math.min(100, Math.max(1, params.pageSize ?? 20));
 
     const where: Prisma.WalletTransactionWhereInput = {};
-    if (params.walletId) where.walletId = params.walletId;
+    if (params.walletId) {
+      where.walletId = params.walletId;
+    } else if (params.allowedWalletIds) {
+      where.walletId = { in: params.allowedWalletIds };
+    }
     if (params.type) where.type = params.type;
     if (params.from || params.to) {
       where.createdAt = {};
@@ -108,6 +176,8 @@ export const companyWalletService = {
     currency?: string;
     initialBalance?: number;
     createdBy: string;
+    employeeIds?: string[];
+    userIds?: string[];
   }) {
     return db.$transaction(async (tx) => {
       const wallet = await tx.wallet.create({
@@ -129,16 +199,81 @@ export const companyWalletService = {
           "Initial balance"
         );
       }
-      // Re-read so the returned wallet reflects the seeded balance.
-      return tx.wallet.findUnique({ where: { id: wallet.id } });
+      if (data.employeeIds && data.employeeIds.length > 0) {
+        await tx.walletEmployee.createMany({
+          data: data.employeeIds.map((employeeId) => ({
+            walletId: wallet.id,
+            employeeId,
+          })),
+        });
+      }
+      if (data.userIds && data.userIds.length > 0) {
+        await tx.walletUser.createMany({
+          data: data.userIds.map((userId) => ({
+            walletId: wallet.id,
+            userId,
+          })),
+        });
+      }
+      return tx.wallet.findUnique({
+        where: { id: wallet.id },
+        include: walletInclude(),
+      });
     });
   },
 
   async update(
     id: string,
-    data: { name?: string; type?: string; currency?: string }
+    data: { name?: string; type?: string; currency?: string; employeeIds?: string[]; userIds?: string[] }
   ) {
-    return db.wallet.update({ where: { id }, data });
+    const { employeeIds, userIds, ...walletData } = data;
+    return db.$transaction(async (tx) => {
+      const updated = await tx.wallet.update({ where: { id }, data: walletData });
+      if (employeeIds !== undefined) {
+        await tx.walletEmployee.deleteMany({ where: { walletId: id } });
+        if (employeeIds.length > 0) {
+          await tx.walletEmployee.createMany({
+            data: employeeIds.map((employeeId) => ({
+              walletId: id,
+              employeeId,
+            })),
+          });
+        }
+      }
+      if (userIds !== undefined) {
+        await tx.walletUser.deleteMany({ where: { walletId: id } });
+        if (userIds.length > 0) {
+          await tx.walletUser.createMany({
+            data: userIds.map((userId) => ({
+              walletId: id,
+              userId,
+            })),
+          });
+        }
+      }
+      return tx.wallet.findUnique({
+        where: { id },
+        include: walletInclude(),
+      });
+    });
+  },
+
+  async assignEmployees(walletId: string, employeeIds: string[]) {
+    return db.$transaction(async (tx) => {
+      await tx.walletEmployee.deleteMany({ where: { walletId } });
+      if (employeeIds.length > 0) {
+        await tx.walletEmployee.createMany({
+          data: employeeIds.map((employeeId) => ({
+            walletId,
+            employeeId,
+          })),
+        });
+      }
+      return tx.wallet.findUnique({
+        where: { id: walletId },
+        include: walletInclude(),
+      });
+    });
   },
 
   async setActive(id: string, isActive: boolean) {
@@ -198,9 +333,14 @@ export const companyWalletService = {
     if (!wallet.isActive) {
       throw new Error(`Wallet "${wallet.name}" is inactive`);
     }
-    if (wallet.balance < amount) {
+    const agg = await tx.walletTransaction.aggregate({
+      _sum: { amount: true },
+      where: { walletId },
+    });
+    const currentBalance = agg._sum.amount ?? 0;
+    if (currentBalance < amount) {
       throw new Error(
-        `Insufficient balance in wallet "${wallet.name}" (${wallet.balance} ${wallet.currency}). Fund it before approving payroll.`
+        `Insufficient balance in wallet "${wallet.name}" (${currentBalance} ${wallet.currency}). Fund it before approving payroll.`
       );
     }
     await apply(tx, walletId, "PAYROLL", -amount, createdBy, "Payroll salary payment", payrollId);
@@ -267,9 +407,16 @@ export const companyWalletService = {
     if (!wallet.isActive) {
       throw new Error(`Wallet "${wallet.name}" is inactive`);
     }
-    if (wallet.balance < amount) {
+    // Recompute balance from the ledger instead of relying on the cached field,
+    // which may be stale under concurrent writes.
+    const agg = await tx.walletTransaction.aggregate({
+      _sum: { amount: true },
+      where: { walletId },
+    });
+    const currentBalance = agg._sum.amount ?? 0;
+    if (currentBalance < amount) {
       throw new Error(
-        `Insufficient balance in wallet "${wallet.name}" (${wallet.balance} ${wallet.currency}). Fund it before deducting this expense.`
+        `Insufficient balance in wallet "${wallet.name}" (${currentBalance} ${wallet.currency}). Fund it before deducting this expense.`
       );
     }
     await apply(tx, walletId, "EXPENSE", -amount, createdBy, note ?? "Expense payment", null, expenseId);

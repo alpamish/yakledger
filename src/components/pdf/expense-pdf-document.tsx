@@ -608,7 +608,7 @@ function ExpensePDFDocument({ expenses, filters, companyName = "YakhshiLedger" }
       author={companyName}
       creator={companyName}
     >
-      {validExpenses.length > 0 && (
+      {validExpenses.length > 0 ? (
         <Page size={{ width: 842, height: 595 }} style={summaryStyles.page}>
           <Text style={summaryStyles.title}>{companyName}</Text>
           <Text style={summaryStyles.subtitle}>Category Summary</Text>
@@ -619,7 +619,7 @@ function ExpensePDFDocument({ expenses, filters, companyName = "YakhshiLedger" }
             Detailed expense report follows on the next pages.
           </Text>
         </Page>
-      )}
+      ) : null}
 
       {pages.map((pageExpenses, pageIdx) => {
         const isFirstPage = pageIdx === 0;
@@ -628,7 +628,7 @@ function ExpensePDFDocument({ expenses, filters, companyName = "YakhshiLedger" }
         return (
           <Page key={pageIdx} size={{ width: 842, height: 595 }} style={styles.page}>
             {/* ── Header (first page only) ── */}
-            {isFirstPage && (
+            {isFirstPage ? (
               <View style={{ marginBottom: 10 }}>
                 <Text style={styles.companyName}>{companyName}</Text>
                 <Text style={styles.reportTitle}>Expense Report</Text>
@@ -636,9 +636,9 @@ function ExpensePDFDocument({ expenses, filters, companyName = "YakhshiLedger" }
                   Generated on: {generatedDate}
                 </Text>
                 <View style={styles.divider} />
-                {hasFilters && filters && <FilterSummary filters={filters} />}
+                {hasFilters && filters ? <FilterSummary filters={filters} /> : null}
               </View>
-            )}
+            ) : null}
 
             {/* ── Table ── */}
             {pageExpenses.length > 0 ? (
@@ -648,7 +648,7 @@ function ExpensePDFDocument({ expenses, filters, companyName = "YakhshiLedger" }
                   globalIndex++;
                   return (
                     <TableDataRow
-                      key={expense.id}
+                      key={expense.id || `exp-${globalIndex}`}
                       expense={expense}
                       index={globalIndex}
                       isEven={globalIndex % 2 === 0}
@@ -666,13 +666,13 @@ function ExpensePDFDocument({ expenses, filters, companyName = "YakhshiLedger" }
             )}
 
             {/* ── Footer (last page only) ── */}
-            {isLastPage && (
+            {isLastPage ? (
               <ReportFooter
                 totalExpenses={validExpenses.length}
                 grandTotal={grandTotal}
                 companyName={companyName}
               />
-            )}
+            ) : null}
 
             {/* ── Page number ── */}
             <View style={styles.pageNumberContainer} fixed>

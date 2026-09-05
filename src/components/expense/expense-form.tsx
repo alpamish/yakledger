@@ -79,7 +79,10 @@ const expenseFormSchema = z.object({
   paidByContractorId: z.string().optional().nullable(),
   walletId: z.string().optional().nullable(),
   deductFromWallet: z.boolean().optional().default(true),
-});
+}).refine(
+  (data) => data.walletId || data.paidById,
+  { message: 'Select either a company wallet or a paying employee.', path: ['walletId'] }
+);
 
 type ExpenseFormValues = z.infer<typeof expenseFormSchema>;
 
@@ -91,6 +94,7 @@ interface CompanyWalletOption {
   balance: number;
   isActive: boolean;
   currency?: string;
+  employees?: { id: string; employeeId: string }[];
 }
 
 // Grid coordinates for arrow-key navigation. `amount` is read-only and excluded.
@@ -220,7 +224,17 @@ export function ExpenseForm() {
   // Company wallet and employee-wallet deductions are mutually exclusive: when
   // a company wallet is selected, the employee-wallet deduction is disabled.
   const selectedWalletId = form.watch('walletId');
+  const paidById = form.watch('paidById');
   const employeeWalletDisabled = !!selectedWalletId;
+
+  // Filter wallets: show wallets assigned to the selected employee, or unassigned wallets (available to all)
+  const filteredWallets = useMemo(() => {
+    if (!paidById) return companyWallets;
+    return companyWallets.filter((w) => {
+      if (!w.employees || w.employees.length === 0) return true;
+      return w.employees.some((e) => e.employeeId === paidById);
+    });
+  }, [companyWallets, paidById]);
 
   // Sync computed items total to the form amount field for validation
   useEffect(() => {
@@ -930,7 +944,10 @@ export function ExpenseForm() {
                 <FormField
                   control={form.control}
                   name="paidById"
-                  render={({ field }) => (
+                  render={({ field }) => {
+                    const selectedPaidByEmployee = employeeList.find((e) => e.id === field.value);
+                    const selectedPaidByStatus = selectedPaidByEmployee?.status;
+                    return (
                     <FormItem className="flex flex-col">
                       <Popover open={employeePaidByPopoverOpen} onOpenChange={setEmployeePaidByPopoverOpen}>
                         <PopoverTrigger asChild>
@@ -966,16 +983,36 @@ export function ExpenseForm() {
                                     className="mr-2 h-4 w-4"
                                     style={{ opacity: field.value === emp.id ? 1 : 0 }}
                                   />
-                                  {emp.fullName} — {emp.jobTitle} ({DEPARTMENT_LABELS[emp.department as Department] ?? emp.department})
+                                  <span className="flex flex-1 items-center justify-between">
+                                    <span>
+                                      {emp.fullName} — {emp.jobTitle} ({DEPARTMENT_LABELS[emp.department as Department] ?? emp.department})
+                                    </span>
+                                    {emp.status !== 'ACTIVE' && (
+                                      <span className="text-xs text-muted-foreground">
+                                        {EMPLOYEE_STATUS_LABELS[emp.status as EmployeeStatus]}
+                                      </span>
+                                    )}
+                                  </span>
                                 </CommandItem>
                               ))}
                             </CommandList>
                           </Command>
                         </PopoverContent>
                       </Popover>
+                      {selectedPaidByStatus &&
+                        (selectedPaidByStatus === 'INACTIVE' || selectedPaidByStatus === 'TERMINATED') && (
+                        <Alert variant="destructive" className="mt-2">
+                          <AlertCircle className="h-4 w-4" />
+                          <AlertTitle>Inactive Employee</AlertTitle>
+                          <AlertDescription>
+                            This employee is {EMPLOYEE_STATUS_LABELS[selectedPaidByStatus as EmployeeStatus].toLowerCase()}. The payment will still be recorded — confirm the payer before proceeding.
+                          </AlertDescription>
+                        </Alert>
+                      )}
                       <FormMessage>{errors.paidBy?.message}</FormMessage>
                     </FormItem>
-                  )}
+                    );
+                  }}
                 />
               ) : (
                 <FormField
@@ -1045,7 +1082,7 @@ export function ExpenseForm() {
                       </FormControl>
                       <SelectContent>
                         <SelectItem value="__none__">No wallet</SelectItem>
-                        {companyWallets.map((w) => (
+                        {filteredWallets.map((w) => (
                           <SelectItem key={w.id} value={w.id}>
                             {w.name}
                             <span className="text-muted-foreground">
@@ -1059,6 +1096,24 @@ export function ExpenseForm() {
                       <WalletIcon className="mr-1 inline h-3 w-3" />
                       Deduct the approved amount from this company wallet.
                     </p>
+                    {(() => {
+                      const selectedWalletId = form.watch('walletId');
+                      const amount = form.watch('amount');
+                      const selectedWallet = selectedWalletId
+                        ? filteredWallets.find((w) => w.id === selectedWalletId)
+                        : null;
+                      if (selectedWallet && amount > selectedWallet.balance) {
+                        return (
+                          <Alert variant="destructive" className="mt-2">
+                            <AlertCircle className="h-4 w-4" />
+                            <AlertDescription className="text-xs">
+                              Insufficient balance: wallet has {selectedWallet.balance.toLocaleString('en-US', { minimumFractionDigits: 2 })} {selectedWallet.currency ?? 'AFN'} but the expense is {amount.toLocaleString('en-US', { minimumFractionDigits: 2 })}.
+                            </AlertDescription>
+                          </Alert>
+                        );
+                      }
+                      return null;
+                    })()}
                     <FormMessage />
                   </FormItem>
                 )}

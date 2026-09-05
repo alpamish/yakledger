@@ -22,7 +22,7 @@ const bulkRecordSchema = z.object({
 
 const bulkCreateSchema = z.object({
   records: z.array(bulkRecordSchema).min(1, "At least one record is required"),
-  containerId: z.string().optional().nullable(),
+  containerId: z.string().min(1, "Source container is required"),
 });
 
 export async function POST(request: NextRequest) {
@@ -54,13 +54,10 @@ export async function POST(request: NextRequest) {
     } as const;
 
     const created = await db.$transaction(async (tx) => {
-      let globalFuelTransactionId: string | null = null;
-
-      // If a global container is specified, resolve the average purchase price
-      // per fuel type (records may mix fuel types).
+      // Resolve the average purchase price per fuel type (records may mix fuel types).
       const fuelTypes = Array.from(new Set(records.map((r) => r.fuelType)));
       const avgPriceByType: Record<string, number> = {};
-      if (containerId && fuelTypes.length > 0) {
+      if (fuelTypes.length > 0) {
         const aggregations = await tx.fuelTransaction.groupBy({
           by: ["fuelType"],
           where: { type: 'PURCHASE', containerId, fuelType: { in: fuelTypes } },
@@ -79,29 +76,25 @@ export async function POST(request: NextRequest) {
       const approvedAt = approvalStatus === APPROVED ? new Date() : null;
       for (const record of records) {
         const totalCost = record.quantity * record.unitPrice;
-        let fuelTransactionId: string | null = null;
 
-        if (containerId) {
-          await ensureContainerFuelTypeMatches(tx, containerId, record.fuelType);
-          await ensureSufficientStock(tx, containerId, record.quantity, record.fuelType);
+        await ensureContainerFuelTypeMatches(tx, containerId, record.fuelType);
+        await ensureSufficientStock(tx, containerId, record.quantity, record.fuelType);
 
-          const avgPrice = avgPriceByType[record.fuelType] ?? 0;
-          const fuelTxn = await tx.fuelTransaction.create({
-            data: {
-              type: 'ISSUE',
-              fuelType: record.fuelType,
-              quantity: record.quantity,
-              unitPrice: avgPrice || record.unitPrice,
-              totalCost: (avgPrice || record.unitPrice) * record.quantity,
-              containerId,
-              contractorId: record.contractorId,
-              machineryId: record.machineryId ?? null,
-              date: new Date(record.date),
-              createdBy: user.id,
-            },
-          });
-          fuelTransactionId = fuelTxn.id;
-        }
+        const avgPrice = avgPriceByType[record.fuelType] ?? 0;
+        const fuelTxn = await tx.fuelTransaction.create({
+          data: {
+            type: 'ISSUE',
+            fuelType: record.fuelType,
+            quantity: record.quantity,
+            unitPrice: avgPrice || record.unitPrice,
+            totalCost: (avgPrice || record.unitPrice) * record.quantity,
+            containerId,
+            contractorId: record.contractorId,
+            machineryId: record.machineryId ?? null,
+            date: new Date(record.date),
+            createdBy: user.id,
+          },
+        });
 
         const fuelUsage = await tx.fuelUsage.create({
           data: {
@@ -113,7 +106,7 @@ export async function POST(request: NextRequest) {
             totalCost,
             date: new Date(record.date),
             fuelStation: record.fuelStation ?? null,
-            fuelTransactionId,
+            fuelTransactionId: fuelTxn.id,
             notes: record.notes ?? null,
             createdBy: user.id,
             approvalStatus,
@@ -133,7 +126,7 @@ export async function POST(request: NextRequest) {
         action: "CREATE",
         entity: "FuelUsage",
         entityId: `bulk-${created[0]?.id ?? 'unknown'}`,
-        details: `Bulk created ${created.length} fuel usage records${containerId ? ' (deducted from container)' : ''}`,
+        details: `Bulk created ${created.length} fuel usage records (deducted from container)`,
         userId: user.id,
       },
     });

@@ -8,6 +8,7 @@ const createTransferToWalletSchema = z.object({
   walletId: z.string().min(1, "Wallet is required"),
   amount: z.number().positive("Amount must be positive"),
   note: z.string().optional().nullable(),
+  force: z.boolean().optional().default(false),
 });
 
 export async function POST(request: NextRequest) {
@@ -36,6 +37,7 @@ export async function POST(request: NextRequest) {
       data.amount,
       user,
       data.note ?? undefined,
+      data.force,
     );
 
     return NextResponse.json(

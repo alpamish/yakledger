@@ -71,26 +71,30 @@ export async function POST(request: NextRequest) {
           continue;
         }
 
-        await model.update({
-          where: { id },
-          data: {
-            approvalStatus: APPROVED,
-            approvedById: user.id,
-            approvedAt: new Date(),
-          },
-        });
+        await db.$transaction(async (tx) => {
+          const txModel = tx[cfg.model as keyof typeof tx] as unknown as ApprovalModel;
 
-        await db.auditLog.create({
-          data: {
-            action: "APPROVE",
-            entity: cfg.auditEntity,
-            entityId: id,
-            details: `Approved ${entity} ${id} (bulk)`,
-            userId: user.id,
-          },
-        });
+          await txModel.update({
+            where: { id },
+            data: {
+              approvalStatus: APPROVED,
+              approvedById: user.id,
+              approvedAt: new Date(),
+            },
+          });
 
-        await applyWalletEffect(entity, record, user.id);
+          await tx.auditLog.create({
+            data: {
+              action: "APPROVE",
+              entity: cfg.auditEntity,
+              entityId: id,
+              details: `Approved ${entity} ${id} (bulk)`,
+              userId: user.id,
+            },
+          });
+
+          await applyWalletEffect(entity, record, user.id, tx);
+        });
         approved++;
       } catch (err) {
         console.error(`Bulk approval failed for ${entity}:${id}:`, err);

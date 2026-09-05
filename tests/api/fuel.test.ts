@@ -290,6 +290,15 @@ describe("/api/fuel-usage — container integration & getById", () => {
   });
 
   it("GET /api/fuel-usage/:id returns the created record", async () => {
+    const a = await createContainer("GetById Tank", "DIESEL");
+    await txn({
+      type: "PURCHASE",
+      fuelType: "DIESEL",
+      quantity: 100,
+      unitPrice: 60,
+      totalCost: 6000,
+      containerId: a.id,
+    });
     const contractor = await createContractor("GetById Co");
     const machinery = await createMachinery(contractor.id, "GetById Dozer");
 
@@ -305,6 +314,7 @@ describe("/api/fuel-usage — container integration & getById", () => {
           unitPrice: 60,
           totalCost: 1500,
           date: new Date().toISOString(),
+          containerId: a.id,
         },
       })
     )).json();

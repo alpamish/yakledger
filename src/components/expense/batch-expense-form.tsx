@@ -356,7 +356,16 @@ function PaidByCell({ value, paidById, rowIndex, employeeList, onUpdate }: PaidB
                   className="mr-2 h-4 w-4"
                   style={{ opacity: paidById === emp.id ? 1 : 0 }}
                 />
-                {emp.fullName} — {emp.jobTitle} ({DEPARTMENT_LABELS[emp.department as Department] ?? emp.department})
+                <span className="flex flex-1 items-center justify-between">
+                  <span>
+                    {emp.fullName} — {emp.jobTitle} ({DEPARTMENT_LABELS[emp.department as Department] ?? emp.department})
+                  </span>
+                  {emp.status !== 'ACTIVE' && (
+                    <span className="text-xs text-muted-foreground">
+                      {EMPLOYEE_STATUS_LABELS[emp.status as EmployeeStatus]}
+                    </span>
+                  )}
+                </span>
               </CommandItem>
             ))}
           </CommandList>
@@ -971,7 +980,8 @@ export function BatchExpenseForm({ open, onOpenChange, onSuccess }: BatchExpense
           r.paymentMethod &&
           r.paidTo &&
           r.paidBy &&
-          r.expenseDate
+          r.expenseDate &&
+          (r.paidById || r.walletId)
       ),
     [rows]
   );
@@ -998,7 +1008,8 @@ export function BatchExpenseForm({ open, onOpenChange, onSuccess }: BatchExpense
         r.paymentMethod &&
         r.paidTo &&
         r.paidBy &&
-        r.expenseDate
+        r.expenseDate &&
+        (r.paidById || r.walletId)
     );
 
     if (valid.length === 0) {

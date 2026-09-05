@@ -557,6 +557,11 @@ export function BatchFuelUsageForm({ open, onOpenChange, onSuccess }: BatchFuelU
   );
 
   const handleSubmit = useCallback(async () => {
+    if (!globalContainer) {
+      toast.error('Please select a fuel container before saving.');
+      return;
+    }
+
     const valid = rows.filter(
       (r) => r.machineryId && r.quantity > 0
     );
@@ -581,7 +586,7 @@ export function BatchFuelUsageForm({ open, onOpenChange, onSuccess }: BatchFuelU
 
       const payload: BulkFuelUsageRequest = {
         records,
-        containerId: globalContainer || undefined,
+        containerId: globalContainer,
       };
 
       const res = await fuelUsageApi.bulkCreate(payload);
@@ -652,13 +657,12 @@ export function BatchFuelUsageForm({ open, onOpenChange, onSuccess }: BatchFuelU
           </div>
           <div className="flex items-center gap-2">
             <Fuel className="h-4 w-4 text-muted-foreground" />
-            <span className="text-sm text-muted-foreground whitespace-nowrap">Container:</span>
-            <Select value={globalContainer || 'none'} onValueChange={(v) => setGlobalContainer(v === 'none' ? '' : v)}>
+            <span className="text-sm text-muted-foreground whitespace-nowrap">Container: *</span>
+            <Select value={globalContainer} onValueChange={setGlobalContainer}>
               <SelectTrigger className="h-8 w-[220px] text-xs">
-                <SelectValue placeholder="No container (standalone)" />
+                <SelectValue placeholder="Select container" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="none" className="text-xs">No container (standalone)</SelectItem>
                 {containers.map((c) => (
                   <SelectItem key={c.id} value={c.id} className="text-xs">
                     {c.name}
@@ -771,7 +775,7 @@ export function BatchFuelUsageForm({ open, onOpenChange, onSuccess }: BatchFuelU
           <Button
             type="button"
             onClick={handleSubmit}
-            disabled={isSubmitting || validRows.length === 0}
+            disabled={isSubmitting || validRows.length === 0 || !globalContainer}
             className="bg-emerald-600 hover:bg-emerald-700 text-white"
           >
             {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}

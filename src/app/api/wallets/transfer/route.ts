@@ -26,6 +26,16 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
+    const [fromAccess, toAccess] = await Promise.all([
+      companyWalletService.hasUserAccess(fromWalletId, user.id, user.role),
+      companyWalletService.hasUserAccess(toWalletId, user.id, user.role),
+    ]);
+    if (!fromAccess || !toAccess) {
+      return NextResponse.json(
+        { success: false, error: "You do not have access to one or both wallets" },
+        { status: 403 }
+      );
+    }
     await companyWalletService.transfer(
       fromWalletId,
       toWalletId,

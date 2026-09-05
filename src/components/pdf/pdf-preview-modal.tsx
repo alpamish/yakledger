@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { pdf } from "@react-pdf/renderer";
 import { format } from "date-fns";
 import { Download, Loader2, FileText, Printer, X } from "lucide-react";
 import {
@@ -97,6 +96,7 @@ export default function PdfPreviewModal({
           return;
         }
 
+        const { pdf } = await import("@react-pdf/renderer");
         const blob = await pdf(
           <ExpensePDFDocument expenses={safeExpenses} filters={pdfFilters} companyName={companyName} />
         ).toBlob();
@@ -128,7 +128,7 @@ export default function PdfPreviewModal({
     return () => {
       cancelled = true;
     };
-  }, [open, expenses, filters]);
+  }, [open, expenses, filters, companyName]);
 
   const handleDownload = useCallback(() => {
     if (!pdfUrl) return;

@@ -386,6 +386,7 @@ export const cashAdvanceApi = {
     walletId: string;
     amount: number;
     note?: string;
+    force?: boolean;
   }): Promise<ApiResponse<CashTransaction>> => {
     return mutate<ApiResponse<CashTransaction>>("/employee-wallet/transfer-to-wallet", {
       method: "POST",

@@ -86,7 +86,7 @@ export function FuelIssueForm({ onSuccess, initialData }: FuelIssueFormProps) {
   const unitPrice = form.watch('unitPrice');
   const fuelType = form.watch('fuelType');
   const [loadingUnitPrice, setLoadingUnitPrice] = useState(false);
-  const available = (selectedContainer?.balance ?? 0) + (isEditing ? (initialData?.quantity ?? 0) : 0);
+  const available = (selectedContainer?.balance ?? 0) + (isEditing && selectedContainerId === initialData?.containerId ? (initialData?.quantity ?? 0) : 0);
   const overAvailable = quantity > 0 && quantity > available;
 
   useEffect(() => {
@@ -140,7 +140,7 @@ export function FuelIssueForm({ onSuccess, initialData }: FuelIssueFormProps) {
   const onSubmit = async (data: IssueFormValues) => {
     try {
       if (selectedContainer) {
-        const avail = selectedContainer.balance + (isEditing ? (initialData?.quantity ?? 0) : 0);
+        const avail = selectedContainer.balance + (isEditing && selectedContainerId === initialData?.containerId ? (initialData?.quantity ?? 0) : 0);
         if (data.quantity > avail) {
           form.setError('quantity', {
             message: `Only ${avail.toFixed(1)}L available in ${selectedContainer.name}`,

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/permissions";
-import { buildAggregateScope, withScope } from "@/lib/access-control";
+import { buildAccessScope, buildAggregateScope, withScope } from "@/lib/access-control";
 
 export async function GET(request: NextRequest) {
   const result = await requirePermission(request, "fuelUsage:view");
@@ -47,7 +47,7 @@ export async function GET(request: NextRequest) {
       await buildAggregateScope(user, "fuelUsage")
     );
 
-    const [aggregation, dailyGroup, typeGroup, fuelGroup, count] = await Promise.all([
+    const [aggregation, dailyGroup, typeGroup, fuelGroup, count, stockAgg] = await Promise.all([
       db.fuelUsage.aggregate({
         where,
         _sum: { quantity: true, totalCost: true },
@@ -71,6 +71,17 @@ export async function GET(request: NextRequest) {
         _sum: { quantity: true, totalCost: true },
       }),
       db.fuelUsage.count({ where }),
+      db.fuelTransaction.aggregate({
+        where: withScope(
+          {
+            type: "ISSUE" as const,
+            ...dateFilter,
+            ...(fuelType ? { fuelType } : {}),
+          },
+          await buildAccessScope(user, "fuelTransaction")
+        ),
+        _sum: { quantity: true },
+      }),
     ]);
 
     const dailyUsage = dailyGroup.map((d) => ({
@@ -118,6 +129,7 @@ export async function GET(request: NextRequest) {
         totalCost: aggregation._sum.totalCost || 0,
         avgUnitPrice: aggregation._avg.unitPrice || 0,
         recordCount: count,
+        totalIssuedFromStock: stockAgg._sum.quantity || 0,
         dailyUsage,
         byMachineryType,
         byFuelType,

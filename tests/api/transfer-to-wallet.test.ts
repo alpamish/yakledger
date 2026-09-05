@@ -75,4 +75,50 @@ describe("POST /api/employee-wallet/transfer-to-wallet", () => {
     );
     expect(res.status).toBe(403);
   });
+
+  it("rejects transfer when employee has insufficient balance", async () => {
+    const res = await POST(
+      buildRequest("/api/employee-wallet/transfer-to-wallet", {
+        token: tokens.adminToken,
+        method: "POST",
+        body: { employeeId: tokens.employee.id, walletId, amount: 999999 },
+      })
+    );
+    expect(res.status).toBe(500);
+    const json = await res.json();
+    expect(json.error).toContain("Insufficient employee wallet balance");
+  });
+
+  it("force-receives cash even when employee balance is insufficient", async () => {
+    const balanceBefore = await db.employeeCashAccount.findUnique({
+      where: { employeeId: tokens.employee.id },
+    });
+    const employeeBalance = balanceBefore!.currentBalance;
+
+    const res = await POST(
+      buildRequest("/api/employee-wallet/transfer-to-wallet", {
+        token: tokens.adminToken,
+        method: "POST",
+        body: {
+          employeeId: tokens.employee.id,
+          walletId,
+          amount: employeeBalance + 500,
+          note: "forced receive",
+          force: true,
+        },
+      })
+    );
+    expect(res.status).toBe(201);
+    const json = await res.json();
+    expect(json.success).toBe(true);
+    expect(json.data.type).toBe("RETURN");
+
+    const account = await db.employeeCashAccount.findUnique({
+      where: { employeeId: tokens.employee.id },
+    });
+    expect(account!.currentBalance).toBe(-500);
+
+    const wallet = await db.wallet.findUnique({ where: { id: walletId } });
+    expect(wallet!.balance).toBe(employeeBalance + 500 + 2500);
+  });
 });

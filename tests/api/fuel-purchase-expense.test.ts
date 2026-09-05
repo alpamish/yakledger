@@ -319,6 +319,15 @@ describe("/api/fuel-transactions — ISSUE billable flag", () => {
   });
 
   it("PUT /api/fuel-usage toggles the billable flag", async () => {
+    const a = await createContainer("ToggleBill Tank", "DIESEL");
+    await txn({
+      type: "PURCHASE",
+      fuelType: "DIESEL",
+      quantity: 100,
+      unitPrice: 60,
+      totalCost: 6000,
+      containerId: a.id,
+    });
     const contractor = await createContractor("ToggleBill Co");
     const machinery = await createMachinery(contractor.id, "ToggleBill Dozer");
 
@@ -335,6 +344,7 @@ describe("/api/fuel-transactions — ISSUE billable flag", () => {
           totalCost: 600,
           date: new Date().toISOString(),
           billable: false,
+          containerId: a.id,
         },
       })
     )).json();

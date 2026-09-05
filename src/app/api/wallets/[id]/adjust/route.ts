@@ -11,6 +11,13 @@ export async function POST(
   const user = result.user;
   const { id } = await params;
   try {
+    const hasAccess = await companyWalletService.hasUserAccess(id, user.id, user.role);
+    if (!hasAccess) {
+      return NextResponse.json(
+        { success: false, error: "You do not have access to this wallet" },
+        { status: 403 }
+      );
+    }
     const body = await request.json();
     const { amount, note } = body as { amount?: number; note?: string };
     if (typeof amount !== "number" || amount === 0) {

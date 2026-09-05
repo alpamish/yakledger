@@ -61,8 +61,8 @@ describe("/api/expenses/bulk — create", () => {
     const res = await POST(
       B({
         records: [
-          record({ title: "Bulk One", amount: 50, category: "FOOD" }),
-          record({ title: "Bulk Two", amount: 75, category: "MATERIALS" }),
+          record({ title: "Bulk One", amount: 50, category: "FOOD", paidById: tokens.employee.id }),
+          record({ title: "Bulk Two", amount: 75, category: "MATERIALS", paidById: tokens.employee.id }),
         ],
       })
     );
@@ -93,8 +93,8 @@ describe("/api/expenses/bulk — create", () => {
     const account = await db.employeeCashAccount.findUnique({
       where: { employeeId: tokens.employee.id },
     });
-    // Balance = 0 advance - 100 - 50 = -150 (positive means employee owes company).
-    expect(account!.currentBalance).toBe(-150);
+    // Previous tests created 125 in expenses, this adds 150 = -275 total.
+    expect(account!.currentBalance).toBe(-275);
 
     // No DEBIT cash transactions are created; the balance derives from expenses.
     const txns = await db.cashTransaction.count({
@@ -123,7 +123,7 @@ describe("/api/expenses/bulk — create", () => {
     const account = await db.employeeCashAccount.findUnique({
       where: { employeeId: tokens.employee.id },
     });
-    expect(account!.currentBalance).toBe(-150);
+    expect(account!.currentBalance).toBe(-275);
   });
 
   it("deducts from the company wallet per record", async () => {
@@ -164,7 +164,7 @@ describe("/api/expenses/bulk — create", () => {
     const res = await POST(
       B({
         records: [
-          record({ title: "Ok", amount: 10 }),
+          record({ title: "Ok", amount: 10, paidById: tokens.employee.id }),
           record({
             title: "Conflict",
             amount: 10,
@@ -185,8 +185,8 @@ describe("/api/expenses/bulk — create", () => {
     const res = await POST(
       B({
         records: [
-          record({ title: "Audit One", amount: 10 }),
-          record({ title: "Audit Two", amount: 20 }),
+          record({ title: "Audit One", amount: 10, paidById: tokens.employee.id }),
+          record({ title: "Audit Two", amount: 20, paidById: tokens.employee.id }),
         ],
       })
     );
