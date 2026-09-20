@@ -17,12 +17,27 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { ConfirmDialog } from "@/components/common/confirm-dialog";
 import { payrollApi } from "@/services/payroll-api";
 import { walletApi } from "@/services/wallet-api";
 import { formatMinor } from "@/lib/money";
 import { PAYMENT_METHODS } from "@/types/expense";
 import { toast } from "sonner";
 import { useEffect } from "react";
+import { MoreHorizontal, Check, RotateCcw, Trash2 } from "lucide-react";
+
+interface Wallet {
+  id: string;
+  name: string;
+  balance: number;
+  currency?: string;
+}
 
 export function PayrollActions({
   payrollId,
@@ -40,8 +55,10 @@ export function PayrollActions({
 }) {
   const [busy, setBusy] = useState(false);
   const [approveOpen, setApproveOpen] = useState(false);
+  const [revertConfirmOpen, setRevertConfirmOpen] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<string>("CASH");
-  const [wallets, setWallets] = useState<any[]>([]);
+  const [wallets, setWallets] = useState<Wallet[]>([]);
   const [walletId, setWalletId] = useState<string>("");
 
   useEffect(() => {
@@ -50,9 +67,9 @@ export function PayrollActions({
       walletApi
         .list()
         .then((res) => {
-          const ws = res.data ?? [];
+          const ws: Wallet[] = res.data ?? [];
           setWallets(ws);
-          if (defaultWalletId && ws.some((w: any) => w.id === defaultWalletId)) {
+          if (defaultWalletId && ws.some((w) => w.id === defaultWalletId)) {
             setWalletId(defaultWalletId);
           }
         })
@@ -61,12 +78,7 @@ export function PayrollActions({
   }, [approveOpen, defaultWalletId]);
 
   async function handleRevert() {
-    if (
-      typeof window !== "undefined" &&
-      !window.confirm("Revert this approved payroll back to draft?")
-    ) {
-      return;
-    }
+    setRevertConfirmOpen(false);
     setBusy(true);
     try {
       await payrollApi.revert(employeeId, payrollId, "Manual correction");
@@ -93,29 +105,89 @@ export function PayrollActions({
     }
   }
 
+  async function handleDelete() {
+    setDeleteConfirmOpen(false);
+    setBusy(true);
+    try {
+      await payrollApi.delete(payrollId);
+      toast.success("Payroll record deleted");
+      onChanged();
+    } catch (e: any) {
+      toast.error(e?.message || "Delete failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   if (status === "APPROVED") {
     return (
-      <Button
-        variant="outline"
-        size="sm"
-        disabled={busy}
-        onClick={handleRevert}
-      >
-        {busy ? "Reverting..." : "Revert"}
-      </Button>
+      <>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="icon" className="h-8 w-8" disabled={busy}>
+              <MoreHorizontal className="h-4 w-4" />
+              <span className="sr-only">Actions</span>
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem
+              onClick={() => setRevertConfirmOpen(true)}
+              disabled={busy}
+            >
+              <RotateCcw className="mr-2 h-4 w-4" />
+              Revert to Draft
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+        <ConfirmDialog
+          open={revertConfirmOpen}
+          onOpenChange={setRevertConfirmOpen}
+          title="Revert Payroll"
+          description="This will revert the approved payroll back to draft status. The salary payment and advance allocations will be removed. Are you sure?"
+          confirmText="Revert"
+          variant="destructive"
+          onConfirm={handleRevert}
+        />
+      </>
     );
   }
 
   return (
     <>
-      <Button
-        variant="outline"
-        size="sm"
-        disabled={busy}
-        onClick={() => setApproveOpen(true)}
-      >
-        Approve
-      </Button>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="ghost" size="icon" className="h-8 w-8" disabled={busy}>
+            <MoreHorizontal className="h-4 w-4" />
+            <span className="sr-only">Actions</span>
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem
+            onClick={() => setApproveOpen(true)}
+            disabled={busy}
+          >
+            <Check className="mr-2 h-4 w-4" />
+            Approve & Pay
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onClick={() => setDeleteConfirmOpen(true)}
+            disabled={busy}
+            className="text-destructive focus:text-destructive"
+          >
+            <Trash2 className="mr-2 h-4 w-4" />
+            Delete
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <ConfirmDialog
+        open={deleteConfirmOpen}
+        onOpenChange={setDeleteConfirmOpen}
+        title="Delete Payroll"
+        description="This will permanently delete this draft payroll record. This action cannot be undone."
+        confirmText="Delete"
+        variant="destructive"
+        onConfirm={handleDelete}
+      />
       <Dialog open={approveOpen} onOpenChange={setApproveOpen}>
         <DialogContent>
           <DialogHeader>

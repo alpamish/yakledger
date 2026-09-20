@@ -141,7 +141,7 @@ describe("HR Payroll Immutability", () => {
   });
 
   it("snapshots salary and does not change after a later salary update", async () => {
-    const payroll = await generatePayroll({
+    const { payroll } = await generatePayroll({
       employeeId: emp.id,
       periodStart: new Date("2026-08-01"),
       periodEnd: new Date("2026-08-31"),
@@ -166,7 +166,7 @@ describe("HR Payroll Immutability", () => {
   });
 
   it("makes payroll immutable once approved", async () => {
-    const payroll = await generatePayroll({
+    const { payroll } = await generatePayroll({
       employeeId: emp.id,
       periodStart: new Date("2026-08-01"),
       periodEnd: new Date("2026-08-31"),
@@ -176,7 +176,7 @@ describe("HR Payroll Immutability", () => {
     expect(approved.status).toBe("APPROVED");
 
     // Regenerating returns the same (approved) immutable record
-    const regen = await generatePayroll({
+    const { payroll: regen } = await generatePayroll({
       employeeId: emp.id,
       periodStart: new Date("2026-08-01"),
       periodEnd: new Date("2026-08-31"),

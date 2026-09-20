@@ -21,6 +21,7 @@ const updateExpenseSchema = z.object({
       "FUEL",
       "SALARY",
       "MAINTENANCE",
+      "REPAIR",
       "TRANSPORTATION",
       "MACHINERY",
       "MACHINERY_TRANSPORTATION",
@@ -31,6 +32,10 @@ const updateExpenseSchema = z.object({
       "REWARD",
       "BONUS",
       "MEDICATION",
+      "LOG",
+      "RENT",
+      "UTILITIES",
+      "TRAVEL",
       "MISCELLANEOUS",
     ])
     .optional(),

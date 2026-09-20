@@ -58,7 +58,7 @@ describe("Payroll from company wallet", () => {
       createdBy: user.id,
     });
 
-    const payroll = await generatePayroll({
+    const { payroll } = await generatePayroll({
       employeeId: emp.id,
       periodStart: new Date("2026-06-01"),
       periodEnd: new Date("2026-06-30"),
@@ -101,7 +101,7 @@ describe("Payroll from company wallet", () => {
       createdBy: user.id,
     });
 
-    const payroll = await generatePayroll({
+    const { payroll } = await generatePayroll({
       employeeId: emp.id,
       periodStart: new Date("2026-06-01"),
       periodEnd: new Date("2026-06-30"),
@@ -123,7 +123,7 @@ describe("Payroll from company wallet", () => {
       createdBy: user.id,
     });
 
-    const payroll = await generatePayroll({
+    const { payroll } = await generatePayroll({
       employeeId: emp.id,
       periodStart: new Date("2026-06-01"),
       periodEnd: new Date("2026-06-30"),
@@ -151,7 +151,7 @@ describe("Payroll from company wallet", () => {
       createdBy: user.id,
     });
 
-    const payroll = await generatePayroll({
+    const { payroll } = await generatePayroll({
       employeeId: emp.id,
       periodStart: new Date("2026-06-01"),
       periodEnd: new Date("2026-06-30"),
@@ -175,7 +175,7 @@ describe("Payroll from company wallet", () => {
   });
 
   it("still works without a wallet (no deduction, no walletId on records)", async () => {
-    const payroll = await generatePayroll({
+    const { payroll } = await generatePayroll({
       employeeId: emp.id,
       periodStart: new Date("2026-06-01"),
       periodEnd: new Date("2026-06-30"),

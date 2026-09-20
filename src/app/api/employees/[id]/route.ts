@@ -43,6 +43,7 @@ const updateEmployeeSchema = z.object({
   idImageBack: z.string().optional().nullable(),
   emergencyContactName: z.string().optional().nullable(),
   emergencyContactPhone: z.string().optional().nullable(),
+  employeeNumber: z.string().optional().nullable(),
 });
 
 // GET /api/employees/[id] - Get single employee with related expenses

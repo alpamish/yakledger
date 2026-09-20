@@ -18,12 +18,15 @@ interface PayrollLine {
   currency?: string;
   baseSalaryMinor?: number;
   attendanceDays?: number;
+  workDays?: number;
   overtimeHours?: number;
   overtimePayMinor?: number;
   allowancesMinor?: number;
   bonusesMinor?: number;
   deductionsMinor?: number;
   grossPayMinor?: number;
+  expensesPaidMinor?: number;
+  deductExpenses?: boolean;
   amountAlreadyReceivedMinor?: number;
   previousDebtMinor?: number;
   advancesDeductedMinor?: number;
@@ -87,6 +90,7 @@ const COL = {
   period: 80,
   status: 40,
   gross: 52,
+  expenses: 48,
   received: 48,
   prevDebt: 42,
   netPayable: 52,
@@ -298,6 +302,7 @@ function TableHeader() {
       <Text style={[styles.tableHeaderCell, { width: COL.period }]}>Period</Text>
       <Text style={[styles.tableHeaderCell, { width: COL.status }]}>Status</Text>
       <Text style={[styles.tableHeaderCell, { width: COL.gross, textAlign: "right" }]}>Gross</Text>
+      <Text style={[styles.tableHeaderCell, { width: COL.expenses, textAlign: "right" }]}>Expenses</Text>
       <Text style={[styles.tableHeaderCell, { width: COL.received, textAlign: "right" }]}>Received</Text>
       <Text style={[styles.tableHeaderCell, { width: COL.prevDebt, textAlign: "right" }]}>Prev Debt</Text>
       <Text style={[styles.tableHeaderCell, { width: COL.netPayable, textAlign: "right" }]}>Net Payable</Text>
@@ -330,6 +335,9 @@ function DataRow({ row, isEven }: { row: FlatRow; isEven: boolean }) {
       <Text style={[styles.tableDataCell, { width: COL.status }]}>{payroll.status ?? "—"}</Text>
       <Text style={[styles.tableDataCell, { width: COL.gross, textAlign: "right", fontFamily: "Helvetica-Bold" }]}>
         {formatCurrency(line.grossPayMinor ?? 0, currency)}
+      </Text>
+      <Text style={[styles.tableDataCell, { width: COL.expenses, textAlign: "right" }]}>
+        {formatCurrency(line.expensesPaidMinor ?? 0, currency)}
       </Text>
       <Text style={[styles.tableDataCell, { width: COL.received, textAlign: "right" }]}>
         {formatCurrency(line.amountAlreadyReceivedMinor ?? 0, currency)}
@@ -365,6 +373,9 @@ function TotalsRow({ totals, currency }: { totals: Totals; currency: string }) {
       <Text style={[styles.totalCell, { width: COL.gross, textAlign: "right" }]}>
         {formatCurrency(totals.gross, currency)}
       </Text>
+      <Text style={[styles.totalCell, { width: COL.expenses, textAlign: "right" }]}>
+        {formatCurrency(totals.expenses, currency)}
+      </Text>
       <Text style={[styles.totalCell, { width: COL.received, textAlign: "right" }]}>
         {formatCurrency(totals.received, currency)}
       </Text>
@@ -385,6 +396,7 @@ function TotalsRow({ totals, currency }: { totals: Totals; currency: string }) {
 
 interface Totals {
   gross: number;
+  expenses: number;
   received: number;
   prevDebt: number;
   netPayable: number;
@@ -425,21 +437,31 @@ function PayrollPDFDocument({ rows, status, companyName = "YakhshiLedger" }: Pay
   const flat: FlatRow[] = [];
   for (const payroll of validRows) {
     for (const line of payroll.lines) {
-      flat.push({ payroll, line, index: flat.length + 1 });
+      flat.push({ payroll, line, index: 0 });
     }
   }
+
+  flat.sort((a, b) => {
+    const deptA = a.payroll.employee?.department ?? "";
+    const deptB = b.payroll.employee?.department ?? "";
+    if (deptA !== deptB) return deptA.localeCompare(deptB);
+    return (b.line.grossPayMinor ?? 0) - (a.line.grossPayMinor ?? 0);
+  });
+
+  flat.forEach((row, i) => { row.index = i + 1; });
 
   const currency = validRows[0]?.wallet?.currency || validRows[0]?.lines?.[0]?.currency || "AFN";
 
   const totals: Totals = flat.reduce(
     (acc, f) => ({
       gross: acc.gross + (f.line.grossPayMinor ?? 0),
+      expenses: acc.expenses + (f.line.expensesPaidMinor ?? 0),
       received: acc.received + (f.line.amountAlreadyReceivedMinor ?? 0),
       prevDebt: acc.prevDebt + (f.line.previousDebtMinor ?? 0),
       netPayable: acc.netPayable + (f.line.netPayableMinor ?? 0),
       remaining: acc.remaining + (f.line.remainingEmployeeDebtMinor ?? 0),
     }),
-    { gross: 0, received: 0, prevDebt: 0, netPayable: 0, remaining: 0 }
+    { gross: 0, expenses: 0, received: 0, prevDebt: 0, netPayable: 0, remaining: 0 }
   );
 
   const generatedDate = format(new Date(), "MMMM d, yyyy");

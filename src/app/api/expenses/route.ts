@@ -15,11 +15,12 @@ import {
 // Schema for creating an expense
 const createExpenseSchema = z.object({
   title: z.string().min(1, "Title is required").max(500, "Title too long"),
-  description: z.string().max(2000, "Description too long").optional().nullable(),
+  description: z.string().max(10000, "Description too long").optional().nullable(),
   category: z.enum([
     "FUEL",
     "SALARY",
     "MAINTENANCE",
+    "REPAIR",
     "TRANSPORTATION",
     "MACHINERY",
     "MACHINERY_TRANSPORTATION",
@@ -30,6 +31,10 @@ const createExpenseSchema = z.object({
     "REWARD",
     "BONUS",
     "MEDICATION",
+    "LOG",
+    "RENT",
+    "UTILITIES",
+    "TRAVEL",
     "MISCELLANEOUS",
   ]),
   amount: z.number().positive("Amount must be positive").max(999_999_999, "Amount too large"),

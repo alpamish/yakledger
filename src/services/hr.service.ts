@@ -218,9 +218,15 @@ export async function getEmployeeAssignmentAtDate(
 }
 
 /**
- * Generate (or fetch existing) an immutable payroll record for an employee and
- * period. Once APPROVED, the record is never recomputed from employee data.
- * Salary is snapshotted from SalaryHistory at the period end date.
+ * Generate (or fetch existing) a payroll record for an employee and period.
+ *
+ * - If an APPROVED payroll already exists it is returned as-is (immutable).
+ * - If a DRAFT payroll already exists it is returned as-is (skipped, not
+ *   deleted and regenerated).
+ * - Otherwise a new DRAFT payroll is created.
+ *
+ * Returns `{ payroll, created }` where `created` indicates whether a new
+ * record was generated.
  */
 export async function generatePayroll(params: {
   employeeId: string;
@@ -232,7 +238,11 @@ export async function generatePayroll(params: {
   deductionsMinor?: number;
   /** Preferred company wallet the salary should be paid from. */
   walletId?: string;
-}) {
+  /** Whether to deduct employee-paid expenses from debt calculation. */
+  deductExpenses?: boolean;
+  /** Number of days the employee worked in this period. Auto-calculated from hireDate if omitted. */
+  workDays?: number;
+}): Promise<{ payroll: any; created: boolean }> {
   const periodStart =
     typeof params.periodStart === "string"
       ? new Date(params.periodStart)
@@ -253,13 +263,30 @@ export async function generatePayroll(params: {
     include: { lines: true },
   });
   if (existing) {
-    if (existing.status === "APPROVED") return existing; // immutable
-    // editable draft: delete and regenerate
-    await db.payroll.delete({ where: { id: existing.id } });
+    return { payroll: existing, created: false };
   }
 
   const salary = await getEmployeeSalaryAtDate(params.employeeId, periodEnd);
   if (!salary) throw new Error("No salary found for employee in this period");
+
+  // Auto-calculate workDays from hire date if not provided
+  let workDays = params.workDays ?? 0;
+  if (!workDays) {
+    const employee = await db.employee.findUnique({
+      where: { id: params.employeeId },
+      select: { hireDate: true },
+    });
+    if (employee?.hireDate) {
+      const totalDays = new Date(periodStart.getFullYear(), periodStart.getMonth() + 1, 0).getDate();
+      if (employee.hireDate <= periodStart) {
+        workDays = Math.min(totalDays, 30);
+      } else {
+        workDays = totalDays - employee.hireDate.getDate() + 1;
+      }
+    } else {
+      workDays = 30; // fallback
+    }
+  }
 
   const attendance = await db.attendance.aggregate({
     where: {
@@ -290,11 +317,11 @@ export async function generatePayroll(params: {
   const attendanceDays = attendance._count._all + halfDays * 0.5;
   const overtimeHours = overtime._sum.overtimeHours ?? 0;
 
-  // Employee is paid their contracted monthly salary regardless of days present
-  // (construction site salary model). Overtime is additive.
-  const baseSalaryMinor = salary.amountMinor;
+  // Pro-rate base salary based on workDays (out of 30)
+  const baseSalaryMinor = Math.round(salary.amountMinor * workDays / 30);
+  // Overtime rate uses full monthly salary for fair calculation
   const { rate, paidDailyHours } = await employeePayrollParams(params.employeeId);
-  const hourlyMinor = Math.round(baseSalaryMinor / 30 / paidDailyHours);
+  const hourlyMinor = Math.round(salary.amountMinor / 30 / paidDailyHours);
   const overtimePayMinor = Math.round(hourlyMinor * rate * overtimeHours);
 
   const allowancesMinor = params.allowancesMinor ?? 0;
@@ -304,14 +331,16 @@ export async function generatePayroll(params: {
     baseSalaryMinor + overtimePayMinor + allowancesMinor + bonusesMinor - deductionsMinor;
 
   // Apply the employee's outstanding advance/debt balance.
+  const deductExpenses = params.deductExpenses !== false;
   const fig = await computePayrollFigures(
     params.employeeId,
     periodStart,
     periodEnd,
-    grossPayMinor
+    grossPayMinor,
+    deductExpenses
   );
 
-  return db.payroll.create({
+  const payroll = await db.payroll.create({
     data: {
       employeeId: params.employeeId,
       periodStart,
@@ -326,12 +355,15 @@ export async function generatePayroll(params: {
           baseSalaryMinor,
           currency: salary.currency,
           attendanceDays,
+          workDays,
           overtimeHours,
           overtimePayMinor,
           allowancesMinor,
           bonusesMinor,
           deductionsMinor,
           grossPayMinor,
+          expensesPaidMinor: fig.periodExpensesMinor,
+          deductExpenses,
           amountAlreadyReceivedMinor: fig.amountAlreadyReceivedMinor,
           previousDebtMinor: fig.previousDebtMinor,
           advancesDeductedMinor: fig.amountAlreadyReceivedMinor,
@@ -345,6 +377,8 @@ export async function generatePayroll(params: {
     },
     include: { lines: true },
   });
+
+  return { payroll, created: true };
 }
 
 /** Paid daily hours derived from the employee's work schedule (end - start - break). */
@@ -428,7 +462,8 @@ export async function computePayrollFigures(
   employeeId: string,
   periodStart: Date,
   periodEnd: Date,
-  grossPayMinor: number
+  grossPayMinor: number,
+  deductExpenses: boolean = true
 ) {
   const priorEarnedAgg = await db.payrollLine.aggregate({
     _sum: { grossPayMinor: true },
@@ -457,14 +492,15 @@ export async function computePayrollFigures(
       createdAt: { lte: periodEnd },
     },
   });
-  const receivedMinor = Math.round(
-    received.reduce((s, t) => s + t.amount, 0) * 100 -
-      (returnedAgg._sum.amount ?? 0) * 100
-  );
+  // Convert major-unit Float amounts to integer minor units with rounding
+  // to avoid floating-point precision drift (e.g. 0.1 + 0.2 = 0.30000000000000004).
+  const receivedMinor =
+    Math.round(received.reduce((s, t) => s + t.amount, 0) * 100) -
+    Math.round((returnedAgg._sum.amount ?? 0) * 100);
 
   // Approved employee-paid company expenses are money the company owes the
-// employee, so they reduce the employee's net debt. (Employee wallets derive
-// these directly from approved expenses; payroll debt must match.)
+  // employee, so they reduce the employee's net debt. (Employee wallets derive
+  // these directly from approved expenses; payroll debt must match.)
   const employeeExpensesAgg = await db.expense.aggregate({
     _sum: { amount: true },
     where: {
@@ -476,8 +512,20 @@ export async function computePayrollFigures(
   });
   const totalExpensesMinor = Math.round((employeeExpensesAgg._sum.amount ?? 0) * 100);
 
+  // Period-scoped expenses: only expenses within this payroll period.
+  const periodExpensesAgg = await db.expense.aggregate({
+    _sum: { amount: true },
+    where: {
+      paidById: employeeId,
+      approvalStatus: "APPROVED",
+      deductFromWallet: { not: false },
+      expenseDate: { gte: periodStart, lte: periodEnd },
+    },
+  });
+  const periodExpensesMinor = Math.round((periodExpensesAgg._sum.amount ?? 0) * 100);
+
   const previousDebtMinor =
-    receivedMinor - priorEarnedMinor - totalExpensesMinor;
+    receivedMinor - priorEarnedMinor - (deductExpenses ? totalExpensesMinor : 0);
   const amountAlreadyReceivedMinor = Math.max(
     0,
     Math.min(grossPayMinor, previousDebtMinor)
@@ -495,18 +543,20 @@ export async function computePayrollFigures(
     amountAlreadyReceivedMinor,
     netPayableMinor,
     remainingEmployeeDebtMinor,
+    periodExpensesMinor,
   };
 }
 
-/** Allocate an employee's approved advances to a payroll (FIFO), never twice. */
+/** Allocate an employee's approved advances to a payroll (FIFO), never twice.
+ *  Returns the total amount allocated in minor units. */
 async function allocateAdvances(
   tx: Prisma.TransactionClient,
   employeeId: string,
   periodEnd: Date,
   payrollId: string,
   amountMinor: number
-) {
-  if (amountMinor <= 0) return;
+): Promise<number> {
+  if (amountMinor <= 0) return 0;
 
   const priorAllocAgg = await tx.payrollAdvanceAllocation.aggregate({
     _sum: { amountMinor: true },
@@ -532,6 +582,7 @@ async function allocateAdvances(
   );
   const availableMinor = Math.max(0, totalAdvancesMinor - priorAllocMinor);
   let toAllocate = Math.min(amountMinor, availableMinor);
+  let totalAllocated = 0;
 
   for (const adv of advances) {
     if (toAllocate <= 0) break;
@@ -541,16 +592,10 @@ async function allocateAdvances(
       data: { payrollId, cashTransactionId: adv.id, amountMinor: amt },
     });
     toAllocate -= amt;
+    totalAllocated += amt;
   }
-}
 
-// Overtime rate lookup helper (defaults to 1.25)
-async function overtimeRate(employeeId: string): Promise<number> {
-  const emp = await db.employee.findUnique({
-    where: { id: employeeId },
-    select: { overtimeRate: true, workHoursPerDay: true },
-  });
-  return emp?.overtimeRate ?? 1.25;
+  return totalAllocated;
 }
 
 /** Approve a payroll record. Approval finalizes and settles it: */
@@ -601,7 +646,7 @@ export async function approvePayroll(
   const periodLabel = `${payroll.periodStart.toISOString().slice(0, 10)}–${payroll.periodEnd.toISOString().slice(0, 10)}`;
 
   await db.$transaction(async (tx) => {
-    await allocateAdvances(
+    const allocatedMinor = await allocateAdvances(
       tx,
       employeeId,
       payroll.periodEnd,
@@ -670,7 +715,7 @@ export async function approvePayroll(
               grossPayMinor: line.grossPayMinor,
               amountAlreadyReceivedMinor: fig.amountAlreadyReceivedMinor,
               previousDebtMinor: fig.previousDebtMinor,
-              advancesDeductedMinor: fig.amountAlreadyReceivedMinor,
+              advancesDeductedMinor: allocatedMinor,
               netPayableMinor: fig.netPayableMinor,
               remainingEmployeeDebtMinor: fig.remainingEmployeeDebtMinor,
               netPayMinor,
@@ -699,6 +744,95 @@ export async function approvePayroll(
   return db.payroll.findUnique({
     where: { id: payrollId2 },
     include: { lines: true },
+  });
+}
+
+/**
+ * Update a single DRAFT payroll line with inline edits. Recomputes derived
+ * figures (gross, net, etc.) and returns the updated payroll with lines.
+ */
+export async function updatePayrollLine(
+  lineId: string,
+  updates: {
+    overtimeHours?: number;
+    allowancesMinor?: number;
+    bonusesMinor?: number;
+    deductionsMinor?: number;
+    netPayableMinor?: number;
+    remainingEmployeeDebtMinor?: number;
+    deductExpenses?: boolean;
+    walletId?: string;
+  }
+) {
+  const line = await db.payrollLine.findUnique({
+    where: { id: lineId },
+    include: { payroll: true },
+  });
+  if (!line) throw new Error("Payroll line not found");
+  if (line.payroll.status !== "DRAFT") {
+    throw new Error("Only draft payroll lines can be edited");
+  }
+
+  const payrollId = line.payrollId;
+  const overtimeHours = updates.overtimeHours ?? line.overtimeHours;
+  const allowancesMinor = updates.allowancesMinor ?? line.allowancesMinor;
+  const bonusesMinor = updates.bonusesMinor ?? line.bonusesMinor;
+  const deductionsMinor = updates.deductionsMinor ?? line.deductionsMinor;
+  const deductExpenses = updates.deductExpenses ?? line.deductExpenses;
+
+  // Recompute overtime pay if hours changed
+  const { rate, paidDailyHours } = await employeePayrollParams(line.employeeId);
+  const hourlyMinor = Math.round(line.baseSalaryMinor / 30 / paidDailyHours);
+  const overtimePayMinor = Math.round(hourlyMinor * rate * overtimeHours);
+
+  // Recompute gross
+  const grossPayMinor =
+    line.baseSalaryMinor + overtimePayMinor + allowancesMinor + bonusesMinor - deductionsMinor;
+
+  // Recompute debt figures with updated expense toggle
+  const fig = await computePayrollFigures(
+    line.employeeId,
+    line.payroll.periodStart,
+    line.payroll.periodEnd,
+    grossPayMinor,
+    deductExpenses
+  );
+
+  // Allow manual override of netPayableMinor / remainingEmployeeDebtMinor
+  const netPayableMinor = updates.netPayableMinor ?? fig.netPayableMinor;
+  const remainingEmployeeDebtMinor =
+    updates.remainingEmployeeDebtMinor ?? fig.remainingEmployeeDebtMinor;
+
+  await db.payrollLine.update({
+    where: { id: lineId },
+    data: {
+      overtimeHours,
+      overtimePayMinor,
+      allowancesMinor,
+      bonusesMinor,
+      deductionsMinor,
+      grossPayMinor,
+      expensesPaidMinor: fig.periodExpensesMinor,
+      deductExpenses,
+      amountAlreadyReceivedMinor: fig.amountAlreadyReceivedMinor,
+      previousDebtMinor: fig.previousDebtMinor,
+      netPayableMinor,
+      remainingEmployeeDebtMinor,
+      netPayMinor: Math.max(netPayableMinor, 0),
+    },
+  });
+
+  // Update wallet if changed
+  if (updates.walletId !== undefined) {
+    await db.payroll.update({
+      where: { id: payrollId },
+      data: { walletId: updates.walletId || null },
+    });
+  }
+
+  return db.payroll.findUnique({
+    where: { id: payrollId },
+    include: { lines: true, employee: { select: { id: true, fullName: true, employeeNumber: true } } },
   });
 }
 
@@ -897,4 +1031,37 @@ export async function getEmployeeFinancialSummary(employeeId: string) {
     outstanding,
     walletBalance: employee.cashAccount?.currentBalance ?? 0,
   };
+}
+
+/**
+ * Delete a DRAFT payroll record. Only DRAFT payrolls can be deleted;
+ * APPROVED payrolls must be reverted first.
+ */
+export async function deletePayroll(payrollId: string, userId: string) {
+  const payroll = await db.payroll.findUnique({
+    where: { id: payrollId },
+    include: { lines: true, expenses: true },
+  });
+  if (!payroll) throw new Error("Payroll not found");
+  if (payroll.status !== "DRAFT") {
+    throw new Error("Only a draft payroll can be deleted. Revert it first.");
+  }
+  // Safety: refuse if any expenses are linked (shouldn't exist for drafts).
+  if (payroll.expenses.length > 0) {
+    throw new Error(
+      "Cannot delete a payroll with linked expenses. Revert it first."
+    );
+  }
+
+  await db.$transaction(async (tx) => {
+    await tx.employeeAuditEvent.create({
+      data: {
+        employeeId: payroll.employeeId,
+        action: "PAYROLL_DELETED",
+        newValue: payrollId,
+        performedById: userId,
+      },
+    });
+    await tx.payroll.delete({ where: { id: payrollId } });
+  });
 }

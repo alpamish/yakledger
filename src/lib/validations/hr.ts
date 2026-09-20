@@ -64,4 +64,18 @@ export const payrollGenerateSchema = z.object({
   bonusesMinor: z.number().int().min(0).optional(),
   deductionsMinor: z.number().int().min(0).optional(),
   walletId: z.string().optional(),
+  deductExpenses: z.boolean().optional(),
+  workDays: z.number().int().min(1).max(31).optional(),
+});
+
+export const payrollLineUpdateSchema = z.object({
+  lineId: z.string().min(1),
+  overtimeHours: z.number().min(0).optional(),
+  allowancesMinor: z.number().int().min(0).optional(),
+  bonusesMinor: z.number().int().min(0).optional(),
+  deductionsMinor: z.number().int().min(0).optional(),
+  netPayableMinor: z.number().int().optional(),
+  remainingEmployeeDebtMinor: z.number().int().min(0).optional(),
+  deductExpenses: z.boolean().optional(),
+  walletId: z.string().optional(),
 });

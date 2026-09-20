@@ -86,7 +86,7 @@ describe("Payroll advance / debt allocation", () => {
     // Ahmed receives 30,000 advance in June
     await addAdvance(emp.id, 30000, new Date("2026-06-10T10:00:00Z"), user);
 
-    const june = await generatePayroll({
+    const { payroll: june } = await generatePayroll({
       employeeId: emp.id,
       periodStart: new Date("2026-06-01"),
       periodEnd: new Date("2026-06-30"),
@@ -122,7 +122,7 @@ describe("Payroll advance / debt allocation", () => {
   it("next month automatically recovers the previous debt", async () => {
     await addAdvance(emp.id, 30000, new Date("2026-06-10T10:00:00Z"), user);
 
-    const june = await generatePayroll({
+    const { payroll: june } = await generatePayroll({
       employeeId: emp.id,
       periodStart: new Date("2026-06-01"),
       periodEnd: new Date("2026-06-30"),
@@ -131,7 +131,7 @@ describe("Payroll advance / debt allocation", () => {
     await approvePayroll(june.id, user.id);
 
     // July salary still 25,000, previous debt 5,000 => net payable 20,000
-    const july = await generatePayroll({
+    const { payroll: july } = await generatePayroll({
       employeeId: emp.id,
       periodStart: new Date("2026-07-01"),
       periodEnd: new Date("2026-07-31"),
@@ -162,7 +162,7 @@ describe("Payroll advance / debt allocation", () => {
   it("does not allocate an advance twice across payrolls", async () => {
     await addAdvance(emp.id, 10000, new Date("2026-06-10T10:00:00Z"), user);
 
-    const june = await generatePayroll({
+    const { payroll: june } = await generatePayroll({
       employeeId: emp.id,
       periodStart: new Date("2026-06-01"),
       periodEnd: new Date("2026-06-30"),
@@ -170,7 +170,7 @@ describe("Payroll advance / debt allocation", () => {
     });
     await approvePayroll(june.id, user.id);
 
-    const july = await generatePayroll({
+    const { payroll: july } = await generatePayroll({
       employeeId: emp.id,
       periodStart: new Date("2026-07-01"),
       periodEnd: new Date("2026-07-31"),
@@ -190,7 +190,7 @@ describe("Payroll advance / debt allocation", () => {
     const clean = await makeEmployee(user.id, { fullName: "Clean Emp" });
     await addSalary(clean.id, 25000);
 
-    const payroll = await generatePayroll({
+    const { payroll } = await generatePayroll({
       employeeId: clean.id,
       periodStart: new Date("2026-06-01"),
       periodEnd: new Date("2026-06-30"),
@@ -251,7 +251,7 @@ describe("Attendance schedule & overtime", () => {
       },
     });
 
-    const payroll = await generatePayroll({
+    const { payroll } = await generatePayroll({
       employeeId: emp.id,
       periodStart: new Date("2026-06-01"),
       periodEnd: new Date("2026-06-30"),
@@ -276,7 +276,7 @@ describe("Payroll correction (revert)", () => {
   });
 
   it("revert returns an approved payroll to DRAFT and removes settlement", async () => {
-    const payroll = await generatePayroll({
+    const { payroll } = await generatePayroll({
       employeeId: emp.id,
       periodStart: new Date("2026-06-01"),
       periodEnd: new Date("2026-06-30"),
@@ -302,7 +302,7 @@ describe("Payroll correction (revert)", () => {
     });
     expect(paidAfter).toBe(0);
 
-    const regen = await generatePayroll({
+    const { payroll: regen } = await generatePayroll({
       employeeId: emp.id,
       periodStart: new Date("2026-06-01"),
       periodEnd: new Date("2026-06-30"),
@@ -313,7 +313,7 @@ describe("Payroll correction (revert)", () => {
   });
 
   it("cannot revert a draft payroll", async () => {
-    const payroll = await generatePayroll({
+    const { payroll } = await generatePayroll({
       employeeId: emp.id,
       periodStart: new Date("2026-06-01"),
       periodEnd: new Date("2026-06-30"),

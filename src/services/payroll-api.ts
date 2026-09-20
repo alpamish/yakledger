@@ -48,6 +48,7 @@ async function request<T>(
 
 export interface PayrollListParams {
   status?: string;
+  search?: string;
   page?: number;
   pageSize?: number;
 }
@@ -60,6 +61,20 @@ export interface PayrollGenerateBody {
   bonusesMinor?: number;
   deductionsMinor?: number;
   walletId?: string;
+  deductExpenses?: boolean;
+  workDays?: number;
+}
+
+export interface UpdatePayrollLineBody {
+  lineId: string;
+  overtimeHours?: number;
+  allowancesMinor?: number;
+  bonusesMinor?: number;
+  deductionsMinor?: number;
+  netPayableMinor?: number;
+  remainingEmployeeDebtMinor?: number;
+  deductExpenses?: boolean;
+  walletId?: string;
 }
 
 export const payrollApi = {
@@ -68,6 +83,7 @@ export const payrollApi = {
   ): Promise<ApiResponse<any>> => {
     const qs = new URLSearchParams();
     if (params.status) qs.set("status", params.status);
+    if (params.search) qs.set("search", params.search);
     if (params.page) qs.set("page", String(params.page));
     if (params.pageSize) qs.set("pageSize", String(params.pageSize));
     const q = qs.toString();
@@ -97,4 +113,10 @@ export const payrollApi = {
       method: "POST",
       body: JSON.stringify({ action: "revert", payrollId, reason }),
     }),
+
+  delete: async (id: string): Promise<ApiResponse<any>> =>
+    request(`/payroll/${id}`, { method: "DELETE" }),
+
+  updateLine: async (payrollId: string, data: UpdatePayrollLineBody): Promise<ApiResponse<any>> =>
+    request(`/payroll/${payrollId}`, { method: "PATCH", body: JSON.stringify(data) }),
 };

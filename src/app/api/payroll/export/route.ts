@@ -30,7 +30,7 @@ export async function GET(request: NextRequest) {
       where,
       include: {
         employee: {
-          select: { id: true, fullName: true, employeeNumber: true, department: true },
+          select: { id: true, fullName: true, employeeNumber: true, department: true, jobTitle: true },
         },
         lines: true,
         wallet: { select: { id: true, name: true, currency: true } },
@@ -52,6 +52,7 @@ export async function GET(request: NextRequest) {
       "Period End",
       "Status",
       "Gross (AFN)",
+      "Employee Expenses (AFN)",
       "Already Received (AFN)",
       "Previous Debt (AFN)",
       "Net Payable (AFN)",
@@ -73,6 +74,7 @@ export async function GET(request: NextRequest) {
           p.periodEnd.toISOString().slice(0, 10),
           p.status,
           (l.grossPayMinor ?? 0) / 100,
+          (l.expensesPaidMinor ?? 0) / 100,
           (l.amountAlreadyReceivedMinor ?? 0) / 100,
           (l.previousDebtMinor ?? 0) / 100,
           (l.netPayableMinor ?? 0) / 100,

@@ -5,6 +5,7 @@ import { requirePermission, checkUserPermission } from "@/lib/permissions";
 import { Prisma } from "@prisma/client";
 import { buildAccessScope, withScope } from "@/lib/access-control";
 import { sanitizeSalaryFields } from "@/services/hr.service";
+import { generateEmployeeNumber } from "@/lib/employee-number";
 
 const DEPARTMENT_VALUES = [
   "ADMINISTRATION", "FINANCE", "OPERATIONS", "ENGINEERING",
@@ -180,6 +181,8 @@ export async function POST(request: NextRequest) {
     const data = parsed.data;
 
     const employee = await db.$transaction(async (tx) => {
+      const employeeNumber = await generateEmployeeNumber(tx);
+
       const created = await tx.employee.create({
         data: {
           fullName: data.fullName,
@@ -205,6 +208,7 @@ export async function POST(request: NextRequest) {
           idImageBack: data.idImageBack ?? null,
           emergencyContactName: data.emergencyContactName ?? null,
           emergencyContactPhone: data.emergencyContactPhone ?? null,
+          employeeNumber,
           createdBy: user.id,
         },
         include: {

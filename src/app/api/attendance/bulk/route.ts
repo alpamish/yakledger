@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/permissions";
 import { buildAccessScope, withScope, resolveApprovalStatusOnCreate, resolveApprovalStatusOnEdit, APPROVED } from "@/lib/access-control";
+import { format } from "date-fns";
 
 const ATTENDANCE_STATUSES = ["PRESENT", "ABSENT", "HALF_DAY", "LEAVE", "HOLIDAY"] as const;
 const VALID_STATUSES = new Set(ATTENDANCE_STATUSES);
@@ -19,6 +20,16 @@ export async function POST(request: NextRequest) {
     if (!Array.isArray(records) || records.length === 0) {
       return NextResponse.json(
         { success: false, error: "Records array is required and must not be empty" },
+        { status: 400 }
+      );
+    }
+
+    // Validate all records are for today only
+    const today = format(new Date(), 'yyyy-MM-dd');
+    const nonTodayRecords = records.filter((r: { date?: string }) => r.date && r.date !== today);
+    if (nonTodayRecords.length > 0) {
+      return NextResponse.json(
+        { success: false, error: "Bulk attendance is only allowed for the current date" },
         { status: 400 }
       );
     }

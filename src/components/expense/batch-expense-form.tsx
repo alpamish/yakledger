@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
+import { useState, useCallback, useMemo, useEffect, useRef, memo } from 'react';
 import {
   useReactTable,
   getCoreRowModel,
@@ -54,7 +54,10 @@ import {
   ChevronDown,
   Calendar,
   Receipt,
+  TableIcon,
 } from 'lucide-react';
+import ExpenseItemsModal from '@/components/expense/expense-items-modal';
+import type { ExpenseItem } from '@/types/expense';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import { useBulkCreateExpenses } from '@/hooks/use-expense-query';
@@ -69,6 +72,7 @@ import {
   PAYMENT_METHODS,
   CATEGORY_LABELS,
   PAYMENT_METHOD_LABELS,
+  CATEGORY_DEFAULT_ITEMS,
 } from '@/types/expense';
 import { DEPARTMENT_LABELS, EMPLOYEE_STATUS_LABELS } from '@/types/employee';
 import { CONTRACTOR_STATUS_LABELS } from '@/types/contractor';
@@ -92,6 +96,8 @@ interface BatchExpenseRow {
   walletId?: string;
   deductFromWallet: boolean;
   notes: string;
+  tags: string;
+  description: string;
 }
 
 interface BatchExpenseFormProps {
@@ -118,6 +124,53 @@ const PAID_TO_MODES: { value: PaidToMode; label: string }[] = [
   { value: 'contractor', label: 'Contractor' },
   { value: 'custom', label: 'External' },
 ];
+
+interface EditTextCellProps {
+  value: string;
+  rowIndex: number;
+  field: 'title' | 'notes' | 'tags';
+  placeholder?: string;
+  className?: string;
+  onUpdate: (index: number, field: keyof BatchExpenseRow, value: string | number | boolean | undefined) => void;
+}
+
+const EditTextCell = memo(function EditTextCell({
+  value,
+  rowIndex,
+  field,
+  placeholder = '—',
+  className = 'h-8 border-0 shadow-none focus-visible:ring-1 bg-transparent px-1 text-xs',
+  onUpdate,
+}: EditTextCellProps) {
+  const [draft, setDraft] = useState(value);
+
+  useEffect(() => {
+    setDraft(value);
+  }, [value]);
+
+  const commit = useCallback(() => {
+    if (draft !== value) {
+      onUpdate(rowIndex, field, draft);
+    }
+  }, [draft, value, rowIndex, field, onUpdate]);
+
+  return (
+    <Input
+      value={draft}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          commit();
+          (e.target as HTMLInputElement).blur();
+        }
+      }}
+      placeholder={placeholder}
+      className={className}
+    />
+  );
+});
 
 interface PaidByCellProps {
   value: string;
@@ -381,6 +434,8 @@ function generateId() {
   return `batch_exp_${Date.now()}_${idCounter}`;
 }
 
+const coreRowModel = getCoreRowModel();
+
 function createEmptyRow(
   date: string,
   overrides?: Partial<BatchExpenseRow>
@@ -400,6 +455,8 @@ function createEmptyRow(
     walletId: overrides?.walletId,
     deductFromWallet: overrides?.deductFromWallet ?? true,
     notes: overrides?.notes ?? '',
+    tags: overrides?.tags ?? '',
+    description: overrides?.description ?? '',
   };
 }
 
@@ -419,6 +476,9 @@ export function BatchExpenseForm({ open, onOpenChange, onSuccess }: BatchExpense
   const [globalWalletId, setGlobalWalletId] = useState('');
   const [globalDeductFromWallet, setGlobalDeductFromWallet] = useState(true);
   const [globalNotes, setGlobalNotes] = useState('');
+  const [globalTags, setGlobalTags] = useState('');
+  const [itemsModalOpen, setItemsModalOpen] = useState(false);
+  const [activeRowIndex, setActiveRowIndex] = useState<number | null>(null);
   const [employeeList, setEmployeeList] = useState<
     ReturnType<typeof useEmployeeStore.getState>['employeeList']
   >([]);
@@ -623,35 +683,72 @@ export function BatchExpenseForm({ open, onOpenChange, onSuccess }: BatchExpense
     setRows((prev) => prev.map((r) => ({ ...r, notes: value })));
   }, []);
 
+  const handleGlobalTagsChange = useCallback((value: string) => {
+    setGlobalTags(value);
+    setRows((prev) => prev.map((r) => ({ ...r, tags: value })));
+  }, []);
+
   const updateItem = useCallback(
     (index: number, field: keyof BatchExpenseRow, value: string | number | boolean | undefined) => {
       setRows((prev) => {
-        const updated = prev.map((r) => ({ ...r }));
-        const target = updated[index];
+        const target = prev[index];
         if (!target) return prev;
+
+        let newRow = { ...target };
+
         if (field === 'walletId') {
           const walletValue = value ? String(value) : '';
-          target.walletId = walletValue || undefined;
-          target.deductFromWallet = walletValue ? false : true;
-          // When a company wallet is selected and no payer has been chosen yet,
-          // default the payer to the current user.
-          if (walletValue && !target.paidById && !target.paidBy) {
-            target.paidBy = useExpenseStore.getState().user?.name ?? '';
+          newRow.walletId = walletValue || undefined;
+          newRow.deductFromWallet = walletValue ? false : true;
+          if (walletValue && !newRow.paidById && !newRow.paidBy) {
+            newRow.paidBy = useExpenseStore.getState().user?.name ?? '';
           }
         } else if (field === 'paidById') {
-          target.paidById = value ? String(value) : undefined;
+          newRow.paidById = value ? String(value) : undefined;
         } else if (field === 'paidToId') {
-          target.paidToId = value ? String(value) : undefined;
-          if (value) target.paidToContractorId = undefined;
+          newRow.paidToId = value ? String(value) : undefined;
+          if (value) newRow.paidToContractorId = undefined;
         } else if (field === 'paidToContractorId') {
-          target.paidToContractorId = value ? String(value) : undefined;
-          if (value) target.paidToId = undefined;
+          newRow.paidToContractorId = value ? String(value) : undefined;
+          if (value) newRow.paidToId = undefined;
         } else if (field === 'amount') {
-          target.amount = Number(value) || 0;
+          newRow.amount = Number(value) || 0;
         } else {
-          (target as any)[field] = value;
+          (newRow as any)[field] = value;
         }
-        return updated;
+
+        if ((field === 'category' || field === 'amount') && newRow.category && newRow.amount > 0 && !newRow.description) {
+          const defaults = CATEGORY_DEFAULT_ITEMS[newRow.category as Category];
+          if (defaults) {
+            const item: ExpenseItem = {
+              id: `auto_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+              itemName: defaults.itemName,
+              quantity: 1,
+              unit: defaults.unit,
+              unitPrice: newRow.amount,
+              total: newRow.amount,
+            };
+            newRow = { ...newRow, description: JSON.stringify([item]) };
+          }
+        }
+
+        if (field === 'amount' && newRow.amount > 0 && newRow.description) {
+          try {
+            const parsed = JSON.parse(newRow.description);
+            if (Array.isArray(parsed) && parsed.length === 1 && parsed[0].id?.startsWith('auto_')) {
+              const updated = parsed.map((item: ExpenseItem) => ({
+                ...item,
+                unitPrice: newRow.amount,
+                total: newRow.amount * item.quantity,
+              }));
+              newRow = { ...newRow, description: JSON.stringify(updated) };
+            }
+          } catch {
+            // Not valid JSON, skip
+          }
+        }
+
+        return prev.map((r, i) => (i === index ? newRow : r));
       });
     },
     []
@@ -678,9 +775,10 @@ export function BatchExpenseForm({ open, onOpenChange, onSuccess }: BatchExpense
         walletId: globalWalletId || undefined,
         deductFromWallet: globalWalletId ? false : globalDeductFromWallet,
         notes: globalNotes,
+        tags: globalTags,
       }),
     ]);
-  }, [globalDate, globalCategory, globalPaymentMethod, globalPaidTo, globalPaidToId, globalPaidToContractorId, globalPaidBy, globalPaidById, globalWalletId, globalDeductFromWallet, globalNotes]);
+  }, [globalDate, globalCategory, globalPaymentMethod, globalPaidTo, globalPaidToId, globalPaidToContractorId, globalPaidBy, globalPaidById, globalWalletId, globalDeductFromWallet, globalNotes, globalTags]);
 
   const columns = useMemo<ColumnDef<BatchExpenseRow>[]>(
     () => [
@@ -699,11 +797,11 @@ export function BatchExpenseForm({ open, onOpenChange, onSuccess }: BatchExpense
         id: 'title',
         header: 'Title *',
         cell: ({ row }) => (
-          <Input
+          <EditTextCell
             value={row.original.title}
-            onChange={(e) => updateItem(row.index, 'title', e.target.value)}
-            placeholder="—"
-            className="h-8 border-0 shadow-none focus-visible:ring-1 bg-transparent px-1 text-xs"
+            rowIndex={row.index}
+            field="title"
+            onUpdate={updateItem}
           />
         ),
         size: 180,
@@ -728,7 +826,7 @@ export function BatchExpenseForm({ open, onOpenChange, onSuccess }: BatchExpense
             </SelectContent>
           </Select>
         ),
-        size: 150,
+        size: 90,
       },
       {
         id: 'amount',
@@ -860,14 +958,58 @@ export function BatchExpenseForm({ open, onOpenChange, onSuccess }: BatchExpense
         id: 'notes',
         header: 'Notes',
         cell: ({ row }) => (
-          <Input
+          <EditTextCell
             value={row.original.notes}
-            onChange={(e) => updateItem(row.index, 'notes', e.target.value)}
-            placeholder="—"
-            className="h-8 border-0 shadow-none focus-visible:ring-1 bg-transparent px-1 text-xs"
+            rowIndex={row.index}
+            field="notes"
+            onUpdate={updateItem}
           />
         ),
         size: 120,
+      },
+      {
+        id: 'tags',
+        header: 'Tags',
+        cell: ({ row }) => (
+          <EditTextCell
+            value={row.original.tags}
+            rowIndex={row.index}
+            field="tags"
+            placeholder="tag1, tag2"
+            onUpdate={updateItem}
+          />
+        ),
+        size: 120,
+      },
+      {
+        id: 'items',
+        header: 'Items',
+        cell: ({ row }) => {
+          const count = (() => {
+            try {
+              const parsed = JSON.parse(row.original.description);
+              return Array.isArray(parsed) ? parsed.length : 0;
+            } catch {
+              return 0;
+            }
+          })();
+          return (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-7 text-xs px-2"
+              onClick={() => {
+                setActiveRowIndex(row.index);
+                setItemsModalOpen(true);
+              }}
+            >
+              <TableIcon className="mr-1 h-3 w-3" />
+              {count > 0 ? `Items (${count})` : '+ Items'}
+            </Button>
+          );
+        },
+        size: 100,
       },
       {
         id: 'actions',
@@ -893,10 +1035,23 @@ export function BatchExpenseForm({ open, onOpenChange, onSuccess }: BatchExpense
   const table = useReactTable({
     data: rows,
     columns,
-    getCoreRowModel: getCoreRowModel(),
+    getCoreRowModel: coreRowModel,
+    getRowId: (row) => row.id,
   });
 
-  const navigableColumnIds = ['title', 'category', 'amount', 'paymentMethod', 'paidTo', 'paidBy', 'expenseDate', 'walletId', 'notes'];
+  const navigableColumnIds = ['title', 'category', 'amount', 'paymentMethod', 'paidTo', 'paidBy', 'expenseDate', 'walletId', 'notes', 'tags'];
+
+  const activeRowDescription = activeRowIndex !== null ? rows[activeRowIndex]?.description : undefined;
+
+  const modalItems: ExpenseItem[] = useMemo(() => {
+    if (!activeRowDescription) return [];
+    try {
+      const parsed = JSON.parse(activeRowDescription);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }, [activeRowDescription]);
 
   useEffect(() => {
     const target = focusAfterRender.current;
@@ -991,6 +1146,14 @@ export function BatchExpenseForm({ open, onOpenChange, onSuccess }: BatchExpense
     [rows]
   );
 
+  const handleSaveItems = useCallback((description: string) => {
+    if (activeRowIndex !== null) {
+      updateItem(activeRowIndex, 'description', description);
+    }
+    setItemsModalOpen(false);
+    setActiveRowIndex(null);
+  }, [activeRowIndex, updateItem]);
+
   const handleSubmit = useCallback(async () => {
     if (useShamsi) {
       const g = shamsiToGregorian(globalShamsiDate);
@@ -1038,6 +1201,8 @@ export function BatchExpenseForm({ open, onOpenChange, onSuccess }: BatchExpense
         walletId: r.walletId ?? null,
         deductFromWallet: r.walletId ? false : r.deductFromWallet,
         notes: r.notes || null,
+        tags: r.tags || null,
+        description: r.description || null,
       }));
 
       const res = await bulkCreateExpenses.mutateAsync(records);
@@ -1053,6 +1218,7 @@ export function BatchExpenseForm({ open, onOpenChange, onSuccess }: BatchExpense
   }, [rows, useShamsi, globalShamsiDate, bulkCreateExpenses, onSuccess, onOpenChange]);
 
   return (
+    <>
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[98vw] max-h-[90vh] flex flex-col">
         <DialogHeader>
@@ -1366,6 +1532,16 @@ export function BatchExpenseForm({ open, onOpenChange, onSuccess }: BatchExpense
               placeholder="—"
             />
           </div>
+
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-muted-foreground whitespace-nowrap">Tags:</span>
+            <Input
+              value={globalTags}
+              onChange={(e) => handleGlobalTagsChange(e.target.value)}
+              className="h-8 w-[140px] text-xs"
+              placeholder="tag1, tag2"
+            />
+          </div>
         </div>
 
         {/* Toolbar */}
@@ -1487,5 +1663,12 @@ export function BatchExpenseForm({ open, onOpenChange, onSuccess }: BatchExpense
         </DialogFooter>
       </DialogContent>
     </Dialog>
+    <ExpenseItemsModal
+      open={itemsModalOpen}
+      onOpenChange={setItemsModalOpen}
+      items={modalItems}
+      onSave={handleSaveItems}
+    />
+    </>
   );
 }

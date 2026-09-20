@@ -4,6 +4,7 @@ export const CATEGORIES = [
   "FUEL",
   "SALARY",
   "MAINTENANCE",
+  "REPAIR",
   "TRANSPORTATION",
   "MACHINERY",
   "MACHINERY_TRANSPORTATION",
@@ -134,10 +135,10 @@ export interface UserPermissionInfo {
 export type PermissionsMap = Record<string, boolean>;
 
 export const UNIT_OPTIONS = [
-  "pcs", "unit", "ea", "pair", "set", "box", "carton", "pack", "packet",
-  "bundle", "roll", "doz", "gross", "pallet", "bag", "sack", "bottle",
-  "can", "barrel", "tube", "sheet", "block", "gram",
-  "kg", "liter", "meter", "hour", "day", "month", "other"
+  "unit", "ea", "pcs", "kg", "gram", "liter", "meter",
+  "pair", "set", "box", "pack", "packet", "bundle", "roll", "carton",
+  "bag", "sack", "bottle", "can", "barrel", "tube", "sheet", "block",
+  "doz", "gross", "pallet", "hour", "day", "month", "other"
 ] as const;
 
 export type Unit = (typeof UNIT_OPTIONS)[number];
@@ -434,6 +435,7 @@ export const CATEGORY_LABELS: Record<Category, string> = {
   FUEL: "Fuel",
   SALARY: "Salary",
   MAINTENANCE: "Maintenance",
+  REPAIR: "Repair",
   TRANSPORTATION: "Transportation",
   MACHINERY: "Machinery",
   MACHINERY_TRANSPORTATION: "Machinery Transportation",
@@ -465,6 +467,7 @@ export const CATEGORY_COLORS: Record<Category, string> = {
   FUEL: "#ef4444",
   SALARY: "#3b82f6",
   MAINTENANCE: "#f59e0b",
+  REPAIR: "#eab308",
   TRANSPORTATION: "#10b981",
   MACHINERY: "#8b5cf6",
   MACHINERY_TRANSPORTATION: "#ec4899",
@@ -480,4 +483,26 @@ export const CATEGORY_COLORS: Record<Category, string> = {
   UTILITIES: "#0ea5e9",
   TRAVEL: "#f43f5e",
   MISCELLANEOUS: "#78716c",
+};
+
+export const CATEGORY_DEFAULT_ITEMS: Partial<Record<Category, { itemName: string; unit: Unit }>> = {
+  FUEL:                     { itemName: "Fuel",                     unit: "liter" },
+  SALARY:                   { itemName: "Salary",                   unit: "month" },
+  MAINTENANCE:              { itemName: "Maintenance",              unit: "pcs" },
+  REPAIR:                   { itemName: "Repair",                   unit: "pcs" },
+  TRANSPORTATION:           { itemName: "Transportation",           unit: "other" },
+  MACHINERY:                { itemName: "Machinery",                unit: "pcs" },
+  MACHINERY_TRANSPORTATION: { itemName: "Machinery Transportation", unit: "other" },
+  FOOD:                     { itemName: "Food",                     unit: "kg" },
+  MATERIALS:                { itemName: "Materials",                unit: "pcs" },
+  EQUIPMENT_RENTAL:         { itemName: "Equipment Rental",         unit: "day" },
+  OFFICE_EXPENSE:           { itemName: "Office Expense",           unit: "pcs" },
+  REWARD:                   { itemName: "Reward",                   unit: "other" },
+  BONUS:                    { itemName: "Bonus",                    unit: "other" },
+  MEDICATION:               { itemName: "Medication",               unit: "other" },
+  LOG:                      { itemName: "Log",                      unit: "other" },
+  RENT:                     { itemName: "Rent",                     unit: "month" },
+  UTILITIES:                { itemName: "Utilities",                unit: "other" },
+  TRAVEL:                   { itemName: "Travel",                   unit: "day" },
+  MISCELLANEOUS:            { itemName: "Miscellaneous",            unit: "pcs" },
 };

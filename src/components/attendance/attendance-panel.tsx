@@ -524,16 +524,12 @@ export function AttendancePanel() {
               Mark All Active Employees
             </CardTitle>
             <CardDescription>
-              Mark attendance for all {bulkEmployeeIds.length} active employees at once
+              Mark attendance for all {bulkEmployeeIds.length} active employees for today only
             </CardDescription>
           </CardHeader>
           <CardContent>
             <BulkAttendanceForm
               employeeIds={bulkEmployeeIds}
-              dateFrom={quickDateFrom}
-              dateTo={quickDateTo}
-              onDateFromChange={setQuickDateFrom}
-              onDateToChange={setQuickDateTo}
               onSuccess={() => {
                 if (targetEmployeeId) fetchRecords();
               }}

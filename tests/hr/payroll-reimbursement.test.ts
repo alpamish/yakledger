@@ -93,7 +93,7 @@ describe("Payroll reimbursements (approved employee-paid expenses)", () => {
   it("settles an approved employee-paid expense through net payable", async () => {
     await addEmployeePaidExpense(emp.id, user, 1000, new Date("2026-06-10"));
 
-    const payroll = await generatePayroll({
+    const { payroll } = await generatePayroll({
       employeeId: emp.id,
       periodStart: new Date("2026-06-01"),
       periodEnd: new Date("2026-06-30"),
@@ -119,7 +119,7 @@ describe("Payroll reimbursements (approved employee-paid expenses)", () => {
   it("does not reimburse the same expense twice across payrolls", async () => {
     await addEmployeePaidExpense(emp.id, user, 1000, new Date("2026-06-10"));
 
-    const june = await generatePayroll({
+    const { payroll: june } = await generatePayroll({
       employeeId: emp.id,
       periodStart: new Date("2026-06-01"),
       periodEnd: new Date("2026-06-30"),
@@ -134,7 +134,7 @@ describe("Payroll reimbursements (approved employee-paid expenses)", () => {
     });
 
     // July: previous debt = 26,000 received - 25,000 earned - 1,000 debit = 0.
-    const july = await generatePayroll({
+    const { payroll: july } = await generatePayroll({
       employeeId: emp.id,
       periodStart: new Date("2026-07-01"),
       periodEnd: new Date("2026-07-31"),
@@ -157,7 +157,7 @@ describe("Payroll reimbursements (approved employee-paid expenses)", () => {
     await addAdvance(emp.id, 30000, new Date("2026-06-10T10:00:00Z"), user);
     await addEmployeePaidExpense(emp.id, user, 1000, new Date("2026-06-12"));
 
-    const payroll = await generatePayroll({
+    const { payroll } = await generatePayroll({
       employeeId: emp.id,
       periodStart: new Date("2026-06-01"),
       periodEnd: new Date("2026-06-30"),
@@ -180,7 +180,7 @@ describe("Payroll reimbursements (approved employee-paid expenses)", () => {
   it("pays out a large employee-paid expense above the salary in full", async () => {
     await addEmployeePaidExpense(emp.id, user, 50000, new Date("2026-06-10"));
 
-    const payroll = await generatePayroll({
+    const { payroll } = await generatePayroll({
       employeeId: emp.id,
       periodStart: new Date("2026-06-01"),
       periodEnd: new Date("2026-06-30"),

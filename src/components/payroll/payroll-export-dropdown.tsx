@@ -16,15 +16,15 @@ import {
 import { getToken } from "@/services/api";
 import { settingsApi } from "@/services/settings";
 import { usePermissions } from "@/hooks/use-permissions";
+import { formatMinor, fromMinor } from "@/lib/money";
 import { toast } from "sonner";
 import { Download, FileSpreadsheet, FileText, Loader2, ChevronDown } from "lucide-react";
 import PayrollPDFDocument from "@/components/pdf/payroll-pdf-document";
+import PayrollSummaryPDFDocument from "@/components/pdf/payroll-summary-pdf-document";
 
 interface ExportDropdownProps {
   status?: string;
 }
-
-const fmt = (minor?: number) => ((minor ?? 0) / 100).toFixed(2);
 
 function buildExcel(rows: any[]) {
   const dataRows = rows.flatMap((p: any) =>
@@ -35,11 +35,11 @@ function buildExcel(rows: any[]) {
       "Period Start": p.periodStart?.slice(0, 10) ?? "",
       "Period End": p.periodEnd?.slice(0, 10) ?? "",
       "Status": p.status ?? "",
-      "Gross (AFN)": Number(fmt(l.grossPayMinor)),
-      "Already Received (AFN)": Number(fmt(l.amountAlreadyReceivedMinor)),
-      "Previous Debt (AFN)": Number(fmt(l.previousDebtMinor)),
-      "Net Payable (AFN)": Number(fmt(l.netPayableMinor)),
-      "Remaining Debt (AFN)": Number(fmt(l.remainingEmployeeDebtMinor)),
+      "Gross (AFN)": Number(fromMinor(l.grossPayMinor).toFixed(2)),
+      "Already Received (AFN)": Number(fromMinor(l.amountAlreadyReceivedMinor).toFixed(2)),
+      "Previous Debt (AFN)": Number(fromMinor(l.previousDebtMinor).toFixed(2)),
+      "Net Payable (AFN)": Number(fromMinor(l.netPayableMinor).toFixed(2)),
+      "Remaining Debt (AFN)": Number(fromMinor(l.remainingEmployeeDebtMinor).toFixed(2)),
       "Payment Status": l.paymentStatus ?? "",
       "Payment Method": l.paymentMethod ?? "",
       "Wallet": p.wallet?.name ?? "",
@@ -73,11 +73,11 @@ function buildExcel(rows: any[]) {
     { Metric: "Payroll Records", Value: rows.length },
     { Metric: "Paid Lines", Value: totals.paid },
     { Metric: "Unpaid Lines", Value: totals.unpaid },
-    { Metric: "Total Gross (AFN)", Value: Number(fmt(totals.gross)) },
-    { Metric: "Total Already Received (AFN)", Value: Number(fmt(totals.received)) },
-    { Metric: "Total Previous Debt (AFN)", Value: Number(fmt(totals.prevDebt)) },
-    { Metric: "Total Net Payable (AFN)", Value: Number(fmt(totals.netPayable)) },
-    { Metric: "Total Remaining Debt (AFN)", Value: Number(fmt(totals.remaining)) },
+    { Metric: "Total Gross (AFN)", Value: Number(fromMinor(totals.gross).toFixed(2)) },
+    { Metric: "Total Already Received (AFN)", Value: Number(fromMinor(totals.received).toFixed(2)) },
+    { Metric: "Total Previous Debt (AFN)", Value: Number(fromMinor(totals.prevDebt).toFixed(2)) },
+    { Metric: "Total Net Payable (AFN)", Value: Number(fromMinor(totals.netPayable).toFixed(2)) },
+    { Metric: "Total Remaining Debt (AFN)", Value: Number(fromMinor(totals.remaining).toFixed(2)) },
   ];
   const ws2 = XLSX.utils.json_to_sheet(summaryRows);
   ws2["!cols"] = [{ wch: 30 }, { wch: 20 }];
@@ -172,6 +172,27 @@ export function PayrollExportDropdown({ status }: ExportDropdownProps) {
     }
   }, [fetchJson, status, companyName]);
 
+  const handleSummaryPdf = useCallback(async () => {
+    setBusy("pdf-summary");
+    try {
+      const rows = await fetchJson();
+      const blob = await pdf(
+        <PayrollSummaryPDFDocument rows={rows} status={status} companyName={companyName} />
+      ).toBlob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `payroll-summary-${format(new Date(), "yyyy-MM-dd")}.pdf`;
+      a.click();
+      window.URL.revokeObjectURL(url);
+      toast.success("Payroll Summary PDF downloaded");
+    } catch (e: any) {
+      toast.error(e?.message || "PDF export failed");
+    } finally {
+      setBusy(null);
+    }
+  }, [fetchJson, status, companyName]);
+
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -199,7 +220,13 @@ export function PayrollExportDropdown({ status }: ExportDropdownProps) {
         {canPdf && (
           <DropdownMenuItem onClick={handlePdf}>
             <FileText className="mr-2 h-4 w-4 text-red-500" />
-            PDF
+            PDF (Full)
+          </DropdownMenuItem>
+        )}
+        {canPdf && (
+          <DropdownMenuItem onClick={handleSummaryPdf}>
+            <FileText className="mr-2 h-4 w-4 text-orange-500" />
+            PDF (Summary)
           </DropdownMenuItem>
         )}
       </DropdownMenuContent>

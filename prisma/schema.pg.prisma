@@ -16,6 +16,7 @@ enum Category {
   FUEL
   SALARY
   MAINTENANCE
+  REPAIR
   TRANSPORTATION
   MACHINERY
   MACHINERY_TRANSPORTATION
@@ -26,6 +27,10 @@ enum Category {
   REWARD
   BONUS
   MEDICATION
+  LOG
+  RENT
+  UTILITIES
+  TRAVEL
   MISCELLANEOUS
 }
 
@@ -522,12 +527,15 @@ model PayrollLine {
   baseSalaryMinor     Int      @default(0)
   currency            String   @default("AFN")
   attendanceDays      Float    @default(0)
+  workDays            Int      @default(0)
   overtimeHours       Float    @default(0)
   overtimePayMinor    Int      @default(0)
   allowancesMinor     Int      @default(0)
   bonusesMinor        Int      @default(0)
   deductionsMinor     Int      @default(0)
   grossPayMinor       Int      @default(0)
+  expensesPaidMinor   Int      @default(0)
+  deductExpenses      Boolean  @default(true)
   amountAlreadyReceivedMinor Int @default(0)
   previousDebtMinor   Int      @default(0)
   advancesDeductedMinor Int     @default(0)
