@@ -55,6 +55,7 @@ model User {
   payrollPaymentsCreated     PayrollPayment[]     @relation("PayrollPaymentCreator")
   accountingEntriesPosted    AccountingEntry[]    @relation("AccountingEntryPoster")
   payrollAdjustmentsCreated  PayrollAdjustment[]  @relation("PayrollAdjustmentCreator")
+  payrollAuditLogs           PayrollAuditLog[]
 }
 
 model RecordAccess {
@@ -498,6 +499,29 @@ model PayrollAdvanceAllocation {
   @@unique([payrollId, cashTransactionId])
   @@index([payrollId])
   @@index([cashTransactionId])
+}
+
+// Every payroll change records who changed it and when (Plan-payroll.pdf
+// §2 action 13). `oldValues` (JSON snapshot) are retained only for Admin
+// changes. payrollId/employeeId are plain columns — deliberately not
+// relations — so the trail survives an Admin deleting the payroll record
+// (§2 action 14).
+model PayrollAuditLog {
+  id         String   @id @default(cuid())
+  payrollId  String?
+  employeeId String?
+  action     String
+  summary    String?
+  oldValues  String?
+  newValues  String?
+  reason     String?
+  userId     String?
+  user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  createdAt  DateTime @default(now())
+
+  @@index([payrollId, createdAt])
+  @@index([employeeId, createdAt])
+  @@index([userId])
 }
 
 // --- HR: Audit trail for important employee changes ---

@@ -32,7 +32,7 @@ export async function PATCH(
       ...(d.remainingEmployeeDebtMinor !== undefined && { remainingEmployeeDebtMinor: toMinor(d.remainingEmployeeDebtMinor) }),
       ...(d.deductExpenses !== undefined && { deductExpenses: d.deductExpenses }),
       ...(d.walletId !== undefined && { walletId: d.walletId }),
-    });
+    }, result.user.id);
 
     return NextResponse.json({ success: true, data: updated });
   } catch (e: any) {
@@ -53,7 +53,7 @@ export async function DELETE(
   const user = result.user;
 
   try {
-    await deletePayroll(id, user.id);
+    await deletePayroll(id, user.id, user.role);
     return NextResponse.json({
       success: true,
       message: "Payroll record deleted",

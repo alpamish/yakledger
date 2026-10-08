@@ -232,6 +232,55 @@ export async function getEmployeeAssignmentAtDate(
  * Returns `{ payroll, created }` where `created` indicates whether a new
  * record was generated.
  */
+/**
+ * Record who changed a payroll and when (Plan-payroll.pdf §2 action 13).
+ *
+ * `oldValues` (JSON snapshot of the previous state) are retained only for
+ * Admin changes; every other role logs the action itself without the previous
+ * state. Accepts either the root client or an open transaction so the audit
+ * row commits atomically with the change it describes.
+ */
+export async function logPayrollChange(
+  tx: typeof db | Prisma.TransactionClient,
+  data: {
+    payrollId?: string | null;
+    employeeId?: string | null;
+    action: string;
+    summary?: string | null;
+    oldValues?: unknown;
+    newValues?: unknown;
+    reason?: string | null;
+    userId: string | null;
+    /** Pass when the caller already knows the actor's role (saves a lookup). */
+    actorRole?: string;
+  }
+): Promise<void> {
+  const role =
+    data.actorRole ??
+    (data.userId
+      ? (
+          await tx.user.findUnique({
+            where: { id: data.userId },
+            select: { role: true },
+          })
+        )?.role
+      : undefined);
+  const retainOldValues = role === "ADMIN" && data.oldValues !== undefined;
+  await tx.payrollAuditLog.create({
+    data: {
+      payrollId: data.payrollId ?? null,
+      employeeId: data.employeeId ?? null,
+      action: data.action,
+      summary: data.summary ?? null,
+      oldValues: retainOldValues ? JSON.stringify(data.oldValues) : null,
+      newValues:
+        data.newValues !== undefined ? JSON.stringify(data.newValues) : null,
+      reason: data.reason ?? null,
+      userId: data.userId,
+    },
+  });
+}
+
 export async function generatePayroll(params: {
   employeeId: string;
   periodStart: Date | string;
@@ -379,6 +428,19 @@ export async function generatePayroll(params: {
       },
     },
     include: { lines: true },
+  });
+
+  await logPayrollChange(db, {
+    payrollId: payroll.id,
+    employeeId: params.employeeId,
+    action: "GENERATED",
+    summary: `Draft payroll for ${periodStart.toISOString().slice(0, 10)}–${periodEnd.toISOString().slice(0, 10)}`,
+    newValues: {
+      status: "DRAFT",
+      grossPayMinor,
+      netPayMinor: Math.max(fig.netPayableMinor, 0),
+    },
+    userId: params.createdById,
   });
 
   return { payroll, created: true };
@@ -754,6 +816,15 @@ export async function approvePayroll(payrollId: string, approvedById: string) {
         performedById: approvedById,
       },
     });
+    await logPayrollChange(tx, {
+      payrollId,
+      employeeId,
+      action: "APPROVED",
+      summary: `${periodLabel} → ${status}`,
+      oldValues: { status: payroll.status },
+      newValues: { status, netPayMinor, totalPaidMinor: paidMinor },
+      userId: approvedById,
+    });
   });
 
   // The wallet now counts the approved earnings against the employee.
@@ -942,6 +1013,21 @@ export async function recordPayrollPayment(
         performedById: paidById,
       },
     });
+    await logPayrollChange(tx, {
+      payrollId,
+      employeeId,
+      action: "PAYMENT_RECORDED",
+      summary: `${fromMinor(amountMinor)} AFN via ${opts.paymentMethod}`,
+      newValues: {
+        paymentId: payment.id,
+        amountMinor,
+        paymentMethod: opts.paymentMethod,
+        walletId: walletId ?? null,
+        totalPaidMinor: newTotal,
+        status: fullyPaid ? "PAID" : "PARTIALLY_PAID",
+      },
+      userId: paidById,
+    });
   });
 
   await walletService.recomputeBalance(employeeId);
@@ -970,7 +1056,8 @@ export async function updatePayrollLine(
     remainingEmployeeDebtMinor?: number;
     deductExpenses?: boolean;
     walletId?: string;
-  }
+  },
+  editedById?: string
 ) {
   const line = await db.payrollLine.findUnique({
     where: { id: lineId },
@@ -1037,6 +1124,31 @@ export async function updatePayrollLine(
       data: { walletId: updates.walletId || null },
     });
   }
+
+  await logPayrollChange(db, {
+    payrollId,
+    employeeId: line.employeeId,
+    action: "LINE_EDITED",
+    summary: `Line figures edited (gross ${fromMinor(line.grossPayMinor)} → ${fromMinor(grossPayMinor)} AFN)`,
+    oldValues: {
+      overtimeHours: line.overtimeHours,
+      allowancesMinor: line.allowancesMinor,
+      bonusesMinor: line.bonusesMinor,
+      deductionsMinor: line.deductionsMinor,
+      grossPayMinor: line.grossPayMinor,
+      walletId: line.payroll.walletId,
+    },
+    newValues: {
+      overtimeHours,
+      allowancesMinor,
+      bonusesMinor,
+      deductionsMinor,
+      grossPayMinor,
+      netPayMinor: Math.max(netPayableMinor, 0),
+      walletId: updates.walletId !== undefined ? updates.walletId || null : line.payroll.walletId,
+    },
+    userId: editedById ?? null,
+  });
 
   return db.payroll.findUnique({
     where: { id: payrollId },
@@ -1125,6 +1237,19 @@ export async function revertPayroll(
         performedById: userId,
       },
     });
+    await logPayrollChange(tx, {
+      payrollId: payroll.id,
+      employeeId,
+      action: "REVERTED",
+      summary: reason ?? null,
+      oldValues: {
+        status: payroll.status,
+        totalPaidMinor: payroll.totalPaidMinor,
+      },
+      newValues: { status: "DRAFT" },
+      reason: reason ?? null,
+      userId,
+    });
   });
 
   await walletService.recomputeBalance(employeeId);
@@ -1211,6 +1336,21 @@ export async function recalculatePayroll(payrollId: string, userId?: string) {
         performedById: userId ?? null,
       },
     });
+    await logPayrollChange(tx, {
+      payrollId,
+      employeeId: payroll.employeeId,
+      action: "RECALCULATED",
+      summary: `Debt figures refreshed (${payroll.status} → NEEDS_RECALCULATION)`,
+      oldValues: {
+        status: payroll.status,
+        netPayMinor: line.netPayMinor,
+      },
+      newValues: {
+        status: "NEEDS_RECALCULATION",
+        netPayMinor: Math.max(fig.netPayableMinor, 0),
+      },
+      userId: userId ?? null,
+    });
   });
 
   return db.payroll.findUnique({ where: { id: payrollId }, include: { lines: true } });
@@ -1292,6 +1432,15 @@ export async function applyAdvanceEditToPayrolls(opts: {
         reason,
         performedById: opts.userId,
       },
+    });
+    await logPayrollChange(db, {
+      payrollId: payroll.id,
+      employeeId: opts.employeeId,
+      action: "RECALCULATED",
+      summary: reason,
+      newValues: { adjustmentId: adjustment.id, deltaMinor },
+      reason,
+      userId: opts.userId,
     });
     result.adjustments.push(adjustment.id);
   }
@@ -1433,31 +1582,96 @@ export async function getEmployeeFinancialSummary(employeeId: string) {
 }
 
 /**
- * Delete a DRAFT payroll record. Only DRAFT payrolls can be deleted;
- * APPROVED payrolls must be reverted first.
+ * Delete a payroll record (Plan-payroll.pdf §2 action 14).
+ *
+ * - Everyone else: only untouched DRAFT payrolls (no linked expenses, no
+ *   recorded payments) can be deleted — approval and payment history must be
+ *   reverted through the normal workflow first.
+ * - Admin: may delete a payroll in any status. Posted financial history is
+ *   preserved: every still-open accounting entry gets a PAYROLL_REVERSAL
+ *   counterpart, the full payroll (lines + payments) is snapshotted into the
+ *   PayrollAuditLog, and cash transactions / wallet ledger rows survive with
+ *   their historical payrollId.
  */
-export async function deletePayroll(payrollId: string, userId: string) {
+export async function deletePayroll(
+  payrollId: string,
+  userId: string,
+  actorRole?: string
+) {
   const payroll = await db.payroll.findUnique({
     where: { id: payrollId },
-    include: { lines: true, expenses: true },
+    include: { lines: true, expenses: true, payments: true },
   });
   if (!payroll) throw new Error("Payroll not found");
-  if (payroll.status !== "DRAFT") {
-    throw new Error("Only a draft payroll can be deleted. Revert it first.");
-  }
-  // Safety: refuse if any expenses are linked (shouldn't exist for drafts).
-  if (payroll.expenses.length > 0) {
-    throw new Error(
-      "Cannot delete a payroll with linked expenses. Revert it first."
-    );
-  }
-  // Payments are real financial history and must never be cascade-deleted.
-  const payments = await db.payrollPayment.count({ where: { payrollId } });
-  if (payments > 0) {
-    throw new Error("Cannot delete a payroll that has recorded payments.");
+
+  const role =
+    actorRole ??
+    (await db.user.findUnique({
+      where: { id: userId },
+      select: { role: true },
+    }))?.role;
+  const isAdmin = role === "ADMIN";
+
+  if (!isAdmin) {
+    if (payroll.status !== "DRAFT") {
+      throw new Error("Only a draft payroll can be deleted. Revert it first.");
+    }
+    // Safety: refuse if any expenses are linked (shouldn't exist for drafts).
+    if (payroll.expenses.length > 0) {
+      throw new Error(
+        "Cannot delete a payroll with linked expenses. Revert it first."
+      );
+    }
+    // Payments are real financial history and must never be cascade-deleted.
+    if (payroll.payments.length > 0) {
+      throw new Error("Cannot delete a payroll that has recorded payments.");
+    }
   }
 
+  const periodLabel = `${payroll.periodStart.toISOString().slice(0, 10)}–${payroll.periodEnd.toISOString().slice(0, 10)}`;
+  const snapshot = {
+    payroll: {
+      id: payroll.id,
+      status: payroll.status,
+      periodStart: payroll.periodStart,
+      periodEnd: payroll.periodEnd,
+      currency: payroll.currency,
+      totalPaidMinor: payroll.totalPaidMinor,
+      walletId: payroll.walletId,
+      createdById: payroll.createdById,
+      approvedById: payroll.approvedById,
+      approvedAt: payroll.approvedAt,
+      lines: payroll.lines,
+      payments: payroll.payments,
+      linkedExpenseIds: payroll.expenses.map((e) => e.id),
+    },
+  };
+
   await db.$transaction(async (tx) => {
+    if (isAdmin && payroll.status !== "DRAFT") {
+      // Keep the journal balanced after the record disappears: reverse every
+      // approval/payment entry that does not already have a reversal.
+      const entries = await tx.accountingEntry.findMany({
+        where: { payrollId, reversalOfId: null },
+      });
+      for (const entry of entries) {
+        const alreadyReversed = await tx.accountingEntry.findFirst({
+          where: { reversalOfId: entry.id },
+        });
+        if (alreadyReversed) continue;
+        await tx.accountingEntry.create({
+          data: {
+            type: "PAYROLL_REVERSAL",
+            amountMinor: -entry.amountMinor,
+            description: `Reversal for deleted payroll ${periodLabel} (${entry.type})`,
+            payrollId,
+            reversalOfId: entry.id,
+            postedById: userId,
+          },
+        });
+      }
+    }
+
     await tx.employeeAuditEvent.create({
       data: {
         employeeId: payroll.employeeId,
@@ -1466,6 +1680,21 @@ export async function deletePayroll(payrollId: string, userId: string) {
         performedById: userId,
       },
     });
+    await logPayrollChange(tx, {
+      payrollId,
+      employeeId: payroll.employeeId,
+      action: "DELETED",
+      summary: `Deleted ${payroll.status} payroll ${periodLabel}` +
+        (isAdmin && payroll.payments.length > 0
+          ? ` (${payroll.payments.length} payment(s) reversed from the journal)`
+          : ""),
+      oldValues: snapshot,
+      userId,
+      actorRole: role,
+    });
     await tx.payroll.delete({ where: { id: payrollId } });
   });
+
+  // The approved earnings are gone from the ledger; refresh the balance.
+  await walletService.recomputeBalance(payroll.employeeId);
 }
