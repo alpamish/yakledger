@@ -8,16 +8,18 @@ import { useDeleteExpense, useBulkDeleteExpenses } from '@/hooks/use-expense-que
 import { ExpenseTable } from '@/components/expense/expense-table';
 import { ExpenseForm } from '@/components/expense/expense-form';
 import { BatchExpenseForm } from '@/components/expense/batch-expense-form';
+import { ReimburseDialog } from '@/components/expense/reimburse-dialog';
 import { ConfirmDialog } from '@/components/common/confirm-dialog';
 import PdfPreviewModal from '@/components/pdf/pdf-preview-modal';
 import ExpenseDetailModal from '@/components/expense/expense-detail-modal';
 import type { Expense } from '@/types/expense';
 import { Plus, Receipt } from 'lucide-react';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useExpenses } from '@/hooks/use-expense-query';
 import { useLiveRefresh } from '@/hooks/use-live-refresh';
 
 export function ExpensePage() {
-  const { canView, canCreate, canEdit, canDelete } = usePermissions();
+  const { canView, canCreate, canEdit, canDelete, canApprove } = usePermissions();
 
   if (!canView('expenses')) return null;
   const openForm = useExpenseStore((s) => s.openForm);
@@ -54,6 +56,10 @@ export function ExpensePage() {
 
   // Detail modal state
   const [detailExpense, setDetailExpense] = useState<Expense | null>(null);
+
+  // Reimbursement dialog state (payment of an approved employee-paid expense)
+  const [reimburseExpense, setReimburseExpense] = useState<Expense | null>(null);
+  const { refetch: refetchExpenses } = useExpenses();
 
   // Keyboard shortcut: Alt+N to open Add Expense form
   useEffect(() => {
@@ -167,6 +173,7 @@ export function ExpensePage() {
             onBulkDelete={handleBulkDelete}
             onExportPdf={handleExportPdf}
             onViewDetail={handleViewDetail}
+            onReimburse={canApprove('expenses') ? setReimburseExpense : undefined}
           />
         </CardContent>
       </Card>
@@ -207,6 +214,16 @@ export function ExpensePage() {
         onConfirm={handleBulkDeleteConfirm}
         confirmText="Delete All"
         variant="destructive"
+      />
+
+      {/* Reimbursement Dialog */}
+      <ReimburseDialog
+        open={!!reimburseExpense}
+        onOpenChange={(open) => {
+          if (!open) setReimburseExpense(null);
+        }}
+        expense={reimburseExpense}
+        onReimbursed={() => refetchExpenses()}
       />
 
       {/* PDF Preview Modal */}

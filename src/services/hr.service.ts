@@ -340,8 +340,7 @@ export async function generatePayroll(params: {
     params.employeeId,
     periodStart,
     periodEnd,
-    grossPayMinor,
-    deductExpenses
+    grossPayMinor
   );
 
   const payroll = await db.payroll.create({
@@ -461,13 +460,16 @@ export async function computeAttendanceHours(
  * The employee's outstanding balance is:
  *   received (advances + salary payments - returns) - approved payroll earnings
  * Positive => employee owes the company; negative => company owes employee.
+ *
+ * Employee-paid company expenses are deliberately NOT part of this: they are
+ * reimbursed separately from salary (Plan-payroll.pdf §2 action 7). Their
+ * period total is still returned for display.
  */
 export async function computePayrollFigures(
   employeeId: string,
   periodStart: Date,
   periodEnd: Date,
-  grossPayMinor: number,
-  deductExpenses: boolean = true
+  grossPayMinor: number
 ) {
   const priorEarnedAgg = await db.payrollLine.aggregate({
     _sum: { grossPayMinor: true },
@@ -505,34 +507,19 @@ export async function computePayrollFigures(
     Math.round(received.reduce((s, t) => s + t.amount, 0) * 100) -
     Math.round((returnedAgg._sum.amount ?? 0) * 100);
 
-  // Approved employee-paid company expenses are money the company owes the
-  // employee, so they reduce the employee's net debt. (Employee wallets derive
-  // these directly from approved expenses; payroll debt must match.)
-  const employeeExpensesAgg = await db.expense.aggregate({
-    _sum: { amount: true },
-    where: {
-      paidById: employeeId,
-      approvalStatus: "APPROVED",
-      deductFromWallet: { not: false },
-      expenseDate: { lte: periodEnd },
-    },
-  });
-  const totalExpensesMinor = Math.round((employeeExpensesAgg._sum.amount ?? 0) * 100);
-
-  // Period-scoped expenses: only expenses within this payroll period.
+  // Period-scoped employee-paid expenses, reported for information only;
+  // reimbursement happens outside salary payroll.
   const periodExpensesAgg = await db.expense.aggregate({
     _sum: { amount: true },
     where: {
       paidById: employeeId,
       approvalStatus: "APPROVED",
-      deductFromWallet: { not: false },
       expenseDate: { gte: periodStart, lte: periodEnd },
     },
   });
   const periodExpensesMinor = Math.round((periodExpensesAgg._sum.amount ?? 0) * 100);
 
-  const previousDebtMinor =
-    receivedMinor - priorEarnedMinor - (deductExpenses ? totalExpensesMinor : 0);
+  const previousDebtMinor = receivedMinor - priorEarnedMinor;
   const amountAlreadyReceivedMinor = Math.max(
     0,
     Math.min(grossPayMinor, previousDebtMinor)
@@ -1010,13 +997,13 @@ export async function updatePayrollLine(
   const grossPayMinor =
     line.baseSalaryMinor + overtimePayMinor + allowancesMinor + bonusesMinor - deductionsMinor;
 
-  // Recompute debt figures with updated expense toggle
+  // Recompute debt figures (employee-paid expenses are reimbursed outside
+  // payroll, so the legacy deductExpenses toggle no longer affects them)
   const fig = await computePayrollFigures(
     line.employeeId,
     line.payroll.periodStart,
     line.payroll.periodEnd,
-    grossPayMinor,
-    deductExpenses
+    grossPayMinor
   );
 
   // Allow manual override of netPayableMinor / remainingEmployeeDebtMinor
@@ -1182,8 +1169,7 @@ export async function recalculatePayroll(payrollId: string, userId?: string) {
     payroll.employeeId,
     payroll.periodStart,
     payroll.periodEnd,
-    line.grossPayMinor,
-    line.deductExpenses
+    line.grossPayMinor
   );
 
   await db.$transaction(async (tx) => {

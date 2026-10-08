@@ -59,6 +59,7 @@ import {
   MoreHorizontal,
   Pencil,
   Trash2,
+  Wallet,
   Search,
   Filter,
   X,
@@ -78,6 +79,7 @@ interface ExpenseTableProps {
   onBulkDelete: () => void;
   onExportPdf: () => void;
   onViewDetail: (expense: Expense) => void;
+  onReimburse?: (expense: Expense) => void;
 }
 
 export function ExpenseTable({
@@ -86,8 +88,9 @@ export function ExpenseTable({
   onBulkDelete,
   onExportPdf,
   onViewDetail,
+  onReimburse,
 }: ExpenseTableProps) {
-  const { canEdit, canDelete } = usePermissions();
+  const { canEdit, canDelete, canApprove } = usePermissions();
   const { data: queryData, isLoading, isFetching, refetch } = useExpenses();
   const expenses = queryData?.data ?? [];
   useLiveRefresh(() => {
@@ -307,7 +310,20 @@ export function ExpenseTable({
       {
         id: 'approvalStatus',
         header: () => <span>Status</span>,
-        cell: ({ row }) => <ApprovalStatusBadge status={row.original.approvalStatus} />,
+        cell: ({ row }) => (
+          <div className="flex flex-wrap items-center gap-1">
+            <ApprovalStatusBadge status={row.original.approvalStatus} />
+            {row.original.reimbursedAt && (
+              <Badge
+                variant="outline"
+                className="gap-1 text-emerald-600 border-emerald-600/40 bg-emerald-600/10"
+              >
+                <span className="size-1.5 rounded-full inline-block bg-emerald-600" />
+                Reimbursed
+              </Badge>
+            )}
+          </div>
+        ),
         enableSorting: false,
         size: 110,
       },
@@ -487,6 +503,16 @@ export function ExpenseTable({
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
+              {canApprove('expenses') &&
+                row.original.paidById &&
+                row.original.approvalStatus === 'APPROVED' &&
+                !row.original.reimbursedAt &&
+                onReimburse && (
+                  <DropdownMenuItem onClick={() => onReimburse(row.original)}>
+                    <Wallet className="mr-2 h-4 w-4" />
+                    Reimburse
+                  </DropdownMenuItem>
+                )}
               {canEdit('expenses') && (
                 <DropdownMenuItem onClick={() => onEdit(row.original)}>
                   <Pencil className="mr-2 h-4 w-4" />
@@ -527,8 +553,10 @@ export function ExpenseTable({
       clearSelection,
       onEdit,
       onDelete,
+      onReimburse,
       canEdit,
       canDelete,
+      canApprove,
     ]
   );
 

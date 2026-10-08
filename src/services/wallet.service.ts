@@ -81,7 +81,9 @@ async function recalculateBalance(employeeId: string, client: Prisma.Transaction
 
   // Approved employee-paid company expenses reduce what the employee owes
   // (money they spent on the company's behalf). Honored only when the expense
-  // was flagged to deduct from the wallet.
+  // was flagged to deduct from the wallet. Reimbursements pay that money back
+  // to the employee, so they are added again — once an expense is reimbursed
+  // the pair nets out to zero.
   const expensesPaidByAgg = await client.expense.aggregate({
     _sum: { amount: true },
     where: {
@@ -89,6 +91,10 @@ async function recalculateBalance(employeeId: string, client: Prisma.Transaction
       approvalStatus: APPROVED,
       deductFromWallet: { not: false },
     },
+  });
+  const reimbursementsAgg = await client.cashTransaction.aggregate({
+    _sum: { amount: true },
+    where: { employeeId, type: "REIMBURSEMENT", approvalStatus: APPROVED },
   });
 
   const totalAdvances = advancesAgg._sum.amount ?? 0;
@@ -100,9 +106,11 @@ async function recalculateBalance(employeeId: string, client: Prisma.Transaction
   const totalTransfersIn = transfersToAgg._sum.amount ?? 0;
   const totalEarned = (payrollGrossAgg._sum.grossPayMinor ?? 0) / 100;
   const totalExpensesPaidBy = expensesPaidByAgg._sum.amount ?? 0;
+  const totalReimbursements = reimbursementsAgg._sum.amount ?? 0;
 
   // Net received by employee (cash given to them) minus what they earned via
-  // approved payroll and what they spent on approved company expenses.
+  // approved payroll and what they spent on approved company expenses, plus
+  // reimbursements paid back to them.
   // Positive => employee owes the company.
   const balance =
     totalAdvances +
@@ -113,7 +121,8 @@ async function recalculateBalance(employeeId: string, client: Prisma.Transaction
     totalEarned +
     totalTransfersIn -
     totalTransfersOut -
-    totalExpensesPaidBy;
+    totalExpensesPaidBy +
+    totalReimbursements;
 
   // Only update an existing account. Payroll approval/revert recomputes must
   // never create a wallet for an employee who has had no cash activity.
@@ -553,11 +562,27 @@ export const walletService = {
       // Sign convention must match `recalculateBalance`: amounts that increase
       // what the employee owes (ADVANCE, SALARY_PAYMENT, ADJUSTMENT) are shown
       // positive; amounts that reduce it (RETURN, DEBIT) are shown negative.
-      const increasesDebt = txn.type === "ADVANCE" || txn.type === "SALARY_PAYMENT" || txn.type === "ADJUSTMENT";
+      // A reimbursement is cash paid back to the employee, so like a payment
+      // it increases their balance and cancels out the EXPENSE entry.
+      const increasesDebt =
+        txn.type === "ADVANCE" ||
+        txn.type === "SALARY_PAYMENT" ||
+        txn.type === "ADJUSTMENT" ||
+        txn.type === "REIMBURSEMENT";
       entries.push({
         date: txn.createdAt,
         type: txn.type,
-        description: txn.note ?? (txn.type === "ADVANCE" ? "Cash Advance" : txn.type === "RETURN" ? "Cash Return" : txn.type === "SALARY_PAYMENT" ? "Salary Payment" : "Adjustment"),
+        description:
+          txn.note ??
+          (txn.type === "ADVANCE"
+            ? "Cash Advance"
+            : txn.type === "RETURN"
+              ? "Cash Return"
+              : txn.type === "SALARY_PAYMENT"
+                ? "Salary Payment"
+                : txn.type === "REIMBURSEMENT"
+                  ? "Expense Reimbursement"
+                  : "Adjustment"),
         amount: increasesDebt ? txn.amount : -txn.amount,
       });
     }

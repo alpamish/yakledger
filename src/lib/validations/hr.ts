@@ -79,3 +79,11 @@ export const payrollLineUpdateSchema = z.object({
   deductExpenses: z.boolean().optional(),
   walletId: z.string().optional(),
 });
+
+// Reimbursement of approved employee-paid expenses (outside salary payroll).
+export const reimbursementSchema = z.object({
+  expenseIds: z.array(z.string().min(1)).min(1, "Select at least one expense"),
+  paymentMethod: z.enum(["CASH", "BANK_TRANSFER", "COMPANY_WALLET"]),
+  walletId: z.string().optional(),
+  note: z.string().optional(),
+});

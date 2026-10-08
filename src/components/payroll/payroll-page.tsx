@@ -345,26 +345,8 @@ export function PayrollPage() {
         header: ({ column }) => <SortableHeader column={column}>Expenses</SortableHeader>,
         cell: ({ row }) => {
           const line = row.original.lines?.[0];
-          const isDraft = row.original.status === "DRAFT";
-          if (editMode && isDraft && line) {
-            return (
-              <div className="flex items-center gap-1">
-                <Switch
-                  checked={line.deductExpenses}
-                  onCheckedChange={(checked) =>
-                    handleInlineSave(row.original.id, line.id, "deductExpenses", checked)
-                  }
-                  className="h-4 w-7 [&>span]:h-3 [&>span]:w-3"
-                />
-                <span className="font-mono text-xs">
-                  {formatMinor(line.expensesPaidMinor ?? 0)}
-                </span>
-                {savingLineId === line.id && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />}
-              </div>
-            );
-          }
           return (
-            <span className="font-mono">
+            <span className="font-mono" title="Employee-paid expenses are reimbursed separately from salary">
               {line ? formatMinor(line.expensesPaidMinor ?? 0) : "—"}
             </span>
           );

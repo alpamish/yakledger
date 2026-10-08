@@ -109,6 +109,7 @@ enum CashTransactionType {
   RETURN
   ADJUSTMENT
   SALARY_PAYMENT
+  REIMBURSEMENT
 }
 
 enum FuelType {
@@ -738,6 +739,13 @@ model Expense {
   assetId            String?
   fuelTransactionId  String?
 
+  // Reimbursement: paid back to the employee who fronted the cost.
+  reimbursedAt          DateTime?
+  reimbursedById        String?
+  reimbursementMethod   PaymentMethod?
+  reimbursementTransactionId String?
+  reimbursementTransaction CashTransaction? @relation(fields: [reimbursementTransactionId], references: [id], onDelete: SetNull)
+
   creator        User          @relation(fields: [createdBy], references: [id], onDelete: Cascade)
   payroll        Payroll?      @relation(fields: [payrollId], references: [id])
   wallet         Wallet?       @relation(fields: [walletId], references: [id])
@@ -782,6 +790,7 @@ model Expense {
   @@index([walletId])
   @@index([assetId])
   @@index([fuelTransactionId])
+  @@index([paidById, reimbursedAt])
 }
 
 model Contractor {
@@ -1015,6 +1024,7 @@ model CashTransaction {
     wallet          Wallet?            @relation(fields: [walletId], references: [id])
     payrollAllocations PayrollAdvanceAllocation[]
     accountingEntries  AccountingEntry[]
+    reimbursements     Expense[]
 
     createdAt       DateTime           @default(now())
 

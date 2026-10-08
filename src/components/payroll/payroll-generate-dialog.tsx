@@ -23,8 +23,6 @@ import {
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Switch } from "@/components/ui/switch";
-import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -51,7 +49,6 @@ const generateFormSchema = z.object({
   bonuses: z.number().min(0, "Must be non-negative"),
   deductions: z.number().min(0, "Must be non-negative"),
   walletId: z.string(),
-  deductExpenses: z.boolean(),
   workDays: z.number().int().min(1).max(31).optional(),
 });
 
@@ -92,7 +89,6 @@ export function PayrollGenerateDialog({
       bonuses: 0,
       deductions: 0,
       walletId: "",
-      deductExpenses: true,
       workDays: undefined,
     },
   });
@@ -107,7 +103,6 @@ export function PayrollGenerateDialog({
         bonuses: 0,
         deductions: 0,
         walletId: "",
-        deductExpenses: true,
         workDays: undefined,
       });
       walletApi
@@ -132,7 +127,6 @@ export function PayrollGenerateDialog({
         ...(values.bonuses ? { bonusesMinor: values.bonuses } : {}),
         ...(values.deductions ? { deductionsMinor: values.deductions } : {}),
         ...(values.walletId ? { walletId: values.walletId } : {}),
-        deductExpenses: values.deductExpenses,
         ...(values.workDays ? { workDays: values.workDays } : {}),
       });
       const errors: string[] = res.data?.errors ?? [];
@@ -299,19 +293,6 @@ export function PayrollGenerateDialog({
                 </FormItem>
               )}
             />
-            <div className="flex items-center justify-between rounded-md border p-3">
-              <div className="space-y-0.5">
-                <Label htmlFor="deductExpenses">Deduct Employee Expenses</Label>
-                <p className="text-xs text-muted-foreground">
-                  Include employee-paid company expenses in the debt calculation
-                </p>
-              </div>
-              <Switch
-                id="deductExpenses"
-                checked={form.watch("deductExpenses")}
-                onCheckedChange={(checked) => form.setValue("deductExpenses", checked)}
-              />
-            </div>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
                 Cancel

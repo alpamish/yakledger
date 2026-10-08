@@ -147,32 +147,16 @@ describe("computePayrollFigures edge cases", () => {
     expect(fig.netPayableMinor).toBe(toMinor(18000));
   });
 
-  it("employee-paid expenses with deductFromWallet=false are excluded", async () => {
+  it("employee-paid expenses never change payroll debt (reimbursement is separate)", async () => {
     await addAdvance(emp.id, 5000, new Date("2026-06-05T10:00:00Z"), user.id);
-    // This expense should NOT be counted (deductFromWallet = false)
+    // Reported for information only; reimbursed outside salary payroll.
     await addEmployeeExpense(emp.id, 2000, user.id, {
       deductFromWallet: false,
       expenseDate: new Date("2026-06-10"),
     });
-
-    const fig = await computePayrollFigures(
-      emp.id,
-      new Date("2026-06-01"),
-      new Date("2026-06-30"),
-      toMinor(25000)
-    );
-
-    // received = 5000, expenses = 0 (excluded), priorEarned = 0
-    // previousDebt = 5000 - 0 - 0 = 5000
-    expect(fig.previousDebtMinor).toBe(toMinor(5000));
-  });
-
-  it("employee-paid expenses with deductFromWallet=true reduce debt", async () => {
-    await addAdvance(emp.id, 5000, new Date("2026-06-05T10:00:00Z"), user.id);
-    // This expense SHOULD be counted
-    await addEmployeeExpense(emp.id, 2000, user.id, {
+    await addEmployeeExpense(emp.id, 3000, user.id, {
       deductFromWallet: true,
-      expenseDate: new Date("2026-06-10"),
+      expenseDate: new Date("2026-06-20"),
     });
 
     const fig = await computePayrollFigures(
@@ -182,14 +166,16 @@ describe("computePayrollFigures edge cases", () => {
       toMinor(25000)
     );
 
-    // received = 5000, expenses = 2000, priorEarned = 0
-    // previousDebt = 5000 - 0 - 2000 = 3000
-    expect(fig.previousDebtMinor).toBe(toMinor(3000));
+    // received = 5000 advance, priorEarned = 0; expenses are not netted in.
+    expect(fig.previousDebtMinor).toBe(toMinor(5000));
+    expect(fig.netPayableMinor).toBe(toMinor(20000));
+    // Period total still reported for display.
+    expect(fig.periodExpensesMinor).toBe(toMinor(5000));
   });
 
-  it("only counts expenses up to periodEnd", async () => {
+  it("only reports expenses inside the period", async () => {
     await addAdvance(emp.id, 5000, new Date("2026-06-05T10:00:00Z"), user.id);
-    // This expense is AFTER the period — should not count
+    // This expense is AFTER the period — not part of this period's report.
     await addEmployeeExpense(emp.id, 2000, user.id, {
       deductFromWallet: true,
       expenseDate: new Date("2026-07-10"),
@@ -202,8 +188,9 @@ describe("computePayrollFigures edge cases", () => {
       toMinor(25000)
     );
 
-    // received = 5000, expenses = 0 (outside period), priorEarned = 0
+    // received = 5000, priorEarned = 0
     expect(fig.previousDebtMinor).toBe(toMinor(5000));
+    expect(fig.periodExpensesMinor).toBe(0);
   });
 
   it("correctly tracks prior earned from approved payrolls", async () => {
@@ -574,27 +561,20 @@ describe("Expense deduction toggle", () => {
     await addSalary(emp.id, toMinor(25000), new Date("2026-01-01"));
   });
 
-  it("computePayrollFigures excludes expenses when deductExpenses=false", async () => {
+  it("never nets employee-paid expenses into payroll debt", async () => {
     await addEmployeeExpense(emp.id, 5000, user.id);
 
-    const withDeduction = await computePayrollFigures(
+    const fig = await computePayrollFigures(
       emp.id,
       new Date("2026-06-01"),
       new Date("2026-06-30"),
-      toMinor(25000),
-      true
-    );
-    const withoutDeduction = await computePayrollFigures(
-      emp.id,
-      new Date("2026-06-01"),
-      new Date("2026-06-30"),
-      toMinor(25000),
-      false
+      toMinor(25000)
     );
 
-    // With deduction: expenses reduce debt (more negative = company owes more)
-    // Without deduction: expenses not counted
-    expect(withDeduction.previousDebtMinor).toBeLessThan(withoutDeduction.previousDebtMinor);
+    expect(fig.previousDebtMinor).toBe(0);
+    expect(fig.netPayableMinor).toBe(toMinor(25000));
+    // Reported for display; paid back through the reimbursement flow.
+    expect(fig.periodExpensesMinor).toBe(toMinor(5000));
   });
 
   it("generatePayroll stores deductExpenses=false on PayrollLine", async () => {
@@ -699,7 +679,7 @@ describe("updatePayrollLine", () => {
     expect(updatedLine.grossPayMinor).toBe(line.grossPayMinor + toMinor(3000));
   });
 
-  it("flips deductExpenses and recalculates debt", async () => {
+  it("flips deductExpenses without changing debt", async () => {
     await addEmployeeExpense(emp.id, 5000, user.id);
 
     const { payroll } = await generatePayroll({
@@ -719,8 +699,9 @@ describe("updatePayrollLine", () => {
 
     const updatedLine = updated!.lines[0];
     expect(updatedLine.deductExpenses).toBe(false);
-    // With expenses excluded, debt should be higher (company owes less)
-    expect(updatedLine.previousDebtMinor).toBeGreaterThan(line.previousDebtMinor);
+    // Employee-paid expenses are reimbursed outside payroll, so the legacy
+    // flag no longer changes debt figures.
+    expect(updatedLine.previousDebtMinor).toBe(line.previousDebtMinor);
   });
 
   it("rejects editing a non-DRAFT payroll line", async () => {

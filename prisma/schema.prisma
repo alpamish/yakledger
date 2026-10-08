@@ -545,6 +545,11 @@ model Expense {
   deductFromWallet   Boolean     @default(true)
   assetId            String?
   fuelTransactionId  String?
+  // Reimbursement: paid back to the employee who fronted the cost.
+  reimbursedAt          DateTime?
+  reimbursedById        String?
+  reimbursementMethod   String?
+  reimbursementTransactionId String?
   approvalStatus     String      @default("PENDING")
   approvedById       String?
   approvedAt         DateTime?
@@ -552,6 +557,7 @@ model Expense {
   approver           User?       @relation("ExpenseApprover", fields: [approvedById], references: [id])
   payroll            Payroll?    @relation(fields: [payrollId], references: [id])
   wallet             Wallet?     @relation(fields: [walletId], references: [id])
+  reimbursementTransaction CashTransaction? @relation(fields: [reimbursementTransactionId], references: [id], onDelete: SetNull)
   paidByContractor   Contractor? @relation("ExpensePaidByContractor", fields: [paidByContractorId], references: [id])
   paidToContractor   Contractor? @relation("ExpensePaidToContractor", fields: [paidToContractorId], references: [id])
   paidToEmployee     Employee?   @relation("ExpensePaidTo", fields: [paidToId], references: [id])
@@ -587,6 +593,7 @@ model Expense {
   @@index([walletId])
   @@index([assetId])
   @@index([fuelTransactionId])
+  @@index([paidById, reimbursedAt])
 }
 
 model Contractor {
@@ -836,6 +843,7 @@ model CashTransaction {
   wallet          Wallet?   @relation(fields: [walletId], references: [id])
   payrollAllocations PayrollAdvanceAllocation[]
   accountingEntries  AccountingEntry[]
+  reimbursements     Expense[]
 
   @@index([employeeId])
   @@index([type])
