@@ -105,6 +105,11 @@ export const payrollApi = {
   generate: async (body: PayrollGenerateBody): Promise<ApiResponse<any>> =>
     request("/payroll", { method: "POST", body: JSON.stringify(body) }),
 
+  // Outstanding unpaid salary liability for the dashboard.
+  summary: async (): Promise<
+    ApiResponse<{ outstandingSalaryMinor: number; unpaidPayrolls: number }>
+  > => request("/payroll/summary"),
+
   getAllocations: async (
     payrollId: string
   ): Promise<ApiResponse<ProjectAllocation[]>> =>

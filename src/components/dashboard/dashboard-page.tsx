@@ -4,6 +4,8 @@ import * as React from 'react';
 import { useExpenseStore } from '@/hooks/use-expense-store';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useLiveRefresh } from '@/hooks/use-live-refresh';
+import { payrollApi } from '@/services/payroll-api';
+import { formatMinor } from '@/lib/money';
 import { CATEGORY_LABELS, CATEGORY_COLORS } from '@/types/expense';
 import type { Category } from '@/types/expense';
 import {
@@ -33,6 +35,7 @@ import {
   Receipt,
   ArrowRight,
   TrendingUp,
+  Wallet,
 } from 'lucide-react';
 import {
   BarChart,
@@ -174,12 +177,35 @@ function StatCard({ title, value, description, icon: Icon }: StatCardProps) {
 // ─── Main Dashboard Component ─────────────────────────────────────
 
 export function DashboardPage() {
-  const { canView } = usePermissions();
+  const { hasPermission, canView } = usePermissions();
   const { dashboardStats, fetchDashboard, isLoading } = useExpenseStore();
 
   const canViewDashboard = canView('dashboard');
+  const canViewPayroll = hasPermission('employees:payroll:view');
+  const [payrollSummary, setPayrollSummary] = React.useState<{
+    outstandingSalaryMinor: number;
+    unpaidPayrolls: number;
+  } | null>(null);
+
+  const loadPayrollSummary = React.useCallback(() => {
+    if (!canViewPayroll) return;
+    payrollApi
+      .summary()
+      .then((res) => {
+        if (res.data) setPayrollSummary(res.data);
+      })
+      .catch(() => {
+        // payroll summary is optional; the rest of the dashboard still loads
+      });
+  }, [canViewPayroll]);
+
+  React.useEffect(() => {
+    loadPayrollSummary();
+  }, [loadPayrollSummary]);
+
   useLiveRefresh(() => {
     if (canViewDashboard) fetchDashboard();
+    loadPayrollSummary();
   }, 30_000);
 
   if (!canView('dashboard')) return null;
@@ -236,7 +262,11 @@ export function DashboardPage() {
   return (
     <div className="space-y-6">
       {/* ─── 1. Statistics Cards Row ─────────────────────────────── */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div
+        className={`grid gap-4 sm:grid-cols-2 ${
+          canViewPayroll ? 'lg:grid-cols-5' : 'lg:grid-cols-4'
+        }`}
+      >
         <StatCard
           title="Total Expenses"
           value={formatCurrency(totalAmount)}
@@ -261,6 +291,18 @@ export function DashboardPage() {
           description={`Active categor${uniqueCategories !== 1 ? 'ies' : 'y'} used`}
           icon={PieChart}
         />
+        {canViewPayroll && (
+          <StatCard
+            title="Unpaid Salary Liability"
+            value={formatMinor(payrollSummary?.outstandingSalaryMinor ?? 0)}
+            description={
+              payrollSummary
+                ? `${payrollSummary.unpaidPayrolls} approved payroll${payrollSummary.unpaidPayrolls !== 1 ? 's' : ''} awaiting payment`
+                : 'Approved payroll awaiting payment'
+            }
+            icon={Wallet}
+          />
+        )}
       </div>
 
       {/* ─── 2. Charts Section ──────────────────────────────────── */}
