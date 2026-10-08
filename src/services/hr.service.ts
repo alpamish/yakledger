@@ -296,6 +296,8 @@ export async function generatePayroll(params: {
   deductExpenses?: boolean;
   /** Number of days the employee worked in this period. Auto-calculated from hireDate if omitted. */
   workDays?: number;
+  /** Payroll type: a FINAL_SETTLEMENT covers the window up to termination. */
+  type?: "STANDARD" | "FINAL_SETTLEMENT";
 }): Promise<{ payroll: any; created: boolean }> {
   const periodStart =
     typeof params.periodStart === "string"
@@ -323,20 +325,28 @@ export async function generatePayroll(params: {
   const salary = await getEmployeeSalaryAtDate(params.employeeId, periodEnd);
   if (!salary) throw new Error("No salary found for employee in this period");
 
-  // Auto-calculate workDays from hire date if not provided
+  // Auto-calculate workDays from the employment window if not provided.
+  // Salary starts at the hire date and stops at the termination date
+  // (Plan-payroll.pdf §1 "Attendance & Hiring/Termination"), so the same
+  // window drives both a regular mid-period run and a final settlement.
   let workDays = params.workDays ?? 0;
   if (!workDays) {
     const employee = await db.employee.findUnique({
       where: { id: params.employeeId },
-      select: { hireDate: true },
+      select: { hireDate: true, terminationDate: true, quitingDate: true },
     });
-    if (employee?.hireDate) {
+    const termination = employee?.terminationDate ?? employee?.quitingDate ?? null;
+    if (termination && termination < periodStart) {
+      workDays = 0; // employment ended before this period
+    } else if (employee?.hireDate) {
       const totalDays = new Date(periodStart.getFullYear(), periodStart.getMonth() + 1, 0).getDate();
-      if (employee.hireDate <= periodStart) {
-        workDays = Math.min(totalDays, 30);
-      } else {
-        workDays = totalDays - employee.hireDate.getDate() + 1;
-      }
+      // Salary runs until the earlier of the period end and termination.
+      const lastDay =
+        termination && termination < periodEnd ? termination : periodEnd;
+      const startDay =
+        employee.hireDate > periodStart ? employee.hireDate.getDate() : 1;
+      workDays = Math.min(lastDay.getDate() - startDay + 1, totalDays, 30);
+      workDays = Math.max(workDays, 0);
     } else {
       workDays = 30; // fallback
     }
@@ -400,6 +410,7 @@ export async function generatePayroll(params: {
       periodEnd,
       currency: salary.currency,
       status: "DRAFT",
+      type: params.type ?? "STANDARD",
       walletId: params.walletId ?? null,
       createdById: params.createdById,
       lines: {

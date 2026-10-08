@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { PAYROLL_TYPES } from "../payroll-status";
 
 export const salaryChangeSchema = z.object({
   amount: z.number().min(0, "Salary must be non-negative"),
@@ -66,6 +67,7 @@ export const payrollGenerateSchema = z.object({
   walletId: z.string().optional(),
   deductExpenses: z.boolean().optional(),
   workDays: z.number().int().min(1).max(31).optional(),
+  type: z.enum(PAYROLL_TYPES).optional(),
 });
 
 export const payrollLineUpdateSchema = z.object({

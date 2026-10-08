@@ -151,6 +151,7 @@ export async function POST(request: NextRequest) {
           walletId: d.walletId,
           deductExpenses: d.deductExpenses,
           workDays: d.workDays,
+          type: d.type,
         })
       )
     );

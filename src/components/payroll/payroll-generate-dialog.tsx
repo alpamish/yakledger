@@ -32,6 +32,7 @@ import {
 } from "@/components/ui/select";
 import { payrollApi } from "@/services/payroll-api";
 import { walletApi } from "@/services/wallet-api";
+import { PAYROLL_TYPE_LABELS } from "@/lib/payroll-status";
 import { formatMinor } from "@/lib/money";
 import { toast } from "sonner";
 
@@ -50,6 +51,7 @@ const generateFormSchema = z.object({
   deductions: z.number().min(0, "Must be non-negative"),
   walletId: z.string(),
   workDays: z.number().int().min(1).max(31).optional(),
+  type: z.enum(["STANDARD", "FINAL_SETTLEMENT"]),
 });
 
 type GenerateFormValues = z.infer<typeof generateFormSchema>;
@@ -90,6 +92,7 @@ export function PayrollGenerateDialog({
       deductions: 0,
       walletId: "",
       workDays: undefined,
+      type: "STANDARD",
     },
   });
 
@@ -104,6 +107,7 @@ export function PayrollGenerateDialog({
         deductions: 0,
         walletId: "",
         workDays: undefined,
+        type: "STANDARD",
       });
       walletApi
         .list()
@@ -128,6 +132,7 @@ export function PayrollGenerateDialog({
         ...(values.deductions ? { deductionsMinor: values.deductions } : {}),
         ...(values.walletId ? { walletId: values.walletId } : {}),
         ...(values.workDays ? { workDays: values.workDays } : {}),
+        type: values.type,
       });
       const errors: string[] = res.data?.errors ?? [];
       const skipped: number = res.data?.skipped ?? 0;
@@ -236,6 +241,32 @@ export function PayrollGenerateDialog({
                 )}
               />
             </div>
+            <FormField
+              control={form.control}
+              name="type"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Payroll Type</FormLabel>
+                  <Select onValueChange={field.onChange} value={field.value}>
+                    <FormControl>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select payroll type" />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      <SelectItem value="STANDARD">
+                        {PAYROLL_TYPE_LABELS.STANDARD}
+                      </SelectItem>
+                      <SelectItem value="FINAL_SETTLEMENT">
+                        {PAYROLL_TYPE_LABELS.FINAL_SETTLEMENT} — salary runs
+                        from the hire date to the termination date
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
             <FormField
               control={form.control}
               name="workDays"

@@ -43,6 +43,7 @@ import { PayrollExportDropdown } from "@/components/payroll/payroll-export-dropd
 import { payrollApi, type PayrollListParams, type UpdatePayrollLineBody } from "@/services/payroll-api";
 import { walletApi } from "@/services/wallet-api";
 import { formatMinor } from "@/lib/money";
+import { PAYROLL_TYPE_LABELS } from "@/lib/payroll-status";
 import { usePermissions } from "@/hooks/use-permissions";
 import { useDebounce } from "@/hooks/use-debounce";
 import { useLiveRefresh } from "@/hooks/use-live-refresh";
@@ -88,6 +89,7 @@ interface PayrollRecord {
   periodStart: string;
   periodEnd: string;
   status: string;
+  type?: string;
   walletId: string | null;
   totalPaidMinor?: number;
   employee: {
@@ -274,6 +276,14 @@ export function PayrollPage() {
         cell: ({ row }) => (
           <span className="whitespace-nowrap">
             {fmtDate(row.original.periodStart)} → {fmtDate(row.original.periodEnd)}
+            {row.original.type === "FINAL_SETTLEMENT" && (
+              <Badge
+                variant="outline"
+                className="ml-2 border-amber-500 text-amber-600 dark:text-amber-400"
+              >
+                {PAYROLL_TYPE_LABELS.FINAL_SETTLEMENT}
+              </Badge>
+            )}
           </span>
         ),
       },

@@ -63,6 +63,7 @@ export interface PayrollGenerateBody {
   walletId?: string;
   deductExpenses?: boolean;
   workDays?: number;
+  type?: "STANDARD" | "FINAL_SETTLEMENT";
 }
 
 export interface UpdatePayrollLineBody {
