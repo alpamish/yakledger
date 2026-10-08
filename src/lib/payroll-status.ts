@@ -52,19 +52,23 @@ export function canTransitionPayrollStatus(
   return PAYROLL_STATUS_TRANSITIONS[from]?.includes(to) ?? false;
 }
 
-// Lines (and therefore the payroll record itself) can be edited only while
-// payment has not begun. APPROVED payrolls are corrected by reverting to
-// DRAFT first (PDF §1 "Payroll Editing & Correction").
-export function isPayrollEditable(status: PayrollStatus): boolean {
-  return status === "DRAFT" || status === "NEEDS_RECALCULATION";
+// Lines (and therefore the payroll record itself) stay editable while the
+// payroll is open: drafts, approved/unpaid payrolls and partially paid
+// payrolls whose recorded payments are preserved (PDF §1 "Payroll Editing &
+// Correction" — "HR can edit payroll until payment begins", and a partially
+// paid payroll can be modified while its payment history is kept). PAID and
+// CANCELLED are locked.
+export function isPayrollEditable(status: string): boolean {
+  return (
+    status === "DRAFT" ||
+    status === "APPROVED" ||
+    status === "NEEDS_RECALCULATION" ||
+    status === "PARTIALLY_PAID"
+  );
 }
 
 export function isPayrollPaymentBegun(status: PayrollStatus): boolean {
-  return (
-    status === "APPROVED" ||
-    status === "PARTIALLY_PAID" ||
-    status === "PAID"
-  );
+  return status === "PARTIALLY_PAID" || status === "PAID";
 }
 
 export function isTerminalPayrollStatus(status: PayrollStatus): boolean {

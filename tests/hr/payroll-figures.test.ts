@@ -6,6 +6,7 @@ import {
   deletePayroll,
   computePayrollFigures,
   updatePayrollLine,
+  recordPayrollPayment,
 } from "@/services/hr.service";
 import { toMinor } from "@/lib/money";
 
@@ -704,7 +705,7 @@ describe("updatePayrollLine", () => {
     expect(updatedLine.previousDebtMinor).toBe(line.previousDebtMinor);
   });
 
-  it("rejects editing a non-DRAFT payroll line", async () => {
+  it("rejects editing a fully paid payroll line", async () => {
     const { payroll } = await generatePayroll({
       employeeId: emp.id,
       periodStart: new Date("2026-06-01"),
@@ -713,11 +714,12 @@ describe("updatePayrollLine", () => {
     });
 
     await approvePayroll(payroll.id, user.id);
+    await recordPayrollPayment(payroll.id, user.id, { paymentMethod: "CASH" });
     const line = payroll.lines[0];
 
     await expect(
       updatePayrollLine(line.id, { allowancesMinor: toMinor(1000) })
-    ).rejects.toThrow(/Only draft payroll lines can be edited/);
+    ).rejects.toThrow(/Paid or cancelled payroll lines cannot be edited/);
   });
 
   it("updates overtime hours and recalculates overtime pay", async () => {

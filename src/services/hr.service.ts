@@ -30,6 +30,7 @@ import { db } from "../lib/db";
 import { toMinor, fromMinor } from "../lib/money";
 import {
   ALLOCATING_PAYROLL_STATUSES,
+  isPayrollEditable,
   isPayrollPaymentMethod,
 } from "../lib/payroll-status";
 import { Prisma } from "@prisma/client";
@@ -1054,8 +1055,47 @@ export async function recordPayrollPayment(
 }
 
 /**
- * Update a single DRAFT payroll line with inline edits. Recomputes derived
- * figures (gross, net, etc.) and returns the updated payroll with lines.
+ * Reverse every still-active salary accrual of a payroll, each exactly once.
+ * An approval entry is "active" until some PAYROLL_REVERSAL points at it, so
+ * corrected entries (reversal + new accrual) never get double-reversed.
+ */
+async function reverseActiveApprovals(
+  tx: Prisma.TransactionClient,
+  payrollId: string,
+  description: string,
+  postedById: string | null
+) {
+  const approvals = await tx.accountingEntry.findMany({
+    where: { payrollId, type: "PAYROLL_APPROVAL" },
+  });
+  for (const entry of approvals) {
+    const alreadyReversed = await tx.accountingEntry.findFirst({
+      where: { reversalOfId: entry.id },
+    });
+    if (alreadyReversed) continue;
+    await tx.accountingEntry.create({
+      data: {
+        type: "PAYROLL_REVERSAL",
+        amountMinor: -entry.amountMinor,
+        description,
+        payrollId,
+        reversalOfId: entry.id,
+        postedById,
+      },
+    });
+  }
+}
+
+/**
+ * Update a payroll line with inline edits. Recomputes derived figures
+ * (gross, net, etc.) and returns the updated payroll with lines.
+ *
+ * Editing follows PDF §1 "Payroll Editing & Correction": HR can edit a
+ * payroll until payment begins (DRAFT / APPROVED / NEEDS_RECALCULATION) and
+ * may still modify a PARTIALLY_PAID payroll as long as recorded payments are
+ * preserved — the new net pay can never dip below what has already been paid,
+ * and the salary accounting posted at approval is corrected with a reversal
+ * plus a new entry instead of being rewritten. PAID / CANCELLED are locked.
  */
 export async function updatePayrollLine(
   lineId: string,
@@ -1076,11 +1116,19 @@ export async function updatePayrollLine(
     include: { payroll: true },
   });
   if (!line) throw new Error("Payroll line not found");
-  if (line.payroll.status !== "DRAFT") {
-    throw new Error("Only draft payroll lines can be edited");
+  const payroll = line.payroll;
+  if (!isPayrollEditable(payroll.status)) {
+    throw new Error(
+      "Paid or cancelled payroll lines cannot be edited; use a correction or adjustment"
+    );
   }
 
   const payrollId = line.payrollId;
+  const paidMinor = payroll.totalPaidMinor;
+  // A live partial approval consumed its advance offsets at approval time, so
+  // only the salary side is recomputed. Payment history itself is never touched.
+  const frozenDebt = payroll.status === "PARTIALLY_PAID";
+
   const overtimeHours = updates.overtimeHours ?? line.overtimeHours;
   const allowancesMinor = updates.allowancesMinor ?? line.allowancesMinor;
   const bonusesMinor = updates.bonusesMinor ?? line.bonusesMinor;
@@ -1100,41 +1148,125 @@ export async function updatePayrollLine(
   // payroll, so the legacy deductExpenses toggle no longer affects them)
   const fig = await computePayrollFigures(
     line.employeeId,
-    line.payroll.periodStart,
-    line.payroll.periodEnd,
+    payroll.periodStart,
+    payroll.periodEnd,
     grossPayMinor
+  );
+  const previousDebtMinor = frozenDebt ? line.previousDebtMinor : fig.previousDebtMinor;
+  const amountAlreadyReceivedMinor = Math.max(
+    0,
+    Math.min(grossPayMinor, previousDebtMinor)
   );
 
   // Allow manual override of netPayableMinor / remainingEmployeeDebtMinor
-  const netPayableMinor = updates.netPayableMinor ?? fig.netPayableMinor;
+  const netPayableMinor =
+    updates.netPayableMinor ?? grossPayMinor - previousDebtMinor;
   const remainingEmployeeDebtMinor =
-    updates.remainingEmployeeDebtMinor ?? fig.remainingEmployeeDebtMinor;
+    updates.remainingEmployeeDebtMinor ??
+    Math.max(previousDebtMinor - grossPayMinor, 0);
+  const netPayMinor = Math.max(netPayableMinor, 0);
 
-  await db.payrollLine.update({
-    where: { id: lineId },
-    data: {
-      overtimeHours,
-      overtimePayMinor,
-      allowancesMinor,
-      bonusesMinor,
-      deductionsMinor,
-      grossPayMinor,
-      expensesPaidMinor: fig.periodExpensesMinor,
-      deductExpenses,
-      amountAlreadyReceivedMinor: fig.amountAlreadyReceivedMinor,
-      previousDebtMinor: fig.previousDebtMinor,
-      netPayableMinor,
-      remainingEmployeeDebtMinor,
-      netPayMinor: Math.max(netPayableMinor, 0),
-    },
+  // A correction may never eat into money that has already been paid out
+  // (reverted drafts carry their surviving payments as well).
+  if (paidMinor > 0 && netPayMinor < paidMinor) {
+    throw new Error(
+      `Net pay (${fromMinor(netPayMinor)} AFN) cannot be lower than the ${fromMinor(paidMinor)} AFN already paid`
+    );
+  }
+
+  const settledInFull = paidMinor > 0 && netPayMinor <= paidMinor;
+  const paymentStatus =
+    paidMinor <= 0
+      ? line.paymentStatus
+      : settledInFull
+        ? "PAID"
+        : "PARTIALLY_PAID";
+  const payrollStatus =
+    payroll.status === "PARTIALLY_PAID" && settledInFull
+      ? "PAID"
+      : payroll.status;
+
+  // The approval accrual is posted against the gross; correcting an approved
+  // payroll in place reverses it and posts the corrected entry (PDF §4:
+  // corrections reverse the original and create the corrected entry).
+  const needsAccountingFix =
+    payroll.approvedAt != null && grossPayMinor !== line.grossPayMinor;
+
+  await db.$transaction(async (tx) => {
+    if (needsAccountingFix) {
+      const employee = await tx.employee.findUnique({
+        where: { id: line.employeeId },
+        select: { fullName: true },
+      });
+      const periodLabel = `${payroll.periodStart.toISOString().slice(0, 10)}–${payroll.periodEnd.toISOString().slice(0, 10)}`;
+      await reverseActiveApprovals(
+        tx,
+        payrollId,
+        "Reversal of payroll approval (line corrected)",
+        editedById ?? payroll.approvedById
+      );
+      await tx.accountingEntry.create({
+        data: {
+          type: "PAYROLL_APPROVAL",
+          amountMinor: -grossPayMinor,
+          description: `Payroll corrected for ${employee?.fullName ?? "Employee"} (${periodLabel})`,
+          payrollId,
+          postedById: editedById ?? payroll.approvedById,
+        },
+      });
+    }
+
+    // Unpaid approved payrolls rebuild their advance allocations so the
+    // deduction plan matches the corrected figures (same as recalculation).
+    let advancesDeductedMinor = line.advancesDeductedMinor;
+    if (payroll.status !== "DRAFT" && paidMinor === 0) {
+      await tx.payrollAdvanceAllocation.deleteMany({ where: { payrollId } });
+      advancesDeductedMinor = await allocateAdvances(
+        tx,
+        line.employeeId,
+        payroll.periodEnd,
+        payrollId,
+        amountAlreadyReceivedMinor
+      );
+    }
+
+    await tx.payrollLine.update({
+      where: { id: lineId },
+      data: {
+        overtimeHours,
+        overtimePayMinor,
+        allowancesMinor,
+        bonusesMinor,
+        deductionsMinor,
+        grossPayMinor,
+        expensesPaidMinor: fig.periodExpensesMinor,
+        deductExpenses,
+        amountAlreadyReceivedMinor,
+        previousDebtMinor,
+        advancesDeductedMinor,
+        netPayableMinor,
+        remainingEmployeeDebtMinor,
+        netPayMinor,
+        paymentStatus,
+      },
+    });
+
+    if (payrollStatus !== payroll.status || updates.walletId !== undefined) {
+      await tx.payroll.update({
+        where: { id: payrollId },
+        data: {
+          ...(payrollStatus !== payroll.status && { status: payrollStatus }),
+          ...(updates.walletId !== undefined && {
+            walletId: updates.walletId || null,
+          }),
+        },
+      });
+    }
   });
 
-  // Update wallet if changed
-  if (updates.walletId !== undefined) {
-    await db.payroll.update({
-      where: { id: payrollId },
-      data: { walletId: updates.walletId || null },
-    });
+  // Approved earnings feed the employee balance; a corrected net changes it.
+  if (payroll.status !== "DRAFT") {
+    await walletService.recomputeBalance(line.employeeId);
   }
 
   await logPayrollChange(db, {
@@ -1148,7 +1280,8 @@ export async function updatePayrollLine(
       bonusesMinor: line.bonusesMinor,
       deductionsMinor: line.deductionsMinor,
       grossPayMinor: line.grossPayMinor,
-      walletId: line.payroll.walletId,
+      walletId: payroll.walletId,
+      payrollStatus: payroll.status,
     },
     newValues: {
       overtimeHours,
@@ -1156,8 +1289,10 @@ export async function updatePayrollLine(
       bonusesMinor,
       deductionsMinor,
       grossPayMinor,
-      netPayMinor: Math.max(netPayableMinor, 0),
-      walletId: updates.walletId !== undefined ? updates.walletId || null : line.payroll.walletId,
+      netPayMinor,
+      walletId: updates.walletId !== undefined ? updates.walletId || null : payroll.walletId,
+      payrollStatus,
+      ...(needsAccountingFix && { accountingCorrection: true }),
     },
     userId: editedById ?? null,
   });
@@ -1206,22 +1341,15 @@ export async function revertPayroll(
     await tx.payrollAdvanceAllocation.deleteMany({ where: { payrollId: payroll.id } });
 
     // Reverse the salary accounting posted at approval: corrections replace an
-    // entry, they never rewrite it (§2 action 9).
-    const approvals = await tx.accountingEntry.findMany({
-      where: { payrollId: payroll.id, type: "PAYROLL_APPROVAL", reversalOfId: null },
-    });
-    for (const entry of approvals) {
-      await tx.accountingEntry.create({
-        data: {
-          type: "PAYROLL_REVERSAL",
-          amountMinor: -entry.amountMinor,
-          description: `Reversal of payroll approval${reason ? `: ${reason}` : ""}`,
-          payrollId: payroll.id,
-          reversalOfId: entry.id,
-          postedById: userId,
-        },
-      });
-    }
+    // entry, they never rewrite it (§2 action 9). Only still-active accruals
+    // are reversed — earlier corrections were already cancelled by their own
+    // reversal rows.
+    await reverseActiveApprovals(
+      tx,
+      payroll.id,
+      `Reversal of payroll approval${reason ? `: ${reason}` : ""}`,
+      userId
+    );
 
     const paidAgg = await tx.payrollPayment.aggregate({
       _sum: { amountMinor: true },

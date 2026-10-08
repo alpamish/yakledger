@@ -43,7 +43,7 @@ import { PayrollExportDropdown } from "@/components/payroll/payroll-export-dropd
 import { payrollApi, type PayrollListParams, type UpdatePayrollLineBody } from "@/services/payroll-api";
 import { walletApi } from "@/services/wallet-api";
 import { formatMinor } from "@/lib/money";
-import { PAYROLL_TYPE_LABELS } from "@/lib/payroll-status";
+import { PAYROLL_TYPE_LABELS, isPayrollEditable } from "@/lib/payroll-status";
 import { usePermissions } from "@/hooks/use-permissions";
 import { useDebounce } from "@/hooks/use-debounce";
 import { useLiveRefresh } from "@/hooks/use-live-refresh";
@@ -308,8 +308,8 @@ export function PayrollPage() {
         header: ({ column }) => <SortableHeader column={column}>OT Hours</SortableHeader>,
         cell: ({ row }) => {
           const line = row.original.lines?.[0];
-          const isDraft = row.original.status === "DRAFT";
-          if (editMode && isDraft && line) {
+          const isEditable = isPayrollEditable(row.original.status);
+          if (editMode && isEditable && line) {
             return (
               <div className="flex items-center gap-1">
                 <Input
@@ -368,8 +368,8 @@ export function PayrollPage() {
         header: ({ column }) => <SortableHeader column={column}>Allowances</SortableHeader>,
         cell: ({ row }) => {
           const line = row.original.lines?.[0];
-          const isDraft = row.original.status === "DRAFT";
-          if (editMode && isDraft && line) {
+          const isEditable = isPayrollEditable(row.original.status);
+          if (editMode && isEditable && line) {
             return (
               <div className="flex items-center gap-1">
                 <Input
@@ -399,8 +399,8 @@ export function PayrollPage() {
         header: ({ column }) => <SortableHeader column={column}>Bonuses</SortableHeader>,
         cell: ({ row }) => {
           const line = row.original.lines?.[0];
-          const isDraft = row.original.status === "DRAFT";
-          if (editMode && isDraft && line) {
+          const isEditable = isPayrollEditable(row.original.status);
+          if (editMode && isEditable && line) {
             return (
               <div className="flex items-center gap-1">
                 <Input
@@ -430,8 +430,8 @@ export function PayrollPage() {
         header: ({ column }) => <SortableHeader column={column}>Deductions</SortableHeader>,
         cell: ({ row }) => {
           const line = row.original.lines?.[0];
-          const isDraft = row.original.status === "DRAFT";
-          if (editMode && isDraft && line) {
+          const isEditable = isPayrollEditable(row.original.status);
+          if (editMode && isEditable && line) {
             return (
               <div className="flex items-center gap-1">
                 <Input
@@ -487,8 +487,8 @@ export function PayrollPage() {
         header: ({ column }) => <SortableHeader column={column}>Net Payable</SortableHeader>,
         cell: ({ row }) => {
           const line = row.original.lines?.[0];
-          const isDraft = row.original.status === "DRAFT";
-          if (editMode && isDraft && line) {
+          const isEditable = isPayrollEditable(row.original.status);
+          if (editMode && isEditable && line) {
             return (
               <div className="flex items-center gap-1">
                 <Input
@@ -522,8 +522,8 @@ export function PayrollPage() {
         cell: ({ row }) => {
           const line = row.original.lines?.[0];
           const remaining = line?.remainingEmployeeDebtMinor ?? 0;
-          const isDraft = row.original.status === "DRAFT";
-          if (editMode && isDraft && line) {
+          const isEditable = isPayrollEditable(row.original.status);
+          if (editMode && isEditable && line) {
             return (
               <div className="flex items-center gap-1">
                 <Input
@@ -585,8 +585,8 @@ export function PayrollPage() {
         accessorFn: (row) => row.wallet?.name ?? "",
         header: () => <span className="font-medium text-muted-foreground">Wallet</span>,
         cell: ({ row }) => {
-          const isDraft = row.original.status === "DRAFT";
-          if (editMode && isDraft) {
+          const isEditable = isPayrollEditable(row.original.status);
+          if (editMode && isEditable) {
             return (
               <Select
                 value={row.original.walletId ?? ""}
@@ -840,7 +840,7 @@ export function PayrollPage() {
                   </Label>
                   {editMode && (
                     <span className="text-xs text-muted-foreground ml-2">
-                      Click any field in a DRAFT row to edit
+                      Click any field in an open row to edit (paid rows are locked)
                     </span>
                   )}
                 </div>
@@ -864,7 +864,7 @@ export function PayrollPage() {
                     {table.getRowModel().rows.map((row) => (
                       <TableRow
                         key={row.id}
-                        className={editMode && row.original.status === "DRAFT" ? "bg-blue-50/50" : ""}
+                        className={editMode && isPayrollEditable(row.original.status) ? "bg-blue-50/50" : ""}
                       >
                         {row.getVisibleCells().map((cell) => (
                           <TableCell key={cell.id}>
