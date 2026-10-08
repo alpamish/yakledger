@@ -26,6 +26,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ConfirmDialog } from "@/components/common/confirm-dialog";
+import { PayrollAllocationDialog } from "@/components/payroll/payroll-allocation-dialog";
 import { payrollApi } from "@/services/payroll-api";
 import { walletApi } from "@/services/wallet-api";
 import { formatMinor, toMinor } from "@/lib/money";
@@ -34,7 +35,14 @@ import {
   PAYROLL_PAYMENT_METHOD_LABELS,
 } from "@/lib/payroll-status";
 import { toast } from "sonner";
-import { MoreHorizontal, Check, RotateCcw, Trash2, Banknote } from "lucide-react";
+import {
+  MoreHorizontal,
+  Check,
+  RotateCcw,
+  Trash2,
+  Banknote,
+  PieChart,
+} from "lucide-react";
 
 interface Wallet {
   id: string;
@@ -67,6 +75,7 @@ export function PayrollActions({
   const [approveOpen, setApproveOpen] = useState(false);
   const [payOpen, setPayOpen] = useState(false);
   const [revertConfirmOpen, setRevertConfirmOpen] = useState(false);
+  const [allocOpen, setAllocOpen] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<string>("CASH");
   const [amount, setAmount] = useState("");
@@ -190,6 +199,13 @@ export function PayrollActions({
                 Record Payment
               </DropdownMenuItem>
             )}
+            <DropdownMenuItem
+              onClick={() => setAllocOpen(true)}
+              disabled={busy || totalPaidMinor > 0}
+            >
+              <PieChart className="mr-2 h-4 w-4" />
+              Project Allocation
+            </DropdownMenuItem>
             {canRevert && (
               <DropdownMenuItem
                 onClick={() => setRevertConfirmOpen(true)}
@@ -296,6 +312,12 @@ export function PayrollActions({
             </DialogFooter>
           </DialogContent>
         </Dialog>
+        <PayrollAllocationDialog
+          open={allocOpen}
+          onOpenChange={setAllocOpen}
+          payrollId={payrollId}
+          onSaved={onChanged}
+        />
       </>
     );
   }
@@ -320,6 +342,13 @@ export function PayrollActions({
           >
             <Check className="mr-2 h-4 w-4" />
             Approve
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onClick={() => setAllocOpen(true)}
+            disabled={busy}
+          >
+            <PieChart className="mr-2 h-4 w-4" />
+            Project Allocation
           </DropdownMenuItem>
           <DropdownMenuItem
             onClick={() => setDeleteConfirmOpen(true)}
@@ -347,6 +376,12 @@ export function PayrollActions({
         description="Approval freezes the payroll figures, applies the advance deductions and posts the salary accounting entry. No money moves until a payment is recorded. Are you sure?"
         confirmText="Approve"
         onConfirm={handleApprove}
+      />
+      <PayrollAllocationDialog
+        open={allocOpen}
+        onOpenChange={setAllocOpen}
+        payrollId={payrollId}
+        onSaved={onChanged}
       />
     </>
   );

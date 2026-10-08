@@ -526,11 +526,30 @@ model Payroll {
   payments    PayrollPayment[]
   adjustments PayrollAdjustment[]
   accountingEntries AccountingEntry[]
+  projectAllocations PayrollLineProjectAllocation[]
 
   @@unique([employeeId, periodStart, periodEnd])
   @@index([employeeId, periodStart])
   @@index([status])
   @@index([walletId])
+}
+
+// Salary cost split across projects (Plan-payroll.pdf §2 action 11).
+// `enteredValue` keeps HR's original entry (percent, or amount in AFN);
+// `percentage`/`amountMinor` are the normalized result (sum to 100% / gross pay).
+model PayrollLineProjectAllocation {
+  id           String   @id @default(cuid())
+  payrollId    String
+  payroll      Payroll  @relation(fields: [payrollId], references: [id], onDelete: Cascade)
+  project      String
+  mode         String   // PERCENT | AMOUNT
+  enteredValue Float
+  percentage   Float
+  amountMinor  Int
+  createdBy    String?
+  createdAt    DateTime @default(now())
+
+  @@index([payrollId])
 }
 
 // One row per salary payment (partial payments are separate rows).

@@ -1960,3 +1960,137 @@ export async function deletePayroll(
   // The approved earnings are gone from the ledger; refresh the balance.
   await walletService.recomputeBalance(payroll.employeeId);
 }
+
+export type ProjectAllocationInput = {
+  project: string;
+  mode: "PERCENT" | "AMOUNT";
+  /** percentage (0-100) when mode is PERCENT, else amount in AFN */
+  value: number;
+};
+
+export async function getProjectAllocations(payrollId: string) {
+  return db.payrollLineProjectAllocation.findMany({
+    where: { payrollId },
+    orderBy: { createdAt: "asc" },
+  });
+}
+
+/**
+ * Split a payroll's gross pay across projects (Plan-payroll.pdf §2 action 11).
+ * Accepts percentages or fixed AFN amounts, normalizes the weights to 100%,
+ * and stores the resulting share so the amounts always sum to the gross pay.
+ */
+export async function setProjectAllocations(
+  payrollId: string,
+  inputs: ProjectAllocationInput[],
+  userId: string
+) {
+  const payroll = await db.payroll.findUnique({
+    where: { id: payrollId },
+    include: { lines: true, projectAllocations: true },
+  });
+  if (!payroll) throw new Error("Payroll not found");
+  if (
+    payroll.totalPaidMinor > 0 ||
+    payroll.status === "PAID" ||
+    payroll.status === "CANCELLED"
+  ) {
+    throw new Error("Project allocation cannot be changed after payment");
+  }
+  const line = payroll.lines[0];
+  if (!line) throw new Error("Payroll has no line items");
+
+  const rows = inputs
+    .map((i) => ({ ...i, project: i.project.trim() }))
+    .filter((i) => i.project && Number.isFinite(i.value) && i.value > 0);
+
+  const snapshot = payroll.projectAllocations.map((a) => ({
+    project: a.project,
+    mode: a.mode,
+    value: a.enteredValue,
+    percentage: a.percentage,
+    amountMinor: a.amountMinor,
+  }));
+
+  if (rows.length === 0) {
+    await db.$transaction(async (tx) => {
+      await tx.payrollLineProjectAllocation.deleteMany({
+        where: { payrollId },
+      });
+      if (snapshot.length > 0) {
+        await logPayrollChange(tx, {
+          payrollId,
+          employeeId: payroll.employeeId,
+          action: "ALLOCATIONS_SET",
+          summary: "Project allocations cleared",
+          oldValues: snapshot,
+          newValues: [],
+          userId,
+        });
+      }
+    });
+    return [];
+  }
+
+  const baseMinor = line.grossPayMinor;
+  if (baseMinor <= 0) throw new Error("This payroll has no salary to allocate");
+
+  // Raw weight per row: the entered percentage, or the fixed AFN amount
+  // expressed as a share of the gross pay.
+  const weights = rows.map((r) =>
+    r.mode === "PERCENT" ? r.value : (toMinor(r.value) / baseMinor) * 100
+  );
+  const totalWeight = weights.reduce((s, w) => s + w, 0);
+  if (!(totalWeight > 0)) {
+    throw new Error("Allocation values must add up to more than zero");
+  }
+
+  // Normalize to exactly 100% no matter what HR entered (§1 Project Salary
+  // Allocation), then convert each share back to money.
+  const percentages = weights.map((w) => (w / totalWeight) * 100);
+  const amounts = percentages.map((p) => Math.round((baseMinor * p) / 100));
+  const drift = baseMinor - amounts.reduce((s, a) => s + a, 0);
+  if (drift !== 0) {
+    let maxIdx = 0;
+    for (let i = 1; i < amounts.length; i++) {
+      if (amounts[i] > amounts[maxIdx]) maxIdx = i;
+    }
+    amounts[maxIdx] += drift;
+  }
+
+  return db.$transaction(async (tx) => {
+    await tx.payrollLineProjectAllocation.deleteMany({
+      where: { payrollId },
+    });
+    await tx.payrollLineProjectAllocation.createMany({
+      data: rows.map((r, i) => ({
+        payrollId,
+        project: r.project,
+        mode: r.mode,
+        enteredValue: r.value,
+        percentage: percentages[i],
+        amountMinor: amounts[i],
+        createdBy: userId,
+      })),
+    });
+    await logPayrollChange(tx, {
+      payrollId,
+      employeeId: payroll.employeeId,
+      action: "ALLOCATIONS_SET",
+      summary: `${rows.length} project allocation(s) normalized to 100%`,
+      oldValues: snapshot,
+      newValues: rows.map((r, i) => ({
+        project: r.project,
+        mode: r.mode,
+        value: r.value,
+        percentage: percentages[i],
+        amountMinor: amounts[i],
+      })),
+      userId,
+    });
+    return tx.payrollLineProjectAllocation.findMany({
+      where: { payrollId },
+      orderBy: { createdAt: "asc" },
+    });
+  });
+}

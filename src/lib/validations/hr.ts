@@ -82,6 +82,18 @@ export const payrollLineUpdateSchema = z.object({
   walletId: z.string().optional(),
 });
 
+// Split a payroll's gross pay across projects. `value` is a percentage when
+// mode is PERCENT, or an amount in AFN when mode is AMOUNT.
+export const projectAllocationsSchema = z.object({
+  allocations: z.array(
+    z.object({
+      project: z.string().trim().min(1, "Project name is required"),
+      mode: z.enum(["PERCENT", "AMOUNT"]),
+      value: z.number().positive("Must be greater than zero"),
+    })
+  ),
+});
+
 // Reimbursement of approved employee-paid expenses (outside salary payroll).
 export const reimbursementSchema = z.object({
   expenseIds: z.array(z.string().min(1)).min(1, "Select at least one expense"),

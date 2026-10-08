@@ -66,6 +66,17 @@ export interface PayrollGenerateBody {
   type?: "STANDARD" | "FINAL_SETTLEMENT";
 }
 
+export interface ProjectAllocation {
+  id: string;
+  payrollId: string;
+  project: string;
+  mode: string;
+  enteredValue: number;
+  percentage: number;
+  amountMinor: number;
+  createdAt: string;
+}
+
 export interface UpdatePayrollLineBody {
   lineId: string;
   overtimeHours?: number;
@@ -93,6 +104,24 @@ export const payrollApi = {
 
   generate: async (body: PayrollGenerateBody): Promise<ApiResponse<any>> =>
     request("/payroll", { method: "POST", body: JSON.stringify(body) }),
+
+  getAllocations: async (
+    payrollId: string
+  ): Promise<ApiResponse<ProjectAllocation[]>> =>
+    request(`/payroll/${payrollId}/allocations`),
+
+  setAllocations: async (
+    payrollId: string,
+    allocations: {
+      project: string;
+      mode: "PERCENT" | "AMOUNT";
+      value: number;
+    }[]
+  ): Promise<ApiResponse<ProjectAllocation[]>> =>
+    request(`/payroll/${payrollId}/allocations`, {
+      method: "POST",
+      body: JSON.stringify({ allocations }),
+    }),
 
   approve: async (
     employeeId: string,
