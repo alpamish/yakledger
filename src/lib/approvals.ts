@@ -61,30 +61,33 @@ export async function applyWalletEffect(
       }
     }
   } else if (cfg.type === "cashTransaction") {
+    const employeeId = record.employeeId as string;
+    const type = record.type as string;
+    const id = record.id as string;
+    if (!employeeId) return;
+
+    // Approving an advance pays it out: record the payment method and post the
+    // company financial transaction (Plan-payroll.pdf §2 action 5). May throw
+    // (e.g. company wallet has insufficient funds) so the approval rolls back.
+    if (type === "ADVANCE") {
+      await walletService.markAdvancePaid(id, userId, undefined, tx ?? db);
+    }
+
+    // The approved row itself already carries the balance effect — only
+    // recompute, never write a compensating DEBIT row (that would double count).
     try {
-      const employeeId = record.employeeId as string;
-      const amount = record.amount as number;
-      const type = record.type as string;
-      if (!employeeId || !amount) return;
-      if (type === "ADVANCE" || type === "ADJUSTMENT") {
-        await walletService.addBackToWallet(employeeId, amount, userId);
-      } else if (type === "RETURN") {
-        await walletService.deductFromWallet(employeeId, amount, userId);
-      }
+      await walletService.recomputeBalance(employeeId, tx);
     } catch (err) {
       console.warn(`Wallet effect for ${entity} approval failed:`, err);
     }
   } else if (cfg.type === "transfer") {
+    const fromEmployeeId = record.fromEmployeeId as string;
+    const toEmployeeId = record.toEmployeeId as string;
+    if (!fromEmployeeId || !toEmployeeId) return;
+    // Transfer rows are counted by the balance recompute directly.
     try {
-      const fromEmployeeId = record.fromEmployeeId as string;
-      const toEmployeeId = record.toEmployeeId as string;
-      const amount = record.amount as number;
-      if (fromEmployeeId && amount) {
-        await walletService.deductFromWallet(fromEmployeeId, amount, userId);
-      }
-      if (toEmployeeId && amount) {
-        await walletService.addBackToWallet(toEmployeeId, amount, userId);
-      }
+      await walletService.recomputeBalance(fromEmployeeId, tx);
+      await walletService.recomputeBalance(toEmployeeId, tx);
     } catch (err) {
       console.warn(`Wallet effect for ${entity} approval failed:`, err);
     }

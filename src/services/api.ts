@@ -374,6 +374,24 @@ export const cashAdvanceApi = {
     return mutate<ApiResponse<void>>(`/cash-transactions/${id}`, { method: "DELETE" }, "/cash-transactions");
   },
 
+  updateTransaction: async (
+    id: string,
+    data: {
+      amount?: number;
+      note?: string | null;
+      referenceNumber?: string | null;
+      dueDate?: string | null;
+      paymentMethod?: string | null;
+      walletId?: string | null;
+    }
+  ): Promise<ApiResponse<CashTransaction>> => {
+    return mutate<ApiResponse<CashTransaction>>(
+      `/cash-transactions/${id}`,
+      { method: "PATCH", body: JSON.stringify(data) },
+      "/cash-transactions"
+    );
+  },
+
   createTransfer: async (data: TransferFormData): Promise<ApiResponse<Transfer>> => {
     return mutate<ApiResponse<Transfer>>("/employee-wallet/transfer", {
       method: "POST",

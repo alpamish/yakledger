@@ -2,6 +2,11 @@
 
 import * as React from 'react';
 import { cashAdvanceApi, employeesApi } from '@/services/api';
+import { walletApi } from '@/services/wallet-api';
+import {
+  PAYROLL_PAYMENT_METHODS,
+  PAYROLL_PAYMENT_METHOD_LABELS,
+} from '@/lib/payroll-status';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -35,6 +40,10 @@ export function AdvanceForm({ onSuccess }: AdvanceFormProps) {
   const [open, setOpen] = React.useState(false);
   const [amount, setAmount] = React.useState('');
   const [note, setNote] = React.useState('');
+  const [dueDate, setDueDate] = React.useState('');
+  const [paymentMethod, setPaymentMethod] = React.useState('CASH');
+  const [walletId, setWalletId] = React.useState('');
+  const [wallets, setWallets] = React.useState<{ id: string; name: string }[]>([]);
   const [submitting, setSubmitting] = React.useState(false);
   const [message, setMessage] = React.useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
@@ -43,6 +52,12 @@ export function AdvanceForm({ onSuccess }: AdvanceFormProps) {
       .then((res) => { if (res.data) setEmployees(res.data.filter((e) => e.department !== 'LABOR' && e.department !== 'SECURITY')); })
       .catch(() => {})
       .finally(() => setLoadingEmployees(false));
+    walletApi
+      .list()
+      .then((res) => {
+        if (res.data) setWallets(res.data.filter((w) => w.isActive !== false));
+      })
+      .catch(() => {});
   }, []);
 
   async function handleSubmit(e: React.FormEvent) {
@@ -56,6 +71,10 @@ export function AdvanceForm({ onSuccess }: AdvanceFormProps) {
       setMessage({ type: 'error', text: 'Amount must be positive' });
       return;
     }
+    if (paymentMethod === 'COMPANY_WALLET' && !walletId) {
+      setMessage({ type: 'error', text: 'Select the company wallet to pay from' });
+      return;
+    }
 
     try {
       setSubmitting(true);
@@ -65,11 +84,17 @@ export function AdvanceForm({ onSuccess }: AdvanceFormProps) {
         type: 'ADVANCE',
         amount: parsedAmount,
         note: note || undefined,
+        dueDate: dueDate || undefined,
+        paymentMethod,
+        walletId: paymentMethod === 'COMPANY_WALLET' ? walletId : undefined,
       });
       if (res.success) {
         setMessage({ type: 'success', text: 'Cash advance issued successfully!' });
         setAmount('');
         setNote('');
+        setDueDate('');
+        setPaymentMethod('CASH');
+        setWalletId('');
         setTimeout(() => onSuccess(), 1500);
       } else {
         setMessage({ type: 'error', text: res.error || 'Failed to issue advance' });
@@ -149,6 +174,54 @@ export function AdvanceForm({ onSuccess }: AdvanceFormProps) {
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
             />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="paymentMethod">Payment method</Label>
+            <select
+              id="paymentMethod"
+              className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm"
+              value={paymentMethod}
+              onChange={(e) => setPaymentMethod(e.target.value)}
+            >
+              {PAYROLL_PAYMENT_METHODS.map((m) => (
+                <option key={m} value={m}>
+                  {PAYROLL_PAYMENT_METHOD_LABELS[m]}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {paymentMethod === 'COMPANY_WALLET' && (
+            <div className="space-y-2">
+              <Label htmlFor="wallet">Company wallet</Label>
+              <select
+                id="wallet"
+                className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm"
+                value={walletId}
+                onChange={(e) => setWalletId(e.target.value)}
+              >
+                <option value="">Select wallet...</option>
+                {wallets.map((w) => (
+                  <option key={w.id} value={w.id}>
+                    {w.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          <div className="space-y-2">
+            <Label htmlFor="dueDate">Due date (optional)</Label>
+            <Input
+              id="dueDate"
+              type="date"
+              value={dueDate}
+              onChange={(e) => setDueDate(e.target.value)}
+            />
+            <p className="text-xs text-muted-foreground">
+              Overdue advances are only flagged as warnings — nothing is deducted automatically.
+            </p>
           </div>
 
           <div className="space-y-2">

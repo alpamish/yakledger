@@ -71,7 +71,7 @@ export async function GET(request: NextRequest) {
           acc.totalRemainingDebtMinor += l.remainingEmployeeDebtMinor ?? 0;
           acc.totalExpensesMinor += l.expensesPaidMinor ?? 0;
           if (l.paymentStatus === "PAID") acc.paidLines += 1;
-          else if (l.paymentStatus === "UNPAID") acc.unpaidLines += 1;
+          else acc.unpaidLines += 1; // UNPAID and PARTIALLY_PAID both still owe
         }
         return acc;
       },

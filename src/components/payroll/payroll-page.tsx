@@ -89,6 +89,7 @@ interface PayrollRecord {
   periodEnd: string;
   status: string;
   walletId: string | null;
+  totalPaidMinor?: number;
   employee: {
     id: string;
     fullName: string;
@@ -563,11 +564,25 @@ export function PayrollPage() {
         header: () => <span className="font-medium text-muted-foreground">Payment</span>,
         cell: ({ row }) => {
           const line = row.original.lines?.[0];
+          const status = row.original.status;
+          const paidMinor = row.original.totalPaidMinor ?? 0;
+          if (status === "PAID" || line?.paymentStatus === "PAID") {
+            return (
+              <Badge variant="default">
+                {`Paid${line?.paymentMethod ? ` (${line.paymentMethod})` : ""}`}
+              </Badge>
+            );
+          }
+          if (status === "PARTIALLY_PAID" || line?.paymentStatus === "PARTIALLY_PAID") {
+            return (
+              <Badge variant="secondary">
+                {`Partially paid ${formatMinor(paidMinor)}`}
+              </Badge>
+            );
+          }
           return (
-            <Badge variant={row.original.status === "APPROVED" ? "default" : "secondary"}>
-              {line?.paymentStatus === "PAID"
-                ? `Paid${line.paymentMethod ? ` (${line.paymentMethod})` : ""}`
-                : row.original.status}
+            <Badge variant={status === "APPROVED" ? "default" : "secondary"}>
+              {status}
             </Badge>
           );
         },
@@ -627,6 +642,8 @@ export function PayrollPage() {
                   employeeId={row.original.employeeId}
                   status={row.original.status}
                   defaultWalletId={row.original.walletId ?? undefined}
+                  netPayMinor={row.original.lines?.[0]?.netPayMinor ?? 0}
+                  totalPaidMinor={row.original.totalPaidMinor ?? 0}
                   onChanged={load}
                 />
               ),

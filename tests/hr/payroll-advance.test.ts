@@ -4,6 +4,7 @@ import {
   generatePayroll,
   approvePayroll,
   revertPayroll,
+  recordPayrollPayment,
   computeAttendanceHours,
 } from "@/services/hr.service";
 import { toMinor } from "@/lib/money";
@@ -143,8 +144,14 @@ describe("Payroll advance / debt allocation", () => {
     expect(julyLine.amountAlreadyReceivedMinor).toBe(toMinor(5000));
     expect(julyLine.netPayableMinor).toBe(toMinor(20000));
 
+    // Approval alone does not move money — payment is a separate action.
     const approvedJuly = await approvePayroll(july.id, user.id);
-    expect(approvedJuly.lines[0].paymentStatus).toBe("PAID");
+    expect(approvedJuly.lines[0].paymentStatus).toBe("UNPAID");
+    const paidJuly = await recordPayrollPayment(july.id, user.id, {
+      paymentMethod: "CASH",
+    });
+    expect(paidJuly!.status).toBe("PAID");
+    expect(paidJuly!.lines[0].paymentStatus).toBe("PAID");
 
     // Wallet now balanced: +30,000 advance +20,000 salary payment - 50,000 earned = 0
     expect(Math.round((await walletBalance(emp.id)) * 100)).toBe(0);
@@ -184,6 +191,56 @@ describe("Payroll advance / debt allocation", () => {
     });
     // Only 10,000 advance exists; must not exceed that across both payrolls
     expect(totalAlloc._sum.amountMinor).toBe(toMinor(10000));
+  });
+
+  it("allocates the largest outstanding advance first (not FIFO)", async () => {
+    const olderSmall = await addAdvance(emp.id, 5000, new Date("2026-06-01T10:00:00Z"), user);
+    const largest = await addAdvance(emp.id, 20000, new Date("2026-06-05T10:00:00Z"), user);
+    const mid = await addAdvance(emp.id, 10000, new Date("2026-06-10T10:00:00Z"), user);
+
+    const { payroll: june } = await generatePayroll({
+      employeeId: emp.id,
+      periodStart: new Date("2026-06-01"),
+      periodEnd: new Date("2026-06-30"),
+      createdById: user.id,
+    });
+    const approved = await approvePayroll(june.id, user.id);
+    expect(approved.status).toBe("APPROVED");
+
+    // Debt 35,000, gross 25,000 => 25,000 to allocate, largest advance first.
+    const allocs = await db.payrollAdvanceAllocation.findMany({
+      where: { payrollId: june.id },
+    });
+    const byAdvance = Object.fromEntries(
+      allocs.map((a) => [a.cashTransactionId, a.amountMinor])
+    );
+    expect(byAdvance[largest.id]).toBe(toMinor(20000));
+    expect(byAdvance[mid.id]).toBe(toMinor(5000));
+    expect(byAdvance[olderSmall.id]).toBeUndefined();
+    expect(allocs.reduce((s, a) => s + a.amountMinor, 0)).toBe(toMinor(25000));
+
+    // July: remaining debt 10,000 drains the two advances that still have an
+    // outstanding balance (mid 5,000 left + oldest 5,000); the fully consumed
+    // large advance is never touched again.
+    const { payroll: july } = await generatePayroll({
+      employeeId: emp.id,
+      periodStart: new Date("2026-07-01"),
+      periodEnd: new Date("2026-07-31"),
+      createdById: user.id,
+    });
+    expect(july.lines[0].previousDebtMinor).toBe(toMinor(10000));
+    await approvePayroll(july.id, user.id);
+
+    const julyByAdvance = Object.fromEntries(
+      (
+        await db.payrollAdvanceAllocation.findMany({
+          where: { payrollId: july.id },
+        })
+      ).map((a) => [a.cashTransactionId, a.amountMinor])
+    );
+    expect(julyByAdvance[mid.id]).toBe(toMinor(5000));
+    expect(julyByAdvance[olderSmall.id]).toBe(toMinor(5000));
+    expect(julyByAdvance[largest.id]).toBeUndefined();
   });
 
   it("does not create an employee wallet when approving payroll for an employee with no cash activity", async () => {
@@ -275,7 +332,7 @@ describe("Payroll correction (revert)", () => {
     await addSalary(emp.id, 25000);
   });
 
-  it("revert returns an approved payroll to DRAFT and removes settlement", async () => {
+  it("revert returns an approved payroll to DRAFT and preserves recorded payments", async () => {
     const { payroll } = await generatePayroll({
       employeeId: emp.id,
       periodStart: new Date("2026-06-01"),
@@ -284,8 +341,12 @@ describe("Payroll correction (revert)", () => {
     });
     const approved = await approvePayroll(payroll.id, user.id);
     expect(approved.status).toBe("APPROVED");
+    // A partial payment is enough to start the settlement.
+    await recordPayrollPayment(payroll.id, user.id, {
+      amountMinor: toMinor(10000),
+      paymentMethod: "CASH",
+    });
 
-    // A salary payment was created and linked to the payroll.
     const paidBefore = await db.cashTransaction.count({
       where: { payrollId: payroll.id, type: "SALARY_PAYMENT" },
     });
@@ -296,11 +357,25 @@ describe("Payroll correction (revert)", () => {
     expect(reverted.revertedAt).toBeTruthy();
     expect(reverted.reversalReason).toBe("wrong amount");
 
-    // Settlement removed; can be regenerated and re-approved.
+    // Financial history survives the correction (PDF §1): the salary payment,
+    // its expense and the PayrollPayment row are all kept, and the paid total
+    // stays attached to the payroll.
     const paidAfter = await db.cashTransaction.count({
       where: { payrollId: payroll.id, type: "SALARY_PAYMENT" },
     });
-    expect(paidAfter).toBe(0);
+    expect(paidAfter).toBe(1);
+    expect(reverted.totalPaidMinor).toBe(toMinor(10000));
+    expect(
+      await db.payrollPayment.count({ where: { payrollId: payroll.id } })
+    ).toBe(1);
+
+    // The salary accounting posted at approval is reversed, not rewritten.
+    const reversals = await db.accountingEntry.findMany({
+      where: { payrollId: payroll.id, type: "PAYROLL_REVERSAL" },
+    });
+    expect(reversals).toHaveLength(1);
+    expect(reversals[0].reversalOfId).toBeTruthy();
+    expect(reversals[0].amountMinor).toBe(toMinor(25000));
 
     const { payroll: regen } = await generatePayroll({
       employeeId: emp.id,
@@ -309,7 +384,9 @@ describe("Payroll correction (revert)", () => {
       createdById: user.id,
     });
     const reApproved = await approvePayroll(regen.id, user.id);
-    expect(reApproved.status).toBe("APPROVED");
+    // The preserved payment re-attaches: still partially paid, not re-paid.
+    expect(reApproved.status).toBe("PARTIALLY_PAID");
+    expect(reApproved.totalPaidMinor).toBe(toMinor(10000));
   });
 
   it("cannot revert a draft payroll", async () => {

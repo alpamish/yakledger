@@ -95,14 +95,33 @@ export const payrollApi = {
 
   approve: async (
     employeeId: string,
-    payrollId: string,
-    paymentMethod?: string,
-    walletId?: string
+    payrollId: string
   ): Promise<ApiResponse<any>> =>
     request(`/employees/${employeeId}/payroll`, {
       method: "POST",
-      body: JSON.stringify({ action: "approve", payrollId, paymentMethod, walletId }),
+      body: JSON.stringify({ action: "approve", payrollId }),
     }),
+
+  // One partial salary payment (§2 action 6). `amountMinor` omitted = settle
+  // whatever is still outstanding.
+  pay: async (
+    payrollId: string,
+    body: {
+      amountMinor?: number;
+      paymentMethod: string;
+      walletId?: string;
+      note?: string;
+      reference?: string;
+      evidenceUrl?: string;
+    }
+  ): Promise<ApiResponse<any>> =>
+    request(`/payroll/${payrollId}/payments`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  payments: async (payrollId: string): Promise<ApiResponse<any>> =>
+    request(`/payroll/${payrollId}/payments`),
 
   revert: async (
     employeeId: string,

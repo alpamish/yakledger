@@ -29,6 +29,7 @@ export const PAYMENT_METHODS = [
   "CREDIT_CARD",
   "DEBIT_CARD",
   "MOBILE_PAYMENT",
+  "COMPANY_WALLET",
   "OTHER",
 ] as const;
 
@@ -367,6 +368,13 @@ export interface CashTransaction {
   amount: number;
   note?: string | null;
   referenceNumber?: string | null;
+  dueDate?: string | null;
+  paymentMethod?: PaymentMethod | string | null;
+  paidAt?: string | null;
+  editedAt?: string | null;
+  editedById?: string | null;
+  /** Portion already consumed by approved payrolls (advances only). */
+  allocatedAmount?: number;
   createdBy: string;
   createdAt: string;
   approvalStatus?: ApprovalStatus;
@@ -381,6 +389,9 @@ export interface CashTransactionFormData {
   amount: number;
   note?: string;
   referenceNumber?: string;
+  dueDate?: string | null;
+  paymentMethod?: string;
+  walletId?: string;
 }
 
 export interface Transfer {
@@ -460,6 +471,7 @@ export const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
   CREDIT_CARD: "Credit Card",
   DEBIT_CARD: "Debit Card",
   MOBILE_PAYMENT: "Mobile Payment",
+  COMPANY_WALLET: "Company Wallet",
   OTHER: "Other",
 };
 

@@ -79,7 +79,9 @@ const truncate = (str: string, maxLen: number) =>
 const paymentLabel = (line: PayrollLine) =>
   line.paymentStatus === "PAID"
     ? `Paid${line.paymentMethod ? ` (${line.paymentMethod})` : ""}`
-    : line.paymentStatus || "Unpaid";
+    : line.paymentStatus === "PARTIALLY_PAID"
+      ? "Partially Paid"
+      : line.paymentStatus || "Unpaid";
 
 // ─── Column widths (landscape, total ≈ 680) ────────────────────
 const COL = {

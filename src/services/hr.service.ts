@@ -27,7 +27,11 @@ export function sanitizeSalaryFields<T extends Record<string, any>>(
  *  - All mutations run in transactions and write audit events.
  */
 import { db } from "../lib/db";
-import { toMinor } from "../lib/money";
+import { toMinor, fromMinor } from "../lib/money";
+import {
+  ALLOCATING_PAYROLL_STATUSES,
+  isPayrollPaymentMethod,
+} from "../lib/payroll-status";
 import { Prisma } from "@prisma/client";
 import { walletService } from "./wallet.service";
 import { companyWalletService } from "./company-wallet.service";
@@ -469,7 +473,10 @@ export async function computePayrollFigures(
     _sum: { grossPayMinor: true },
     where: {
       employeeId,
-      payroll: { status: "APPROVED", periodEnd: { lt: periodStart } },
+      payroll: {
+        status: { in: [...ALLOCATING_PAYROLL_STATUSES] },
+        periodEnd: { lt: periodStart },
+      },
     },
   });
   const priorEarnedMinor = priorEarnedAgg._sum.grossPayMinor ?? 0;
@@ -547,7 +554,15 @@ export async function computePayrollFigures(
   };
 }
 
-/** Allocate an employee's approved advances to a payroll (FIFO), never twice.
+/** Allocate an employee's approved advances to a payroll, never twice.
+ *
+ *  Allocation order is largest outstanding advance first (Plan-payroll.pdf
+ *  §2 action 1): HR enters one total deduction amount and the system
+ *  distributes it across the advances that still have an unallocated balance.
+ *  Ties are broken by creation date (oldest first). Advances that are already
+ *  fully allocated, or already allocated to this payroll, are skipped, so the
+ *  original transactions and the remaining outstanding balances stay visible.
+ *
  *  Returns the total amount allocated in minor units. */
 async function allocateAdvances(
   tx: Prisma.TransactionClient,
@@ -558,36 +573,66 @@ async function allocateAdvances(
 ): Promise<number> {
   if (amountMinor <= 0) return 0;
 
-  const priorAllocAgg = await tx.payrollAdvanceAllocation.aggregate({
-    _sum: { amountMinor: true },
-    where: {
-      payroll: { employeeId, status: "APPROVED" },
-      cashTransaction: { type: "ADVANCE" },
-    },
-  });
-  const priorAllocMinor = priorAllocAgg._sum.amountMinor ?? 0;
-
   const advances = await tx.cashTransaction.findMany({
     where: {
       employeeId,
       type: "ADVANCE",
       approvalStatus: "APPROVED",
       createdAt: { lte: periodEnd },
+      payrollAllocations: { none: { payrollId } },
     },
     orderBy: { createdAt: "asc" },
-    select: { id: true, amount: true },
+    select: {
+      id: true,
+      amount: true,
+      createdAt: true,
+      payrollAllocations: {
+        where: { payroll: { status: { in: [...ALLOCATING_PAYROLL_STATUSES] } } },
+        select: { amountMinor: true },
+      },
+    },
   });
-  const totalAdvancesMinor = Math.round(
-    advances.reduce((s, a) => s + a.amount, 0) * 100
-  );
-  const availableMinor = Math.max(0, totalAdvancesMinor - priorAllocMinor);
-  let toAllocate = Math.min(amountMinor, availableMinor);
-  let totalAllocated = 0;
 
-  for (const adv of advances) {
+  const outstanding = advances
+    .map((adv) => {
+      const advanceMinor = Math.round(adv.amount * 100);
+      const allocatedMinor = adv.payrollAllocations.reduce(
+        (s, a) => s + a.amountMinor,
+        0
+      );
+      return {
+        id: adv.id,
+        createdAt: adv.createdAt,
+        outstandingMinor: Math.max(0, advanceMinor - allocatedMinor),
+      };
+    })
+    .filter((adv) => adv.outstandingMinor > 0)
+    .sort(
+      (a, b) =>
+        b.outstandingMinor - a.outstandingMinor ||
+        a.createdAt.getTime() - b.createdAt.getTime()
+    );
+
+  const availableMinor = outstanding.reduce(
+    (s, adv) => s + adv.outstandingMinor,
+    0
+  );
+
+  // Idempotent: a payroll that already holds allocations (e.g. after a
+  // recalculation) only ever tops itself up to `amountMinor`.
+  const existingAgg = await tx.payrollAdvanceAllocation.aggregate({
+    _sum: { amountMinor: true },
+    where: { payrollId },
+  });
+  const alreadyAllocatedMinor = existingAgg._sum.amountMinor ?? 0;
+
+  let toAllocate = Math.min(amountMinor - alreadyAllocatedMinor, availableMinor);
+  let totalAllocated = 0;
+  if (toAllocate <= 0) return 0;
+
+  for (const adv of outstanding) {
     if (toAllocate <= 0) break;
-    const advMinor = Math.round(adv.amount * 100);
-    const amt = Math.min(advMinor, toAllocate);
+    const amt = Math.min(adv.outstandingMinor, toAllocate);
     await tx.payrollAdvanceAllocation.create({
       data: { payrollId, cashTransactionId: adv.id, amountMinor: amt },
     });
@@ -599,17 +644,27 @@ async function allocateAdvances(
 }
 
 /** Approve a payroll record. Approval finalizes and settles it: */
-export async function approvePayroll(
-  payrollId: string,
-  approvedById: string,
-  opts?: { paymentMethod?: string; walletId?: string }
-) {
+/**
+ * Approve a payroll (Plan-payroll.pdf §2 action 6 / action 9).
+ *
+ * Approval no longer moves money: it freezes the figures, allocates the
+ * outstanding advances and posts the salary accounting entry. Cash only leaves
+ * the company when a payment is recorded with `recordPayrollPayment`, so a
+ * payroll can be paid in several partial payments with different methods.
+ *
+ * Re-approving a reverted payroll that still has recorded payments restores
+ * their total and goes straight to PARTIALLY_PAID / PAID.
+ */
+export async function approvePayroll(payrollId: string, approvedById: string) {
   const payroll = await db.payroll.findUnique({
     where: { id: payrollId },
     include: { lines: true },
   });
   if (!payroll) throw new Error("Payroll not found");
   if (payroll.status === "APPROVED") return payroll;
+  if (payroll.status === "PARTIALLY_PAID" || payroll.status === "PAID") {
+    return payroll; // already approved; payments are tracked separately
+  }
 
   const line = payroll.lines[0];
   if (!line) throw new Error("Payroll has no line items");
@@ -622,15 +677,20 @@ export async function approvePayroll(
     line.grossPayMinor
   );
 
-  const payrollId2 = payroll.id;
   const employeeId = payroll.employeeId;
-  const walletId = opts?.walletId ?? payroll.walletId ?? undefined;
-
-  // Figures were recomputed above at approval time (the ledger may have
-  // changed since the draft was generated). Only a positive net is paid out.
   const netPayMinor = Math.max(fig.netPayableMinor, 0);
 
-  // Names for the company-paid expense record.
+  // Payments recorded before a revert are preserved (PDF §1 "Payroll Editing
+  // & Correction") and re-attach to the payroll when it is approved again.
+  const paidAgg = await db.payrollPayment.aggregate({
+    _sum: { amountMinor: true },
+    where: { payrollId },
+  });
+  const paidMinor = Math.min(paidAgg._sum.amountMinor ?? 0, netPayMinor);
+  const fullyPaid = netPayMinor > 0 && paidMinor >= netPayMinor;
+  const status =
+    paidMinor <= 0 ? "APPROVED" : fullyPaid ? "PAID" : "PARTIALLY_PAID";
+
   const [emp, approver] = await Promise.all([
     db.employee.findUnique({
       where: { id: employeeId },
@@ -650,78 +710,49 @@ export async function approvePayroll(
       tx,
       employeeId,
       payroll.periodEnd,
-      payrollId2,
+      payrollId,
       fig.amountAlreadyReceivedMinor
     );
 
-    if (netPayMinor > 0) {
-      const amount = netPayMinor / 100;
-      // Deduct the payout from the selected company wallet (validates funds).
-      if (walletId) {
-        await companyWalletService.deductForPayroll(
-          tx,
-          walletId,
-          amount,
-          payrollId2,
-          approvedById
-        );
-      }
-      await tx.cashTransaction.create({
-        data: {
-          employeeId,
-          type: "SALARY_PAYMENT",
-          amount,
-          note: `Salary payment ${periodLabel}`,
-          createdBy: approvedById,
-          approvalStatus: "APPROVED",
-          approvedById,
-          approvedAt: new Date(),
-          payrollId: payrollId2,
-          walletId: walletId ?? null,
-        },
-      });
-      // The approved payroll is a company-paid expense (salary).
-      await tx.expense.create({
-        data: {
-          title: `Salary payment ${periodLabel}`,
-          description: `Payroll for ${employeeName}`,
-          category: "SALARY",
-          amount,
-          paymentMethod: opts?.paymentMethod ?? "CASH",
-          paidTo: employeeName,
-          paidBy: approverName,
-          expenseDate: payroll.periodEnd,
-          paidToId: employeeId,
-          createdBy: approvedById,
-          approvalStatus: "APPROVED",
-          approvedById,
-          approvedAt: new Date(),
-          payrollId: payrollId2,
-          walletId: walletId ?? null,
-        },
-      });
-    }
+    // Salary accounting on approval (§2 action 9): the accrued gross is
+    // recognised as a company expense; every actual payment posts its own
+    // PAYROLL_PAYMENT entry, and corrections reverse this entry instead of
+    // rewriting it.
+    await tx.accountingEntry.create({
+      data: {
+        type: "PAYROLL_APPROVAL",
+        amountMinor: -line.grossPayMinor,
+        description: `Payroll approved for ${employeeName} (${periodLabel})`,
+        payrollId,
+        postedById: approvedById,
+      },
+    });
 
     await tx.payroll.update({
-      where: { id: payrollId2 },
+      where: { id: payrollId },
       data: {
-        status: "APPROVED",
+        status,
         approvedById,
         approvedAt: new Date(),
+        totalPaidMinor: paidMinor,
+        revertedAt: null,
+        reversalReason: null,
         lines: {
           update: {
             where: { id: line.id },
             data: {
-              grossPayMinor: line.grossPayMinor,
               amountAlreadyReceivedMinor: fig.amountAlreadyReceivedMinor,
               previousDebtMinor: fig.previousDebtMinor,
               advancesDeductedMinor: allocatedMinor,
               netPayableMinor: fig.netPayableMinor,
               remainingEmployeeDebtMinor: fig.remainingEmployeeDebtMinor,
               netPayMinor,
-              paymentStatus: netPayMinor > 0 ? "PAID" : "UNPAID",
-              paymentMethod:
-                netPayMinor > 0 ? opts?.paymentMethod ?? "CASH" : null,
+              paymentStatus:
+                paidMinor <= 0
+                  ? "UNPAID"
+                  : fullyPaid
+                    ? "PAID"
+                    : "PARTIALLY_PAID",
             },
           },
         },
@@ -732,18 +763,208 @@ export async function approvePayroll(
       data: {
         employeeId,
         action: "PAYROLL_APPROVED",
-        newValue: payrollId2,
+        newValue: payrollId,
         performedById: approvedById,
       },
     });
   });
 
-  // Recompute the employee wallet balance after settlement.
+  // The wallet now counts the approved earnings against the employee.
   await walletService.recomputeBalance(employeeId);
 
   return db.payroll.findUnique({
-    where: { id: payrollId2 },
+    where: { id: payrollId },
     include: { lines: true },
+  });
+}
+
+/**
+ * Record one salary payment against an approved payroll (§2 action 6).
+ *
+ * Each payment is an independent financial record — its own PayrollPayment row,
+ * its own SALARY_PAYMENT cash transaction and its own accounting entry — so a
+ * payroll can be settled in several partial payments with a different payment
+ * method each time.
+ */
+export async function recordPayrollPayment(
+  payrollId: string,
+  paidById: string,
+  opts: {
+    amountMinor?: number;
+    paymentMethod: string;
+    walletId?: string;
+    note?: string;
+    reference?: string;
+    evidenceUrl?: string;
+  }
+) {
+  if (!isPayrollPaymentMethod(opts.paymentMethod)) {
+    throw new Error("Unsupported payment method");
+  }
+
+  const payroll = await db.payroll.findUnique({
+    where: { id: payrollId },
+    include: { lines: true },
+  });
+  if (!payroll) throw new Error("Payroll not found");
+  if (payroll.status === "PAID") {
+    throw new Error("Payroll is already fully paid");
+  }
+  if (payroll.status !== "APPROVED" && payroll.status !== "PARTIALLY_PAID") {
+    throw new Error("Payroll must be approved before it can be paid");
+  }
+  const line = payroll.lines[0];
+  if (!line) throw new Error("Payroll has no line items");
+
+  const netPayMinor = Math.max(line.netPayMinor, 0);
+  const remainingMinor = netPayMinor - payroll.totalPaidMinor;
+  if (remainingMinor <= 0) {
+    throw new Error("Payroll is already fully paid");
+  }
+
+  const amountMinor = opts.amountMinor ?? remainingMinor;
+  if (!Number.isInteger(amountMinor) || amountMinor <= 0) {
+    throw new Error("Payment amount must be a positive amount in minor units");
+  }
+  if (amountMinor > remainingMinor) {
+    throw new Error(
+      `Payment exceeds the remaining payable of ${fromMinor(remainingMinor)} AFN`
+    );
+  }
+  // A company-wallet payment falls back to the wallet chosen when the payroll
+  // was generated, so the UI only has to ask when neither is known.
+  const walletId =
+    opts.paymentMethod === "COMPANY_WALLET"
+      ? (opts.walletId ?? payroll.walletId ?? undefined)
+      : undefined;
+  if (opts.paymentMethod === "COMPANY_WALLET" && !walletId) {
+    throw new Error("Paying from a company wallet requires a wallet");
+  }
+
+  const employeeId = payroll.employeeId;
+  const amount = amountMinor / 100;
+  const newTotal = payroll.totalPaidMinor + amountMinor;
+  const fullyPaid = newTotal >= netPayMinor;
+
+  const [emp, payer] = await Promise.all([
+    db.employee.findUnique({
+      where: { id: employeeId },
+      select: { fullName: true },
+    }),
+    db.user.findUnique({
+      where: { id: paidById },
+      select: { name: true },
+    }),
+  ]);
+  const employeeName = emp?.fullName ?? "Employee";
+  const payerName = payer?.name ?? "Manager";
+  const periodLabel = `${payroll.periodStart.toISOString().slice(0, 10)}–${payroll.periodEnd.toISOString().slice(0, 10)}`;
+
+  await db.$transaction(async (tx) => {
+    if (walletId) {
+      await companyWalletService.deductForPayroll(tx, walletId, amount, payrollId, paidById);
+    }
+
+    const payment = await tx.payrollPayment.create({
+      data: {
+        payrollId,
+        amountMinor,
+        paymentMethod: opts.paymentMethod,
+        walletId: walletId ?? null,
+        reference: opts.reference ?? null,
+        evidenceUrl: opts.evidenceUrl ?? null,
+        note: opts.note ?? null,
+        createdById: paidById,
+      },
+    });
+
+    const txn = await tx.cashTransaction.create({
+      data: {
+        employeeId,
+        type: "SALARY_PAYMENT",
+        amount,
+        note: opts.note ?? `Salary payment ${periodLabel}`,
+        referenceNumber: opts.reference ?? null,
+        paymentMethod: opts.paymentMethod,
+        walletId: walletId ?? null,
+        paidAt: new Date(),
+        createdBy: paidById,
+        approvalStatus: "APPROVED",
+        approvedById: paidById,
+        approvedAt: new Date(),
+        payrollId,
+      },
+    });
+
+    await tx.expense.create({
+      data: {
+        title: `Salary payment ${periodLabel}`,
+        description: `Payroll for ${employeeName}`,
+        category: "SALARY",
+        amount,
+        paymentMethod: opts.paymentMethod,
+        paidTo: employeeName,
+        paidBy: payerName,
+        expenseDate: payroll.periodEnd,
+        paidToId: employeeId,
+        createdBy: paidById,
+        approvalStatus: "APPROVED",
+        approvedById: paidById,
+        approvedAt: new Date(),
+        payrollId,
+        walletId: walletId ?? null,
+      },
+    });
+
+    // Payment accounting entry (§2 action 9): negative = company paid out.
+    await tx.accountingEntry.create({
+      data: {
+        type: "PAYROLL_PAYMENT",
+        amountMinor: -amountMinor,
+        description: `Salary payment ${periodLabel} via ${opts.paymentMethod}`,
+        payrollId,
+        cashTransactionId: txn.id,
+        walletId: walletId ?? null,
+        postedById: paidById,
+      },
+    });
+
+    await tx.payroll.update({
+      where: { id: payrollId },
+      data: {
+        status: fullyPaid ? "PAID" : "PARTIALLY_PAID",
+        totalPaidMinor: newTotal,
+        lines: {
+          update: {
+            where: { id: line.id },
+            data: {
+              paymentStatus: fullyPaid ? "PAID" : "PARTIALLY_PAID",
+              paymentMethod: opts.paymentMethod,
+            },
+          },
+        },
+      },
+    });
+
+    await tx.employeeAuditEvent.create({
+      data: {
+        employeeId,
+        action: "PAYROLL_PAID",
+        newValue: payrollId,
+        reason: `${fromMinor(amountMinor)} AFN via ${opts.paymentMethod} (${payment.id})`,
+        performedById: paidById,
+      },
+    });
+  });
+
+  await walletService.recomputeBalance(employeeId);
+
+  return db.payroll.findUnique({
+    where: { id: payrollId },
+    include: {
+      lines: true,
+      payments: { orderBy: { paidAt: "asc" } },
+    },
   });
 }
 
@@ -851,8 +1072,12 @@ export async function revertPayroll(
     include: { lines: true },
   });
   if (!payroll) throw new Error("Payroll not found");
-  if (payroll.status !== "APPROVED") {
-    throw new Error("Only an approved payroll can be reverted");
+  if (
+    payroll.status !== "APPROVED" &&
+    payroll.status !== "PARTIALLY_PAID" &&
+    payroll.status !== "NEEDS_RECALCULATION"
+  ) {
+    throw new Error("Only an unpaid or partially paid payroll can be reverted");
   }
   if (payroll.revertedAt) {
     throw new Error("Payroll has already been reverted");
@@ -861,19 +1086,42 @@ export async function revertPayroll(
   const employeeId = payroll.employeeId;
 
   await db.$transaction(async (tx) => {
-    // Remove the company-paid salary expense created at approval.
-    await tx.expense.deleteMany({ where: { payrollId: payroll.id } });
-    // Remove the salary payment(s) created at approval.
-    await tx.cashTransaction.deleteMany({ where: { payrollId: payroll.id } });
+    // Recorded payments (cash transactions, company expenses and the
+    // PayrollPayment rows behind them) are real financial history and survive
+    // the correction (PDF §1 "Payroll Editing & Correction"): only the
+    // approval itself is undone.
     // Free the advances allocated to this payroll so they can be re-allocated
     // when the corrected payroll is generated.
     await tx.payrollAdvanceAllocation.deleteMany({ where: { payrollId: payroll.id } });
-    // Restore any company wallet balance deducted for this payroll.
-    await companyWalletService.reversePayrollDeduction(tx, payroll.id, userId);
+
+    // Reverse the salary accounting posted at approval: corrections replace an
+    // entry, they never rewrite it (§2 action 9).
+    const approvals = await tx.accountingEntry.findMany({
+      where: { payrollId: payroll.id, type: "PAYROLL_APPROVAL", reversalOfId: null },
+    });
+    for (const entry of approvals) {
+      await tx.accountingEntry.create({
+        data: {
+          type: "PAYROLL_REVERSAL",
+          amountMinor: -entry.amountMinor,
+          description: `Reversal of payroll approval${reason ? `: ${reason}` : ""}`,
+          payrollId: payroll.id,
+          reversalOfId: entry.id,
+          postedById: userId,
+        },
+      });
+    }
+
+    const paidAgg = await tx.payrollPayment.aggregate({
+      _sum: { amountMinor: true },
+      where: { payrollId: payroll.id },
+    });
+
     await tx.payroll.update({
       where: { id: payroll.id },
       data: {
         status: "DRAFT",
+        totalPaidMinor: paidAgg._sum.amountMinor ?? 0,
         approvedById: null,
         approvedAt: null,
         revertedById: userId,
@@ -898,6 +1146,171 @@ export async function revertPayroll(
     where: { id: payroll.id },
     include: { lines: true },
   });
+}
+
+/**
+ * Recalculate an approved-but-unpaid payroll after the ledger changed
+ * (advance edited, attendance approved, ...): refresh the debt figures, rebuild
+ * the advance allocations and flag the payroll NEEDS_RECALCULATION so HR
+ * reviews it before payment.
+ *
+ * Paid payrolls are never rewritten here — corrections to paid history go
+ * through a PayrollAdjustment (Plan-payroll.pdf §4 guardrails).
+ */
+export async function recalculatePayroll(payrollId: string, userId?: string) {
+  const payroll = await db.payroll.findUnique({
+    where: { id: payrollId },
+    include: { lines: true },
+  });
+  if (!payroll) throw new Error("Payroll not found");
+  const line = payroll.lines[0];
+  if (!line) throw new Error("Payroll has no line items");
+
+  // Drafts recompute on approval; terminal/cancelled payrolls are untouched.
+  if (
+    payroll.status === "DRAFT" ||
+    payroll.status === "CANCELLED" ||
+    payroll.status === "PAID"
+  ) {
+    return payroll;
+  }
+  if (payroll.totalPaidMinor > 0 || line.paymentStatus === "PAID") {
+    throw new Error("A paid payroll cannot be recalculated; use an adjustment");
+  }
+
+  const fig = await computePayrollFigures(
+    payroll.employeeId,
+    payroll.periodStart,
+    payroll.periodEnd,
+    line.grossPayMinor,
+    line.deductExpenses
+  );
+
+  await db.$transaction(async (tx) => {
+    await tx.payrollAdvanceAllocation.deleteMany({ where: { payrollId } });
+    const allocatedMinor = await allocateAdvances(
+      tx,
+      payroll.employeeId,
+      payroll.periodEnd,
+      payrollId,
+      fig.amountAlreadyReceivedMinor
+    );
+
+    await tx.payroll.update({
+      where: { id: payrollId },
+      data: {
+        status: "NEEDS_RECALCULATION",
+        lines: {
+          update: {
+            where: { id: line.id },
+            data: {
+              expensesPaidMinor: fig.periodExpensesMinor,
+              amountAlreadyReceivedMinor: fig.amountAlreadyReceivedMinor,
+              previousDebtMinor: fig.previousDebtMinor,
+              advancesDeductedMinor: allocatedMinor,
+              netPayableMinor: fig.netPayableMinor,
+              remainingEmployeeDebtMinor: fig.remainingEmployeeDebtMinor,
+              netPayMinor: Math.max(fig.netPayableMinor, 0),
+            },
+          },
+        },
+      },
+    });
+
+    await tx.employeeAuditEvent.create({
+      data: {
+        employeeId: payroll.employeeId,
+        action: "PAYROLL_RECALCULATED",
+        newValue: payrollId,
+        performedById: userId ?? null,
+      },
+    });
+  });
+
+  return db.payroll.findUnique({ where: { id: payrollId }, include: { lines: true } });
+}
+
+/**
+ * React to an advance whose amount changed after it was issued
+ * (Plan-payroll.pdf §2 action 4):
+ *  - payrolls that already had deductions applied but are not paid yet are
+ *    recalculated automatically;
+ *  - payrolls that are already (partially) paid keep their history and an
+ *    adjustment is created for a future payroll instead.
+ */
+export async function applyAdvanceEditToPayrolls(opts: {
+  advanceId: string;
+  employeeId: string;
+  oldAmountMinor: number;
+  newAmountMinor: number;
+  userId: string;
+}) {
+  const deltaMinor = opts.newAmountMinor - opts.oldAmountMinor;
+  const result: { recalculated: string[]; adjustments: string[] } = {
+    recalculated: [],
+    adjustments: [],
+  };
+  if (deltaMinor === 0) return result;
+
+  const allocations = await db.payrollAdvanceAllocation.findMany({
+    where: { cashTransactionId: opts.advanceId },
+    include: {
+      payroll: {
+        select: {
+          id: true,
+          status: true,
+          totalPaidMinor: true,
+          lines: { select: { paymentStatus: true } },
+        },
+      },
+    },
+  });
+
+  const reason =
+    `Advance amount changed from ${fromMinor(opts.oldAmountMinor)} to ` +
+    `${fromMinor(opts.newAmountMinor)} AFN after it was used by payroll`;
+
+  for (const alloc of allocations) {
+    const payroll = alloc.payroll;
+    const paid =
+      payroll.totalPaidMinor > 0 ||
+      payroll.status === "PAID" ||
+      payroll.status === "PARTIALLY_PAID" ||
+      payroll.lines[0]?.paymentStatus === "PAID";
+
+    if (!paid) {
+      if (payroll.status === "CANCELLED" || payroll.status === "DRAFT") continue;
+      await recalculatePayroll(payroll.id, opts.userId);
+      result.recalculated.push(payroll.id);
+      continue;
+    }
+
+    // Preserve the paid history: post an adjustment for a future payroll.
+    const adjustment = await db.payrollAdjustment.create({
+      data: {
+        employeeId: opts.employeeId,
+        kind:
+          deltaMinor > 0
+            ? "PREVIOUS_OVERPAYMENT_DEDUCTION"
+            : "PREVIOUS_UNDERPAYMENT_EARNING",
+        amountMinor: Math.abs(deltaMinor),
+        reason,
+        createdById: opts.userId,
+      },
+    });
+    await db.employeeAuditEvent.create({
+      data: {
+        employeeId: opts.employeeId,
+        action: "ADVANCE_EDIT_ADJUSTMENT",
+        newValue: adjustment.id,
+        reason,
+        performedById: opts.userId,
+      },
+    });
+    result.adjustments.push(adjustment.id);
+  }
+
+  return result;
 }
 
 /**
@@ -1051,6 +1464,11 @@ export async function deletePayroll(payrollId: string, userId: string) {
     throw new Error(
       "Cannot delete a payroll with linked expenses. Revert it first."
     );
+  }
+  // Payments are real financial history and must never be cascade-deleted.
+  const payments = await db.payrollPayment.count({ where: { payrollId } });
+  if (payments > 0) {
+    throw new Error("Cannot delete a payroll that has recorded payments.");
   }
 
   await db.$transaction(async (tx) => {

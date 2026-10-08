@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -10,6 +10,8 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -26,11 +28,13 @@ import {
 import { ConfirmDialog } from "@/components/common/confirm-dialog";
 import { payrollApi } from "@/services/payroll-api";
 import { walletApi } from "@/services/wallet-api";
-import { formatMinor } from "@/lib/money";
-import { PAYMENT_METHODS } from "@/types/expense";
+import { formatMinor, toMinor } from "@/lib/money";
+import {
+  PAYROLL_PAYMENT_METHODS,
+  PAYROLL_PAYMENT_METHOD_LABELS,
+} from "@/lib/payroll-status";
 import { toast } from "sonner";
-import { useEffect } from "react";
-import { MoreHorizontal, Check, RotateCcw, Trash2 } from "lucide-react";
+import { MoreHorizontal, Check, RotateCcw, Trash2, Banknote } from "lucide-react";
 
 interface Wallet {
   id: string;
@@ -44,6 +48,8 @@ export function PayrollActions({
   employeeId,
   status,
   defaultWalletId,
+  netPayMinor = 0,
+  totalPaidMinor = 0,
   onChanged,
 }: {
   payrollId: string;
@@ -51,19 +57,35 @@ export function PayrollActions({
   status: string;
   /** Preferred wallet chosen when the payroll was generated. */
   defaultWalletId?: string;
+  /** Net payable of the approved payroll (minor units). */
+  netPayMinor?: number;
+  /** Already settled amount of this payroll (minor units). */
+  totalPaidMinor?: number;
   onChanged: () => void;
 }) {
   const [busy, setBusy] = useState(false);
   const [approveOpen, setApproveOpen] = useState(false);
+  const [payOpen, setPayOpen] = useState(false);
   const [revertConfirmOpen, setRevertConfirmOpen] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<string>("CASH");
+  const [amount, setAmount] = useState("");
+  const [note, setNote] = useState("");
   const [wallets, setWallets] = useState<Wallet[]>([]);
   const [walletId, setWalletId] = useState<string>("");
 
+  const remainingMinor = Math.max(netPayMinor - totalPaidMinor, 0);
+  const remaining = remainingMinor / 100;
+  const canPay =
+    (status === "APPROVED" || status === "PARTIALLY_PAID") && remainingMinor > 0;
+  const canRevert = status === "APPROVED" || status === "PARTIALLY_PAID";
+
   useEffect(() => {
-    if (approveOpen) {
+    if (payOpen) {
       setWalletId("");
+      setAmount("");
+      setNote("");
+      setPaymentMethod("CASH");
       walletApi
         .list()
         .then((res) => {
@@ -75,7 +97,7 @@ export function PayrollActions({
         })
         .catch(() => setWallets([]));
     }
-  }, [approveOpen, defaultWalletId]);
+  }, [payOpen, defaultWalletId]);
 
   async function handleRevert() {
     setRevertConfirmOpen(false);
@@ -94,12 +116,44 @@ export function PayrollActions({
   async function handleApprove() {
     setBusy(true);
     try {
-      await payrollApi.approve(employeeId, payrollId, paymentMethod, walletId || undefined);
-      toast.success("Payroll approved and paid");
+      await payrollApi.approve(employeeId, payrollId);
+      toast.success("Payroll approved");
       setApproveOpen(false);
       onChanged();
     } catch (e: any) {
       toast.error(e?.message || "Approve failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handlePay() {
+    const parsed = amount.trim() === "" ? undefined : Math.round(toMinor(parseFloat(amount)));
+    if (amount.trim() !== "" && (!Number.isFinite(parsed!) || parsed! <= 0)) {
+      toast.error("Amount must be positive");
+      return;
+    }
+    if (paymentMethod === "COMPANY_WALLET" && !walletId) {
+      toast.error("Select the company wallet to pay from");
+      return;
+    }
+    setBusy(true);
+    try {
+      await payrollApi.pay(payrollId, {
+        amountMinor: parsed,
+        paymentMethod,
+        walletId: walletId || undefined,
+        note: note || undefined,
+      });
+      toast.success(
+        parsed === undefined
+          ? "Salary payment recorded"
+          : `Partial salary payment of ${formatMinor(parsed)} recorded`
+      );
+      setPayOpen(false);
+      onChanged();
+    } catch (e: any) {
+      toast.error(e?.message || "Payment failed");
     } finally {
       setBusy(false);
     }
@@ -119,7 +173,7 @@ export function PayrollActions({
     }
   }
 
-  if (status === "APPROVED") {
+  if (status === "APPROVED" || status === "PARTIALLY_PAID") {
     return (
       <>
         <DropdownMenu>
@@ -130,26 +184,124 @@ export function PayrollActions({
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            <DropdownMenuItem
-              onClick={() => setRevertConfirmOpen(true)}
-              disabled={busy}
-            >
-              <RotateCcw className="mr-2 h-4 w-4" />
-              Revert to Draft
-            </DropdownMenuItem>
+            {canPay && (
+              <DropdownMenuItem onClick={() => setPayOpen(true)} disabled={busy}>
+                <Banknote className="mr-2 h-4 w-4" />
+                Record Payment
+              </DropdownMenuItem>
+            )}
+            {canRevert && (
+              <DropdownMenuItem
+                onClick={() => setRevertConfirmOpen(true)}
+                disabled={busy}
+              >
+                <RotateCcw className="mr-2 h-4 w-4" />
+                Revert to Draft
+              </DropdownMenuItem>
+            )}
           </DropdownMenuContent>
         </DropdownMenu>
         <ConfirmDialog
           open={revertConfirmOpen}
           onOpenChange={setRevertConfirmOpen}
           title="Revert Payroll"
-          description="This will revert the approved payroll back to draft status. The salary payment and advance allocations will be removed. Are you sure?"
+          description="This will return the payroll to draft so the figures can be corrected. Salary payments that have already been recorded are preserved and stay visible. Are you sure?"
           confirmText="Revert"
           variant="destructive"
           onConfirm={handleRevert}
         />
+        <Dialog open={payOpen} onOpenChange={setPayOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Record Salary Payment</DialogTitle>
+            </DialogHeader>
+            <p className="text-sm text-muted-foreground">
+              Remaining payable:{" "}
+              <span className="font-medium text-foreground">
+                {formatMinor(remainingMinor)}
+              </span>
+              {totalPaidMinor > 0 && (
+                <> · already paid {formatMinor(totalPaidMinor)}</>
+              )}
+            </p>
+            <div className="space-y-3">
+              <div>
+                <Label>Amount (AFN)</Label>
+                <Input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  placeholder={`Full remaining (${remaining})`}
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value)}
+                />
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Leave empty to settle the full remaining amount.
+                </p>
+              </div>
+              <div>
+                <Label>Payment Method</Label>
+                <Select value={paymentMethod} onValueChange={setPaymentMethod}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {PAYROLL_PAYMENT_METHODS.map((m) => (
+                      <SelectItem key={m} value={m}>
+                        {PAYROLL_PAYMENT_METHOD_LABELS[m]}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              {paymentMethod === "COMPANY_WALLET" && (
+                <div>
+                  <Label>Deduct from Wallet</Label>
+                  <Select value={walletId} onValueChange={setWalletId}>
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Select wallet..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {wallets.length === 0 ? (
+                        <SelectItem value="__none" disabled>
+                          No wallets configured
+                        </SelectItem>
+                      ) : (
+                        wallets.map((w) => (
+                          <SelectItem key={w.id} value={w.id}>
+                            {w.name} — {formatMinor(w.balance, w.currency)}
+                          </SelectItem>
+                        ))
+                      )}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+              <div>
+                <Label>Note (optional)</Label>
+                <Textarea
+                  value={note}
+                  onChange={(e) => setNote(e.target.value)}
+                  placeholder="Reference or comment"
+                />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setPayOpen(false)}>
+                Cancel
+              </Button>
+              <Button onClick={handlePay} disabled={busy}>
+                {busy ? "Saving..." : "Record Payment"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </>
     );
+  }
+
+  if (status === "PAID") {
+    return null;
   }
 
   return (
@@ -167,7 +319,7 @@ export function PayrollActions({
             disabled={busy}
           >
             <Check className="mr-2 h-4 w-4" />
-            Approve & Pay
+            Approve
           </DropdownMenuItem>
           <DropdownMenuItem
             onClick={() => setDeleteConfirmOpen(true)}
@@ -188,66 +340,14 @@ export function PayrollActions({
         variant="destructive"
         onConfirm={handleDelete}
       />
-      <Dialog open={approveOpen} onOpenChange={setApproveOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Approve Payroll</DialogTitle>
-          </DialogHeader>
-          <p className="text-sm text-muted-foreground">
-            Approving pays out the net payable amount as a salary payment and
-            settles advances and employee-paid expense reimbursements.
-          </p>
-          <div className="space-y-3">
-            <div>
-              <Label>Payment Method</Label>
-              <Select value={paymentMethod} onValueChange={setPaymentMethod}>
-                <SelectTrigger className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {PAYMENT_METHODS.map((m) => (
-                    <SelectItem key={m} value={m}>
-                      {m.replace(/_/g, " ")}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label>Deduct from Wallet</Label>
-              <Select value={walletId} onValueChange={setWalletId}>
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Cash / no wallet" />
-                </SelectTrigger>
-                <SelectContent>
-                  {wallets.length === 0 ? (
-                    <SelectItem value="__none" disabled>
-                      No wallets configured
-                    </SelectItem>
-                  ) : (
-                    wallets.map((w) => (
-                      <SelectItem key={w.id} value={w.id}>
-                        {w.name} — {formatMinor(w.balance, w.currency)}
-                      </SelectItem>
-                    ))
-                  )}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setApproveOpen(false)}
-            >
-              Cancel
-            </Button>
-            <Button onClick={handleApprove} disabled={busy}>
-              {busy ? "Approving..." : "Approve & Pay"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <ConfirmDialog
+        open={approveOpen}
+        onOpenChange={setApproveOpen}
+        title="Approve Payroll"
+        description="Approval freezes the payroll figures, applies the advance deductions and posts the salary accounting entry. No money moves until a payment is recorded. Are you sure?"
+        confirmText="Approve"
+        onConfirm={handleApprove}
+      />
     </>
   );
 }

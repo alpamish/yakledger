@@ -11,6 +11,8 @@ import { useDebounce } from '@/hooks/use-debounce';
 import type { CashTransaction, Transfer as TransferType } from '@/types/expense';
 import { ApprovalStatusBadge } from '@/components/common/approval-status-badge';
 import { RecordAccessDialog } from '@/components/common/record-access-dialog';
+import { AdvanceEditDialog, type AdvanceEditResult } from './advance-edit-dialog';
+import { usePermissions } from '@/hooks/use-permissions';
 
 interface CombinedEntry {
   id: string;
@@ -20,13 +22,28 @@ interface CombinedEntry {
   description: string;
   approvalStatus?: import('@/types/expense').ApprovalStatus;
   sourceId: string;
+  dueDate?: string | null;
+  allocatedAmount?: number;
+}
+
+// An advance is overdue once its due date has passed and it still has an
+// outstanding balance. Overdue advances are only flagged — never deducted or
+// converted automatically (Plan-payroll.pdf §2 action 2).
+function isOverdueAdvance(entry: CombinedEntry): boolean {
+  if (entry.type !== 'ADVANCE' || !entry.dueDate) return false;
+  if (entry.approvalStatus && entry.approvalStatus !== 'APPROVED') return false;
+  const outstanding = entry.amount - (entry.allocatedAmount ?? 0);
+  return new Date(entry.dueDate).getTime() < Date.now() && outstanding > 0.001;
 }
 
 export function TransactionsList() {
+  const { canEdit } = usePermissions();
   const [transactions, setTransactions] = React.useState<CashTransaction[]>([]);
   const [transfers, setTransfers] = React.useState<TransferType[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
+  const [editing, setEditing] = React.useState<CashTransaction | null>(null);
+  const [effectMessage, setEffectMessage] = React.useState<string | null>(null);
 
   const searchInputRef = React.useRef<HTMLInputElement>(null);
   const [searchInput, setSearchInput] = React.useState('');
@@ -99,6 +116,8 @@ export function TransactionsList() {
       description: `${t.employee?.fullName ?? 'Unknown'}${t.note ? ` — ${t.note}` : ''}`,
       approvalStatus: t.approvalStatus,
       sourceId: t.id,
+      dueDate: t.dueDate,
+      allocatedAmount: t.allocatedAmount,
     }));
 
     const transferEntries: CombinedEntry[] = transfers.map((t) => ({
@@ -382,6 +401,12 @@ export function TransactionsList() {
           </div>
         )}
 
+        {effectMessage && (
+          <div className="mb-3 rounded-md bg-emerald-500/10 p-3 text-sm text-emerald-600">
+            {effectMessage}
+          </div>
+        )}
+
         {allEntries.length === 0 ? (
           <div className="py-8 text-center text-sm text-muted-foreground">
             No cash transactions recorded yet.
@@ -404,6 +429,9 @@ export function TransactionsList() {
                       {getLabel(entry.type)}
                     </Badge>
                     <ApprovalStatusBadge status={entry.approvalStatus} />
+                    {isOverdueAdvance(entry) && (
+                      <Badge variant="destructive">Overdue</Badge>
+                    )}
                     <span className="text-sm truncate">{entry.description}</span>
                   </div>
                   <div className="flex items-center gap-4 flex-shrink-0">
@@ -415,7 +443,24 @@ export function TransactionsList() {
                     </span>
                     <span className="text-xs text-muted-foreground">
                       {new Date(entry.createdAt).toLocaleDateString()}
+                      {entry.dueDate
+                        ? ` · due ${new Date(entry.dueDate).toLocaleDateString()}`
+                        : ''}
                     </span>
+                    {entry.type === 'ADVANCE' && canEdit('cashAdvance') && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 px-2 text-xs"
+                        onClick={() =>
+                          setEditing(
+                            transactions.find((t) => t.id === entry.sourceId) ?? null
+                          )
+                        }
+                      >
+                        Edit
+                      </Button>
+                    )}
                     <RecordAccessDialog
                       entity={entry.type === 'TRANSFER' ? 'transfer' : 'cashTransaction'}
                       entityId={entry.sourceId}
@@ -499,6 +544,26 @@ export function TransactionsList() {
             )}
           </div>
         )}
+
+        <AdvanceEditDialog
+          advance={editing}
+          onClose={() => setEditing(null)}
+          onSaved={(result: AdvanceEditResult) => {
+            const parts: string[] = ['Advance updated.'];
+            if (result.recalculated.length > 0) {
+              parts.push(
+                `${result.recalculated.length} payroll(s) marked for recalculation.`
+              );
+            }
+            if (result.adjustments.length > 0) {
+              parts.push(
+                `${result.adjustments.length} adjustment(s) created for a future payroll.`
+              );
+            }
+            setEffectMessage(parts.join(' '));
+            loadAll();
+          }}
+        />
       </CardContent>
     </Card>
   );

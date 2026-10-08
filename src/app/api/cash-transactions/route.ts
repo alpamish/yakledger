@@ -4,6 +4,8 @@ import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/permissions";
 import { walletService } from "@/services/wallet.service";
 import { buildListScope, withScope } from "@/lib/access-control";
+import { ALLOCATING_PAYROLL_STATUSES, PAYROLL_PAYMENT_METHODS } from "@/lib/payroll-status";
+import { fromMinor } from "@/lib/money";
 
 const createTransactionSchema = z.object({
   employeeId: z.string().min(1, "Employee is required"),
@@ -11,6 +13,10 @@ const createTransactionSchema = z.object({
   amount: z.number().positive("Amount must be positive"),
   note: z.string().optional().nullable(),
   referenceNumber: z.string().optional().nullable(),
+  dueDate: z.coerce.date().optional().nullable(),
+  // Recorded when the advance is paid (Plan-payroll.pdf §2 action 5).
+  paymentMethod: z.enum(PAYROLL_PAYMENT_METHODS).optional().nullable(),
+  walletId: z.string().optional().nullable(),
 });
 
 export async function GET(request: NextRequest) {
@@ -39,7 +45,26 @@ export async function GET(request: NextRequest) {
       orderBy: { createdAt: "desc" },
     });
 
-    return NextResponse.json({ success: true, data: transactions });
+    // Outstanding balance per advance: total minus what live (approved /
+    // partially paid / paid) payrolls have already allocated from it.
+    const allocated = await db.payrollAdvanceAllocation.groupBy({
+      by: ["cashTransactionId"],
+      _sum: { amountMinor: true },
+      where: {
+        payroll: { status: { in: [...ALLOCATING_PAYROLL_STATUSES] } },
+        cashTransaction: { type: "ADVANCE" },
+      },
+    });
+    const allocatedByTxn = new Map(
+      allocated.map((a) => [a.cashTransactionId, fromMinor(a._sum.amountMinor ?? 0)])
+    );
+
+    const data = transactions.map((t) => ({
+      ...t,
+      allocatedAmount: t.type === "ADVANCE" ? allocatedByTxn.get(t.id) ?? 0 : 0,
+    }));
+
+    return NextResponse.json({ success: true, data });
   } catch (error) {
     console.error("Get cash transactions error:", error);
     return NextResponse.json({ success: false, error: "Failed to fetch transactions" }, { status: 500 });
@@ -67,7 +92,13 @@ export async function POST(request: NextRequest) {
 
     switch (data.type) {
       case "ADVANCE":
-        transaction = await walletService.createAdvance(data.employeeId, data.amount, user, data.note ?? undefined, data.referenceNumber ?? undefined);
+        transaction = await walletService.createAdvance(data.employeeId, data.amount, user, {
+          note: data.note ?? undefined,
+          referenceNumber: data.referenceNumber ?? undefined,
+          dueDate: data.dueDate ?? undefined,
+          paymentMethod: data.paymentMethod ?? undefined,
+          walletId: data.walletId ?? undefined,
+        });
         break;
       case "RETURN":
         transaction = await walletService.createReturn(data.employeeId, data.amount, user, data.note ?? undefined, data.referenceNumber ?? undefined);

@@ -1,6 +1,10 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { db } from "@/lib/db";
-import { generatePayroll, approvePayroll } from "@/services/hr.service";
+import {
+  generatePayroll,
+  approvePayroll,
+  recordPayrollPayment,
+} from "@/services/hr.service";
 import { toMinor } from "@/lib/money";
 
 async function makeUser(role: string, email: string) {
@@ -107,7 +111,12 @@ describe("Payroll reimbursements (approved employee-paid expenses)", () => {
     expect(line.netPayMinor).toBe(toMinor(26000));
 
     const approved = await approvePayroll(payroll.id, user.id);
-    expect(approved.lines[0].paymentStatus).toBe("PAID");
+    expect(approved.lines[0].paymentStatus).toBe("UNPAID");
+    // Payment is a separate action from approval (§2 action 6).
+    const paid = await recordPayrollPayment(payroll.id, user.id, {
+      paymentMethod: "CASH",
+    });
+    expect(paid!.lines[0].paymentStatus).toBe("PAID");
     const pay = await db.cashTransaction.findFirst({
       where: { payrollId: payroll.id, type: "SALARY_PAYMENT" },
     });
@@ -126,6 +135,7 @@ describe("Payroll reimbursements (approved employee-paid expenses)", () => {
       createdById: user.id,
     });
     await approvePayroll(june.id, user.id);
+    await recordPayrollPayment(june.id, user.id, { paymentMethod: "CASH" });
     // Stamp the salary payment inside the June period so the July debt
     // calculation counts it as received.
     await db.cashTransaction.updateMany({
@@ -145,6 +155,8 @@ describe("Payroll reimbursements (approved employee-paid expenses)", () => {
     expect(julyLine.netPayableMinor).toBe(toMinor(25000));
 
     const approvedJuly = await approvePayroll(july.id, user.id);
+    expect(approvedJuly.status).toBe("APPROVED");
+    await recordPayrollPayment(july.id, user.id, { paymentMethod: "CASH" });
     const pay = await db.cashTransaction.findFirst({
       where: { payrollId: july.id, type: "SALARY_PAYMENT" },
     });
@@ -190,7 +202,8 @@ describe("Payroll reimbursements (approved employee-paid expenses)", () => {
     expect(line.previousDebtMinor).toBe(-toMinor(50000));
     expect(line.netPayableMinor).toBe(toMinor(75000));
 
-    const approved = await approvePayroll(payroll.id, user.id);
+    await approvePayroll(payroll.id, user.id);
+    await recordPayrollPayment(payroll.id, user.id, { paymentMethod: "CASH" });
     const pay = await db.cashTransaction.findFirst({
       where: { payrollId: payroll.id, type: "SALARY_PAYMENT" },
     });

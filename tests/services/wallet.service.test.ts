@@ -24,7 +24,7 @@ beforeAll(async () => {
 
 describe("wallet.service → createAdvance / balance", () => {
   it("advance of 1000 sets the account balance to 1000", async () => {
-    await walletService.createAdvance(employeeId, 1000, ADMIN_ACTOR, "initial");
+    await walletService.createAdvance(employeeId, 1000, ADMIN_ACTOR, { note: "initial" });
     const account = await walletService.getAccount(employeeId);
     expect(account!.currentBalance).toBe(1000);
   });

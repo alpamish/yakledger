@@ -52,6 +52,9 @@ model User {
   payrollsApproved           Payroll[]            @relation("PayrollApprover")
   employeeAuditEvents        EmployeeAuditEvent[]
   walletUsers                WalletUser[]
+  payrollPaymentsCreated     PayrollPayment[]     @relation("PayrollPaymentCreator")
+  accountingEntriesPosted    AccountingEntry[]    @relation("AccountingEntryPoster")
+  payrollAdjustmentsCreated  PayrollAdjustment[]  @relation("PayrollAdjustmentCreator")
 }
 
 model RecordAccess {
@@ -170,6 +173,7 @@ model Employee {
   assignments           EmployeeProjectAssignment[]
   payrolls              Payroll[]
   payrollLines          PayrollLine[]
+  payrollAdjustments    PayrollAdjustment[]
   auditEvents           EmployeeAuditEvent[]
   wallets               WalletEmployee[]
 
@@ -335,7 +339,12 @@ model Payroll {
   periodStart   DateTime
   periodEnd     DateTime
   currency      String   @default("AFN")
+  // Lifecycle: DRAFT | APPROVED | PARTIALLY_PAID | PAID | NEEDS_RECALCULATION | CANCELLED
   status        String   @default("DRAFT")
+  // STANDARD | FINAL_SETTLEMENT
+  type          String   @default("STANDARD")
+  // Sum of posted PayrollPayment.amountMinor (integer minor units).
+  totalPaidMinor Int     @default(0)
   notes         String?
   walletId      String?
   wallet        Wallet?  @relation(fields: [walletId], references: [id])
@@ -352,12 +361,95 @@ model Payroll {
   lines       PayrollLine[]
   allocations PayrollAdvanceAllocation[]
   expenses    Expense[]
+  payments    PayrollPayment[]
+  adjustments PayrollAdjustment[]
+  accountingEntries AccountingEntry[]
 
   @@unique([employeeId, periodStart, periodEnd])
   @@index([employeeId, periodStart])
   @@index([status])
   @@index([walletId])
 }
+
+// One row per salary payment (partial payments are separate rows).
+model PayrollPayment {
+  id            String    @id @default(cuid())
+  payrollId     String
+  payroll       Payroll   @relation(fields: [payrollId], references: [id], onDelete: Cascade)
+  amountMinor   Int
+  currency      String    @default("AFN")
+  // CASH | BANK_TRANSFER | COMPANY_WALLET | ...
+  paymentMethod String
+  walletId      String?
+  wallet        Wallet?   @relation(fields: [walletId], references: [id], onDelete: SetNull)
+  reference     String?
+  evidenceUrl   String?
+  note          String?
+  paidAt        DateTime  @default(now())
+  createdById   String?
+  createdBy     User?     @relation("PayrollPaymentCreator", fields: [createdById], references: [id])
+  createdAt     DateTime  @default(now())
+
+  @@index([payrollId])
+  @@index([paidAt])
+  @@index([walletId])
+}
+
+// HR-created payroll adjustment (advance-independent).
+// kind: PREVIOUS_OVERPAYMENT_DEDUCTION | PREVIOUS_UNDERPAYMENT_EARNING | OTHER
+// A reason is always required (enforced in the service layer).
+model PayrollAdjustment {
+  id          String    @id @default(cuid())
+  employeeId  String
+  employee    Employee  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  payrollId   String?
+  payroll     Payroll?  @relation(fields: [payrollId], references: [id], onDelete: SetNull)
+  kind        String
+  amountMinor Int
+  currency    String    @default("AFN")
+  reason      String
+  note        String?
+  createdById String?
+  createdBy   User?     @relation("PayrollAdjustmentCreator", fields: [createdById], references: [id])
+  createdAt   DateTime  @default(now())
+
+  @@index([employeeId, createdAt])
+  @@index([payrollId])
+  @@index([kind])
+}
+
+// Journal-style accounting entry. Corrections are posted as reversal +
+// corrected entry; posted entries are never silently overwritten or deleted.
+model AccountingEntry {
+  id          String    @id @default(cuid())
+  // PAYROLL_APPROVAL | PAYROLL_PAYMENT | PAYROLL_REVERSAL | ADVANCE_PAYMENT | ...
+  type        String
+  amountMinor Int
+  currency    String    @default("AFN")
+  description String?
+  payrollId   String?
+  payroll     Payroll?  @relation(fields: [payrollId], references: [id], onDelete: SetNull)
+  cashTransactionId String?
+  cashTransaction   CashTransaction? @relation(fields: [cashTransactionId], references: [id], onDelete: SetNull)
+  walletId    String?
+  wallet      Wallet?   @relation(fields: [walletId], references: [id], onDelete: SetNull)
+  expenseId   String?
+  expense     Expense?  @relation(fields: [expenseId], references: [id], onDelete: SetNull)
+  reversalOfId String?
+  reversalOf  AccountingEntry?  @relation("AccountingReversal", fields: [reversalOfId], references: [id], onDelete: SetNull)
+  reversals   AccountingEntry[] @relation("AccountingReversal")
+  postedById  String?
+  postedBy    User?     @relation("AccountingEntryPoster", fields: [postedById], references: [id])
+  postedAt    DateTime  @default(now())
+  createdAt   DateTime  @default(now())
+
+  @@index([type])
+  @@index([payrollId])
+  @@index([cashTransactionId])
+  @@index([walletId])
+  @@index([postedAt])
+}
+
 
 model PayrollLine {
   id                  String   @id @default(cuid())
@@ -469,6 +561,7 @@ model Expense {
   fuelTransaction    FuelTransaction? @relation("FuelTransactionExpense", fields: [fuelTransactionId], references: [id], onDelete: SetNull)
   fuelUsage          FuelUsage[]
   walletTransactions WalletTransaction[]
+  accountingEntries  AccountingEntry[]
 
   @@index([expenseDate])
   @@index([category])
@@ -722,6 +815,13 @@ model CashTransaction {
   amount          Float
   note            String?
   referenceNumber String?
+  // Optional due date for advances; overdue advances are only warned about.
+  dueDate         DateTime?
+  // CASH | BANK_TRANSFER | COMPANY_WALLET | ... (set when the advance is paid)
+  paymentMethod   String?
+  paidAt          DateTime?
+  editedById      String?
+  editedAt        DateTime?
   createdBy       String
   approvalStatus  String   @default("PENDING")
   approvedById    String?
@@ -735,11 +835,13 @@ model CashTransaction {
   employee        Employee  @relation(fields: [employeeId], references: [id])
   wallet          Wallet?   @relation(fields: [walletId], references: [id])
   payrollAllocations PayrollAdvanceAllocation[]
+  accountingEntries  AccountingEntry[]
 
   @@index([employeeId])
   @@index([type])
   @@index([createdBy])
   @@index([createdAt])
+  @@index([dueDate])
   @@index([approvalStatus])
   @@index([approvalStatus, createdAt])
   @@index([payrollId])
@@ -759,6 +861,8 @@ model Wallet {
   cashTransactions CashTransaction[]
   payrolls         Payroll[]
   expenses         Expense[]
+  payrollPayments  PayrollPayment[]
+  accountingEntries AccountingEntry[]
   employees        WalletEmployee[]
   users            WalletUser[]
 

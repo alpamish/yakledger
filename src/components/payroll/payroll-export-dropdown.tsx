@@ -40,7 +40,10 @@ function buildExcel(rows: any[]) {
       "Previous Debt (AFN)": Number(fromMinor(l.previousDebtMinor).toFixed(2)),
       "Net Payable (AFN)": Number(fromMinor(l.netPayableMinor).toFixed(2)),
       "Remaining Debt (AFN)": Number(fromMinor(l.remainingEmployeeDebtMinor).toFixed(2)),
-      "Payment Status": l.paymentStatus ?? "",
+      "Payment Status":
+        l.paymentStatus === "PARTIALLY_PAID"
+          ? "Partially Paid"
+          : (l.paymentStatus ?? ""),
       "Payment Method": l.paymentMethod ?? "",
       "Wallet": p.wallet?.name ?? "",
       "Approved By": p.approvedBy?.name ?? "",

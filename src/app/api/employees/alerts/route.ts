@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requirePermission } from "@/lib/permissions";
 import { buildAccessScope, withScope } from "@/lib/access-control";
+import { ALLOCATING_PAYROLL_STATUSES } from "@/lib/payroll-status";
 import { db } from "@/lib/db";
 
 export async function GET(request: NextRequest) {
@@ -15,7 +16,7 @@ export async function GET(request: NextRequest) {
 
     const activeWhere = withScope({ status: "ACTIVE" }, scope);
 
-    const [expiringContracts, expiringDocuments, upcomingSalary, newHires, recentTerminations, totalActive, totalEmployees] =
+    const [expiringContracts, expiringDocuments, upcomingSalary, newHires, recentTerminations, overdueAdvances, totalActive, totalEmployees] =
       await Promise.all([
         db.employeeContract.findMany({
           where: {
@@ -63,9 +64,36 @@ export async function GET(request: NextRequest) {
           orderBy: { terminationDate: "desc" },
           take: 10,
         }),
+        db.cashTransaction.findMany({
+          where: {
+            type: "ADVANCE",
+            approvalStatus: "APPROVED",
+            dueDate: { lt: new Date() },
+            employee: activeWhere,
+          },
+          include: {
+            employee: { select: { id: true, fullName: true } },
+            payrollAllocations: {
+              where: {
+                payroll: { status: { in: [...ALLOCATING_PAYROLL_STATUSES] } },
+              },
+              select: { amountMinor: true },
+            },
+          },
+          orderBy: { dueDate: "asc" },
+          take: 10,
+        }),
         db.employee.count({ where: activeWhere }),
         db.employee.count({ where: scope }),
       ]);
+
+    const overdueAdvanceAlerts = overdueAdvances.filter((a) => {
+      const allocatedMinor = a.payrollAllocations.reduce(
+        (s, x) => s + x.amountMinor,
+        0
+      );
+      return allocatedMinor < Math.round(a.amount * 100);
+    });
 
     const alerts = [
       ...expiringContracts.map((c) => ({
@@ -89,6 +117,15 @@ export async function GET(request: NextRequest) {
         employeeId: s.employeeId,
         dueDate: s.effectiveFrom,
       })),
+      // Warning only: an overdue advance is never deducted or converted
+      // automatically (Plan-payroll.pdf §2 action 2).
+      ...overdueAdvanceAlerts.map((a) => ({
+        type: "ADVANCE_OVERDUE",
+        severity: "warning",
+        message: `Overdue advance of ${a.amount} AFN for ${a.employee.fullName} (due ${a.dueDate?.toISOString().slice(0, 10)})`,
+        employeeId: a.employeeId,
+        dueDate: a.dueDate,
+      })),
     ];
 
     return NextResponse.json({
@@ -101,6 +138,7 @@ export async function GET(request: NextRequest) {
           expiringContracts: expiringContracts.length,
           expiringDocuments: expiringDocuments.length,
           upcomingSalaryChanges: upcomingSalary.length,
+          overdueAdvances: overdueAdvanceAlerts.length,
           newHires: newHires.length,
           recentTerminations: recentTerminations.length,
         },

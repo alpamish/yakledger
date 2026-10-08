@@ -6,6 +6,7 @@ import {
   resolveApprovalStatusOnCreate,
   type ApprovalStatus,
 } from "@/lib/access-control";
+import { ALLOCATING_PAYROLL_STATUSES } from "@/lib/payroll-status";
 
 type Actor = { id: string; role: string };
 
@@ -67,10 +68,15 @@ async function recalculateBalance(employeeId: string, client: Prisma.Transaction
     where: { toEmployeeId: employeeId, approvalStatus: APPROVED },
   });
 
-  // Approved payroll earnings are stored in minor units.
+  // Approved payroll earnings are stored in minor units. A payroll keeps
+  // counting as earned while it is being paid (APPROVED → PARTIALLY_PAID →
+  // PAID); only drafts / reverted / cancelled payrolls drop out.
   const payrollGrossAgg = await client.payrollLine.aggregate({
     _sum: { grossPayMinor: true },
-    where: { employeeId, payroll: { status: "APPROVED" } },
+    where: {
+      employeeId,
+      payroll: { status: { in: [...ALLOCATING_PAYROLL_STATUSES] } },
+    },
   });
 
   // Approved employee-paid company expenses reduce what the employee owes
@@ -123,31 +129,110 @@ async function recalculateBalance(employeeId: string, client: Prisma.Transaction
   return balance;
 }
 
+/**
+ * Record an advance as paid (Plan-payroll.pdf §2 action 5): stores the payment
+ * method and `paidAt`, posts the matching company financial transaction and —
+ * when the advance is paid from a company wallet — debits that wallet.
+ * Idempotent: an advance that is already paid is left alone.
+ */
+async function markAdvancePaid(
+  txnId: string,
+  userId: string,
+  opts?: { paymentMethod?: string | null; walletId?: string | null },
+  client: Prisma.TransactionClient | typeof db = db
+) {
+  const txn = await client.cashTransaction.findUnique({ where: { id: txnId } });
+  if (!txn || txn.type !== "ADVANCE") return txn;
+  if (txn.paidAt) return txn;
+
+  const paymentMethod = opts?.paymentMethod ?? txn.paymentMethod ?? "CASH";
+  const walletId = opts?.walletId ?? txn.walletId ?? null;
+
+  if (paymentMethod === "COMPANY_WALLET" && !walletId) {
+    throw new Error("Paying an advance from a company wallet requires a wallet");
+  }
+
+  const updated = await client.cashTransaction.update({
+    where: { id: txnId },
+    data: { paidAt: new Date(), paymentMethod, walletId },
+  });
+
+  // Negative amount = the company paid money out.
+  await client.accountingEntry.create({
+    data: {
+      type: "ADVANCE_PAYMENT",
+      amountMinor: -Math.round(txn.amount * 100),
+      description: `Cash advance paid via ${paymentMethod}`,
+      cashTransactionId: txnId,
+      walletId,
+      postedById: userId,
+    },
+  });
+
+  if (paymentMethod === "COMPANY_WALLET" && walletId) {
+    await companyWalletService.deductForAdvance(
+      client,
+      walletId,
+      txn.amount,
+      userId,
+      `Cash advance for employee ${txn.employeeId}`
+    );
+  }
+
+  return updated;
+}
+
 export const walletService = {
+  markAdvancePaid,
+
   async createAdvance(
     employeeId: string,
     amount: number,
     user: Actor,
-    note?: string,
-    referenceNumber?: string
+    opts?: {
+      note?: string;
+      referenceNumber?: string;
+      dueDate?: Date | null;
+      paymentMethod?: string | null;
+      walletId?: string | null;
+    }
   ) {
     if (amount <= 0) throw new Error("Amount must be positive");
+    if (opts?.paymentMethod === "COMPANY_WALLET" && !opts?.walletId) {
+      throw new Error("Paying an advance from a company wallet requires a wallet");
+    }
 
     const account = await getOrCreateAccount(employeeId);
 
     const approvalStatus = resolveApprovalStatusOnCreate(user);
-    const txn = await db.cashTransaction.create({
-      data: {
-        employeeId,
-        type: "ADVANCE",
-        amount,
-        note: note ?? null,
-        referenceNumber: referenceNumber ?? null,
-        createdBy: user.id,
-        approvalStatus,
-        approvedById: approvalStatus === APPROVED ? user.id : null,
-        approvedAt: approvalStatus === APPROVED ? new Date() : null,
-      },
+    const txn = await db.$transaction(async (tx) => {
+      const created = await tx.cashTransaction.create({
+        data: {
+          employeeId,
+          type: "ADVANCE",
+          amount,
+          note: opts?.note ?? null,
+          referenceNumber: opts?.referenceNumber ?? null,
+          dueDate: opts?.dueDate ?? null,
+          paymentMethod: opts?.paymentMethod ?? null,
+          walletId: opts?.walletId ?? null,
+          createdBy: user.id,
+          approvalStatus,
+          approvedById: approvalStatus === APPROVED ? user.id : null,
+          approvedAt: approvalStatus === APPROVED ? new Date() : null,
+        },
+      });
+      if (approvalStatus === APPROVED) {
+        // Born approved = the cash is handed over right away, so record the
+        // payment and the company financial transaction atomically.
+        await markAdvancePaid(
+          created.id,
+          user.id,
+          { paymentMethod: opts?.paymentMethod, walletId: opts?.walletId },
+          tx
+        );
+      }
+      return created;
     });
 
     if (approvalStatus === APPROVED) {
@@ -156,7 +241,100 @@ export const walletService = {
 
     await createAuditLog(user.id, txn.id, "CREATE", `Cash advance of ${amount} to employee ${employeeId}`);
 
-    return txn;
+    return db.cashTransaction.findUnique({ where: { id: txn.id } });
+  },
+
+  /**
+   * Edit a cash advance. Editing a *paid* advance is an allowed exception
+   * (Plan-payroll.pdf §2 action 3) for users holding `cashAdvance:edit`;
+   * amount changes additionally trigger payroll recalculation / adjustment
+   * (action 4) which the caller kicks off with the returned `amountChanged`.
+   */
+  async updateAdvance(
+    txnId: string,
+    user: Actor,
+    updates: {
+      amount?: number;
+      note?: string | null;
+      referenceNumber?: string | null;
+      dueDate?: Date | null;
+      paymentMethod?: string | null;
+      walletId?: string | null;
+    }
+  ) {
+    const existing = await db.cashTransaction.findUnique({ where: { id: txnId } });
+    if (!existing) throw new Error("Transaction not found");
+    if (existing.type !== "ADVANCE") {
+      throw new Error("Only cash advances can be edited");
+    }
+    if (updates.amount !== undefined && updates.amount <= 0) {
+      throw new Error("Amount must be positive");
+    }
+
+    const data: Prisma.CashTransactionUpdateInput = {};
+    const changes: Record<string, string> = {};
+
+    if (updates.amount !== undefined && updates.amount !== existing.amount) {
+      data.amount = updates.amount;
+      changes.amount = `${existing.amount} -> ${updates.amount}`;
+    }
+    if (updates.note !== undefined && (updates.note ?? null) !== existing.note) {
+      data.note = updates.note ?? null;
+      changes.note = `${existing.note ?? ""} -> ${updates.note ?? ""}`;
+    }
+    if (
+      updates.referenceNumber !== undefined &&
+      (updates.referenceNumber ?? null) !== existing.referenceNumber
+    ) {
+      data.referenceNumber = updates.referenceNumber ?? null;
+      changes.referenceNumber = `${existing.referenceNumber ?? ""} -> ${updates.referenceNumber ?? ""}`;
+    }
+    if (updates.dueDate !== undefined) {
+      const next = updates.dueDate ?? null;
+      const prev = existing.dueDate ?? null;
+      if ((next?.getTime() ?? null) !== (prev?.getTime() ?? null)) {
+        data.dueDate = next;
+        changes.dueDate = `${prev?.toISOString() ?? "-"} -> ${next?.toISOString() ?? "-"}`;
+      }
+    }
+
+    const oldAmountMinor = Math.round(existing.amount * 100);
+    const newAmountMinor =
+      updates.amount !== undefined ? Math.round(updates.amount * 100) : oldAmountMinor;
+
+    if (Object.keys(changes).length === 0) {
+      return { transaction: existing, amountChanged: false, oldAmountMinor, newAmountMinor };
+    }
+
+    const updated = await db.$transaction(async (tx) => {
+      const u = await tx.cashTransaction.update({
+        where: { id: txnId },
+        data: { ...data, editedById: user.id, editedAt: new Date() },
+      });
+      await tx.auditLog.create({
+        data: {
+          action: "UPDATE",
+          entity: "CashTransaction",
+          entityId: txnId,
+          details: `Edited cash advance: ${Object.entries(changes)
+            .map(([k, v]) => `${k} (${v})`)
+            .join(", ")}`,
+          userId: user.id,
+        },
+      });
+      return u;
+    });
+
+    if (existing.approvalStatus === APPROVED) {
+      await recalculateBalance(existing.employeeId);
+    }
+
+    return {
+      transaction: updated,
+      amountChanged: changes.amount !== undefined,
+      oldAmountMinor,
+      newAmountMinor,
+    };
   },
 
   async createReturn(
@@ -343,8 +521,8 @@ export const walletService = {
     });
   },
 
-  async recomputeBalance(employeeId: string) {
-    return recalculateBalance(employeeId);
+  async recomputeBalance(employeeId: string, client?: Prisma.TransactionClient) {
+    return recalculateBalance(employeeId, client ?? db);
   },
 
   /**

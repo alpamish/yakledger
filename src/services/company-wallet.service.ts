@@ -347,6 +347,44 @@ export const companyWalletService = {
   },
 
   /**
+   * Deduct `amount` from a wallet for a cash advance paid to an employee.
+   * Call inside the advance payment transaction. Validates the wallet is active
+   * and has sufficient balance; throws otherwise.
+   */
+  async deductForAdvance(
+    tx: Tx,
+    walletId: string,
+    amount: number,
+    createdBy: string,
+    note?: string
+  ) {
+    if (amount <= 0) return;
+    const wallet = await tx.wallet.findUnique({ where: { id: walletId } });
+    if (!wallet) throw new Error("Selected wallet not found");
+    if (!wallet.isActive) {
+      throw new Error(`Wallet "${wallet.name}" is inactive`);
+    }
+    const agg = await tx.walletTransaction.aggregate({
+      _sum: { amount: true },
+      where: { walletId },
+    });
+    const currentBalance = agg._sum.amount ?? 0;
+    if (currentBalance < amount) {
+      throw new Error(
+        `Insufficient balance in wallet "${wallet.name}" (${currentBalance} ${wallet.currency}). Fund it before paying the advance.`
+      );
+    }
+    await apply(
+      tx,
+      walletId,
+      "ADVANCE",
+      -amount,
+      createdBy,
+      note ?? "Cash advance payment"
+    );
+  },
+
+  /**
    * Reverse any wallet deductions made for a payroll. Call inside the payroll
    * revert transaction.
    */

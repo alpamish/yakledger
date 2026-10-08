@@ -66,6 +66,7 @@ export const PERMISSIONS: PermissionDef[] = [
 
   { name: "cashAdvance:view", label: "View Cash & Advances", module: "cashAdvance" },
   { name: "cashAdvance:create", label: "Create Cash Transactions", module: "cashAdvance" },
+  { name: "cashAdvance:edit", label: "Edit Cash Transactions", module: "cashAdvance" },
   { name: "cashAdvance:delete", label: "Delete Cash Transactions", module: "cashAdvance" },
   { name: "cashAdvance:approve", label: "Approve Cash Transactions", module: "cashAdvance" },
 
@@ -133,7 +134,7 @@ export const ROLE_PERMISSIONS: Record<string, string[]> = {
     "fuelUsage:view", "fuelUsage:create", "fuelUsage:edit", "fuelUsage:approve",
     "machinery:view", "machinery:create", "machinery:edit",
     "assets:view", "assets:create", "assets:edit", "assets:approve",
-    "cashAdvance:view", "cashAdvance:create", "cashAdvance:approve",
+    "cashAdvance:view", "cashAdvance:create", "cashAdvance:edit", "cashAdvance:approve",
     "wallets:view", "wallets:manage",
     "reports:view", "reports:generatePdf",
     "settings:view",
