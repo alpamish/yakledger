@@ -10,6 +10,7 @@ import { EmployeeTable } from '@/components/employee/employee-table';
 import { EmployeeForm } from '@/components/employee/employee-form';
 import { EmployeeHrProfile } from '@/components/employee/employee-hr-profile';
 import { EmployeeFinancialSummary } from '@/components/employee/employee-financial-summary';
+import { EmployeeStatementDialog } from '@/components/employee/employee-statement';
 import { AttendancePanel } from '@/components/attendance/attendance-panel';
 import { ConfirmDialog } from '@/components/common/confirm-dialog';
 import type { Employee } from '@/types/employee';
@@ -40,6 +41,9 @@ export function EmployeePage() {
 
   // Financial summary dialog state
   const [financialSummaryOpen, setFinancialSummaryOpen] = useState(false);
+
+  // Employee financial statement dialog state
+  const [statementEmployee, setStatementEmployee] = useState<Employee | null>(null);
 
   const handleFinancialSummary = useCallback(() => {
     if (selectedEmployeeIds.size > 0) {
@@ -165,6 +169,7 @@ export function EmployeePage() {
                 onViewProfile={handleViewProfile}
                 onBulkAction={handleBulkAction}
                 onFinancialSummary={handleFinancialSummary}
+                onStatement={setStatementEmployee}
               />
             </CardContent>
           </Card>
@@ -204,6 +209,15 @@ export function EmployeePage() {
         onOpenChange={setFinancialSummaryOpen}
         employeeIds={Array.from(selectedEmployeeIds)}
         onViewProfile={handleViewProfileFromSummary}
+      />
+
+      {/* Employee Financial Statement Dialog */}
+      <EmployeeStatementDialog
+        open={!!statementEmployee}
+        onOpenChange={(open) => {
+          if (!open) setStatementEmployee(null);
+        }}
+        employee={statementEmployee}
       />
 
       {/* Bulk Action Confirmation */}

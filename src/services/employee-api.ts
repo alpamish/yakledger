@@ -9,6 +9,7 @@ import type {
   EmployeeDashboardStats,
   EmployeeFinancialSummaryResponse,
 } from "@/types/employee";
+import type { EmployeeStatement } from "@/types/statement";
 import { getToken, ApiError } from "./api";
 
 const API_BASE = "/api";
@@ -228,6 +229,17 @@ export const employeesApi = {
 
   getFinancialSummary: async (id: string): Promise<ApiResponse<any>> =>
     request(`/employees/${id}/financial-summary`),
+
+  getStatement: async (
+    id: string,
+    params?: { from?: string; to?: string }
+  ): Promise<ApiResponse<EmployeeStatement>> => {
+    const qs = new URLSearchParams();
+    if (params?.from) qs.set("from", params.from);
+    if (params?.to) qs.set("to", params.to);
+    const suffix = qs.toString() ? `?${qs.toString()}` : "";
+    return request(`/employees/${id}/statement${suffix}`);
+  },
 
   getAlerts: async (): Promise<ApiResponse<any>> => request(`/employees/alerts`),
 

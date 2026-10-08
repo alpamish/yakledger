@@ -35,6 +35,7 @@ import {
 import { Prisma } from "@prisma/client";
 import { walletService } from "./wallet.service";
 import { companyWalletService } from "./company-wallet.service";
+import type { EmployeeStatement, StatementEntry } from "../types/statement";
 
 export type SalaryAtDate = {
   amountMinor: number;
@@ -1578,6 +1579,256 @@ export async function getEmployeeFinancialSummary(employeeId: string) {
     totalReceived,
     outstanding,
     walletBalance: employee.cashAccount?.currentBalance ?? 0,
+  };
+}
+
+/**
+ * Dedicated employee financial statement (Plan-payroll.pdf §2 action 10):
+ * every financial activity that touches the employee cash account — salary
+ * earnings, salary payments, advances, returns, deductions, transfers,
+ * expenses paid on the company's behalf, reimbursements and corrections —
+ * as a dated list with debit/credit totals and the net balance.
+ *
+ * The debit/credit signs mirror `recalculateBalance` exactly, so
+ * `totals.netMinor` over the full history equals the stored cash balance.
+ * Not-yet-posted corrections (PayrollAdjustment) are listed as `memo` rows
+ * and excluded from the totals.
+ *
+ * Loans will appear with the `LOAN` category once loan tracking lands
+ * (deferred, Plan-payroll.pdf Phase plan).
+ */
+export async function getEmployeeStatement(
+  employeeId: string,
+  opts?: { dateFrom?: Date | string | null; dateTo?: Date | string | null }
+): Promise<EmployeeStatement> {
+  const employee = await db.employee.findUnique({
+    where: { id: employeeId },
+    select: { fullName: true, jobTitle: true, department: true },
+  });
+  if (!employee) throw new Error("Employee not found");
+
+  const startOfDay = (v: Date | string | null | undefined) => {
+    if (!v) return null;
+    const d = new Date(v);
+    d.setHours(0, 0, 0, 0);
+    return d;
+  };
+  const endOfDay = (v: Date | string | null | undefined) => {
+    if (!v) return null;
+    const d = new Date(v);
+    d.setHours(23, 59, 59, 999);
+    return d;
+  };
+  const dateFrom = startOfDay(opts?.dateFrom);
+  const dateTo = endOfDay(opts?.dateTo);
+  const day = (d: Date | string) => new Date(d).toISOString().slice(0, 10);
+
+  const [
+    cashTxns,
+    expenses,
+    transfersIn,
+    transfersOut,
+    payrollLines,
+    corrections,
+    account,
+  ] = await Promise.all([
+    db.cashTransaction.findMany({
+      where: { employeeId, approvalStatus: "APPROVED" },
+    }),
+    // Same guard as the balance: only expenses flagged for deduction count.
+    db.expense.findMany({
+      where: {
+        paidById: employeeId,
+        approvalStatus: "APPROVED",
+        deductFromWallet: { not: false },
+      },
+    }),
+    db.transfer.findMany({
+      where: { toEmployeeId: employeeId, approvalStatus: "APPROVED" },
+      include: { fromEmployee: { select: { fullName: true } } },
+    }),
+    db.transfer.findMany({
+      where: { fromEmployeeId: employeeId, approvalStatus: "APPROVED" },
+      include: { toEmployee: { select: { fullName: true } } },
+    }),
+    db.payrollLine.findMany({
+      where: {
+        employeeId,
+        payroll: { status: { in: [...ALLOCATING_PAYROLL_STATUSES] } },
+      },
+      include: {
+        payroll: {
+          select: { id: true, approvedAt: true, periodStart: true, periodEnd: true },
+        },
+      },
+    }),
+    db.payrollAdjustment.findMany({ where: { employeeId } }),
+    db.employeeCashAccount.findUnique({
+      where: { employeeId },
+      select: { currentBalance: true },
+    }),
+  ]);
+
+  const toMinorRounded = (major: number) => Math.round(major * 100);
+  const entries: StatementEntry[] = [];
+
+  for (const t of cashTxns) {
+    const amountMinor = toMinorRounded(t.amount);
+    let entry: Omit<StatementEntry, "id" | "date" | "amountMinor">;
+    switch (t.type) {
+      case "ADVANCE":
+        entry = {
+          category: "ADVANCE",
+          description: t.note ?? "Cash advance",
+          direction: "DEBIT",
+        };
+        break;
+      case "SALARY_PAYMENT":
+        entry = {
+          category: "PAYMENT",
+          description: t.note ?? "Salary payment",
+          direction: "DEBIT",
+        };
+        break;
+      case "ADJUSTMENT":
+        entry = {
+          category: "CORRECTION",
+          description: t.note ?? "Adjustment",
+          direction: "DEBIT",
+        };
+        break;
+      case "REIMBURSEMENT":
+        entry = {
+          category: "REIMBURSEMENT",
+          description: t.note ?? "Expense reimbursement",
+          direction: "DEBIT",
+        };
+        break;
+      case "RETURN":
+        entry = {
+          category: "RETURN",
+          description: t.note ?? "Cash return",
+          direction: "CREDIT",
+        };
+        break;
+      case "DEBIT":
+        entry = {
+          category: "DEDUCTION",
+          description: t.note ?? "Deduction",
+          direction: "CREDIT",
+        };
+        break;
+      default:
+        continue;
+    }
+    entries.push({
+      id: t.id,
+      date: t.paidAt ?? t.createdAt,
+      amountMinor,
+      reference: t.referenceNumber ?? null,
+      ...entry,
+    });
+  }
+
+  for (const exp of expenses) {
+    entries.push({
+      id: exp.id,
+      date: exp.expenseDate,
+      category: "EXPENSE",
+      description: `${exp.title} (${exp.category})`,
+      direction: "CREDIT",
+      amountMinor: toMinorRounded(exp.amount),
+    });
+  }
+
+  for (const tr of transfersIn) {
+    entries.push({
+      id: tr.id,
+      date: tr.createdAt,
+      category: "TRANSFER",
+      description: `Transfer received from ${tr.fromEmployee.fullName}`,
+      direction: "DEBIT",
+      amountMinor: toMinorRounded(tr.amount),
+    });
+  }
+  for (const tr of transfersOut) {
+    entries.push({
+      id: tr.id,
+      date: tr.createdAt,
+      category: "TRANSFER",
+      description: `Transfer sent to ${tr.toEmployee.fullName}`,
+      direction: "CREDIT",
+      amountMinor: toMinorRounded(tr.amount),
+    });
+  }
+
+  for (const line of payrollLines) {
+    entries.push({
+      id: line.id,
+      date: line.payroll.approvedAt ?? line.payroll.periodEnd,
+      category: "SALARY",
+      description: `Salary earned ${day(line.payroll.periodStart)}–${day(line.payroll.periodEnd)}`,
+      direction: "CREDIT",
+      amountMinor: line.grossPayMinor,
+    });
+  }
+
+  // Corrections that will be applied by a future payroll: shown, but they do
+  // not move the cash balance yet, so they never enter the debit/credit
+  // totals.
+  for (const adj of corrections) {
+    entries.push({
+      id: adj.id,
+      date: adj.createdAt,
+      category: "CORRECTION",
+      description: `${adj.kind.replace(/_/g, " ").toLowerCase()}: ${adj.reason}`,
+      direction:
+        adj.kind === "PREVIOUS_OVERPAYMENT_DEDUCTION" ? "DEBIT" : "CREDIT",
+      amountMinor: Math.abs(adj.amountMinor),
+      memo: true,
+      reference: adj.payrollId ?? null,
+    });
+  }
+
+  entries.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+  const inRange = (e: StatementEntry) => {
+    const d = new Date(e.date).getTime();
+    if (dateFrom && d < dateFrom.getTime()) return false;
+    if (dateTo && d > dateTo.getTime()) return false;
+    return true;
+  };
+  const visible = entries.filter(inRange);
+  const posted = visible.filter((e) => !e.memo);
+  const debitMinor = posted
+    .filter((e) => e.direction === "DEBIT")
+    .reduce((s, e) => s + e.amountMinor, 0);
+  const creditMinor = posted
+    .filter((e) => e.direction === "CREDIT")
+    .reduce((s, e) => s + e.amountMinor, 0);
+  const periodNetMinor = debitMinor - creditMinor;
+
+  const allPosted = entries.filter((e) => !e.memo);
+  const allTimeNetMinor =
+    allPosted
+      .filter((e) => e.direction === "DEBIT")
+      .reduce((s, e) => s + e.amountMinor, 0) -
+    allPosted
+      .filter((e) => e.direction === "CREDIT")
+      .reduce((s, e) => s + e.amountMinor, 0);
+
+  const closingMinor = account
+    ? Math.round(account.currentBalance * 100)
+    : allTimeNetMinor;
+
+  return {
+    employeeId,
+    employee,
+    dateFrom,
+    dateTo,
+    entries: visible,
+    totals: { debitMinor, creditMinor, netMinor: periodNetMinor },
+    balance: { openingMinor: closingMinor - periodNetMinor, closingMinor },
   };
 }
 

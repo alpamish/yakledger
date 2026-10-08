@@ -77,6 +77,7 @@ import {
   UserX,
   Calculator,
   Download,
+  Scale,
 } from 'lucide-react';
 
 function HighlightMatch({ text, query }: { text: string; query: string }) {
@@ -100,6 +101,7 @@ interface EmployeeTableProps {
   onViewProfile: (employee: Employee) => void;
   onBulkAction: (action: "delete" | "activate" | "deactivate") => void;
   onFinancialSummary?: () => void;
+  onStatement?: (employee: Employee) => void;
 }
 
 export function EmployeeTable({
@@ -108,6 +110,7 @@ export function EmployeeTable({
   onViewProfile,
   onBulkAction,
   onFinancialSummary,
+  onStatement,
 }: EmployeeTableProps) {
   const { canEdit, canDelete, hasPermission } = usePermissions();
   const employees = useEmployeeStore((s) => s.employees);
@@ -411,6 +414,12 @@ export function EmployeeTable({
                 <Eye className="mr-2 h-4 w-4" />
                 View Profile
               </DropdownMenuItem>
+              {onStatement && hasPermission('employees:payroll:view') && (
+                <DropdownMenuItem onClick={() => onStatement(row.original)}>
+                  <Scale className="mr-2 h-4 w-4" />
+                  Financial Statement
+                </DropdownMenuItem>
+              )}
               {hasPermission('reports:generatePdf') && (
                 <DropdownMenuItem
                   onClick={() => handleDownloadPdf(row.original)}
@@ -446,7 +455,7 @@ export function EmployeeTable({
         size: 50,
       },
     ],
-    [employees, selectedEmployeeIds, toggleSelectEmployee, selectAllEmployees, clearSelection, onEdit, onDelete, onViewProfile, canEdit, canDelete]
+    [employees, selectedEmployeeIds, toggleSelectEmployee, selectAllEmployees, clearSelection, onEdit, onDelete, onViewProfile, onStatement, canEdit, canDelete]
   );
 
   const table = useReactTable({
