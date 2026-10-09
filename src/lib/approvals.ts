@@ -2,6 +2,7 @@ import { db } from "./db";
 import { Prisma } from "@prisma/client";
 import { walletService } from "@/services/wallet.service";
 import { companyWalletService } from "@/services/company-wallet.service";
+import { loanService, applyRepaymentApproval } from "@/services/loan.service";
 
 export interface ApprovalEntityConfig {
   model: string;
@@ -19,6 +20,7 @@ export const ENTITY_CONFIG: Record<string, ApprovalEntityConfig> = {
   transfer: { model: "transfer", permission: "cashAdvance:approve", auditEntity: "Transfer", amountField: "amount", wallet: { type: "transfer" } },
   attendance: { model: "attendance", permission: "employees:approve", auditEntity: "Attendance" },
   assetLog: { model: "assetLog", permission: "assets:approve", auditEntity: "AssetLog" },
+  loan: { model: "loan", permission: "cashAdvance:approve", auditEntity: "Loan", amountField: "principalMinor", wallet: { type: "loan" } },
 };
 
 /**
@@ -73,6 +75,12 @@ export async function applyWalletEffect(
       await walletService.markAdvancePaid(id, userId, undefined, tx ?? db);
     }
 
+    // A pending manual loan repayment only touches the loan balance once it
+    // is approved.
+    if (type === "LOAN_REPAYMENT") {
+      await applyRepaymentApproval(record, tx ?? db);
+    }
+
     // The approved row itself already carries the balance effect — only
     // recompute, never write a compensating DEBIT row (that would double count).
     try {
@@ -80,6 +88,12 @@ export async function applyWalletEffect(
     } catch (err) {
       console.warn(`Wallet effect for ${entity} approval failed:`, err);
     }
+  } else if (cfg.type === "loan") {
+    // Approving a loan disburses the principal as a LOAN cash transaction and
+    // activates the loan; the recompute inside picks the new row up.
+    const loanId = record.id as string;
+    if (!loanId) return;
+    await loanService.applyApproval(loanId, userId, tx ?? db);
   } else if (cfg.type === "transfer") {
     const fromEmployeeId = record.fromEmployeeId as string;
     const toEmployeeId = record.toEmployeeId as string;

@@ -43,6 +43,7 @@ const ENTITY_LABELS: Record<string, string> = {
   transfer: 'Transfer',
   attendance: 'Attendance',
   assetLog: 'Asset Log',
+  loan: 'Loan',
 };
 
 const ENTITY_COLORS: Record<string, string> = {
@@ -53,6 +54,7 @@ const ENTITY_COLORS: Record<string, string> = {
   transfer: '#8b5cf6',
   attendance: '#06b6d4',
   assetLog: '#6366f1',
+  loan: '#e11d48',
 };
 
 function formatAmount(value?: number): string {
@@ -113,7 +115,7 @@ export function ApprovalsPage() {
     const tabs: { key: string; label: string; count: number }[] = [
       { key: 'all', label: 'All', count: Object.values(counts).reduce((a, b) => a + b, 0) },
     ];
-    for (const key of ['expense', 'timesheet', 'fuelUsage', 'cashTransaction', 'transfer', 'attendance', 'assetLog']) {
+    for (const key of ['expense', 'timesheet', 'fuelUsage', 'cashTransaction', 'transfer', 'attendance', 'assetLog', 'loan']) {
       tabs.push({ key, label: ENTITY_LABELS[key], count: counts[key] ?? 0 });
     }
     return tabs;

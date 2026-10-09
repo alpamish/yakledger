@@ -111,7 +111,7 @@ export function TransactionsList() {
     const cashEntries: CombinedEntry[] = transactions.map((t) => ({
       id: `txn-${t.id}`,
       type: t.type,
-      amount: (t.type === 'ADVANCE' || t.type === 'SALARY_PAYMENT' || t.type === 'ADJUSTMENT') ? t.amount : -t.amount,
+      amount: (t.type === 'ADVANCE' || t.type === 'LOAN' || t.type === 'SALARY_PAYMENT' || t.type === 'ADJUSTMENT') ? t.amount : -t.amount,
       createdAt: t.createdAt,
       description: `${t.employee?.fullName ?? 'Unknown'}${t.note ? ` — ${t.note}` : ''}`,
       approvalStatus: t.approvalStatus,
@@ -211,6 +211,8 @@ export function TransactionsList() {
       case 'ADVANCE': return { bg: '#f59e0b20', color: '#f59e0b' };
       case 'RETURN': return { bg: '#10b98120', color: '#10b981' };
       case 'ADJUSTMENT': return { bg: '#6366f120', color: '#6366f1' };
+      case 'LOAN': return { bg: '#e11d4820', color: '#e11d48' };
+      case 'LOAN_REPAYMENT': return { bg: '#84cc1620', color: '#84cc16' };
       case 'TRANSFER': return { bg: '#3b82f620', color: '#3b82f6' };
       default: return { bg: '#6b728020', color: '#6b7280' };
     }
@@ -221,6 +223,8 @@ export function TransactionsList() {
       case 'ADVANCE': return 'Advance';
       case 'RETURN': return 'Return';
       case 'ADJUSTMENT': return 'Adjustment';
+      case 'LOAN': return 'Loan';
+      case 'LOAN_REPAYMENT': return 'Loan Repayment';
       case 'TRANSFER': return 'Transfer';
       default: return type;
     }
@@ -329,6 +333,8 @@ export function TransactionsList() {
                   <option value="ADVANCE">Advance</option>
                   <option value="RETURN">Return</option>
                   <option value="ADJUSTMENT">Adjustment</option>
+                  <option value="LOAN">Loan</option>
+                  <option value="LOAN_REPAYMENT">Loan Repayment</option>
                   <option value="TRANSFER">Transfer</option>
                 </select>
               </div>
@@ -436,7 +442,7 @@ export function TransactionsList() {
                   </div>
                   <div className="flex items-center gap-4 flex-shrink-0">
                     <span className={`text-sm font-semibold ${
-                      entry.type === 'ADVANCE' ? 'text-amber-500' :
+                      entry.type === 'ADVANCE' || entry.type === 'LOAN' ? 'text-amber-500' :
                       entry.type === 'TRANSFER' ? 'text-blue-500' : 'text-emerald-500'
                     }`}>
                       {entry.amount > 0 ? '+' : ''}{entry.amount.toLocaleString()} AFN

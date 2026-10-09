@@ -166,6 +166,8 @@ export function EmployeeWalletDetail({ employeeId, onBack }: Props) {
       case 'ADVANCE': return 'text-amber-500';
       case 'RETURN': return 'text-emerald-500';
       case 'ADJUSTMENT': return 'text-indigo-500';
+      case 'LOAN': return 'text-rose-500';
+      case 'LOAN_REPAYMENT': return 'text-lime-600';
       case 'EXPENSE': return 'text-red-500';
       case 'TRANSFER': return 'text-blue-500';
       default: return '';
@@ -177,6 +179,8 @@ export function EmployeeWalletDetail({ employeeId, onBack }: Props) {
       case 'ADVANCE': return { bg: '#f59e0b20', color: '#f59e0b' };
       case 'RETURN': return { bg: '#10b98120', color: '#10b981' };
       case 'ADJUSTMENT': return { bg: '#6366f120', color: '#6366f1' };
+      case 'LOAN': return { bg: '#e11d4820', color: '#e11d48' };
+      case 'LOAN_REPAYMENT': return { bg: '#84cc1620', color: '#84cc16' };
       case 'EXPENSE': return { bg: '#ef444420', color: '#ef4444' };
       case 'TRANSFER': return { bg: '#3b82f620', color: '#3b82f6' };
       default: return { bg: '#6b728020', color: '#6b7280' };
@@ -188,6 +192,8 @@ export function EmployeeWalletDetail({ employeeId, onBack }: Props) {
       case 'ADVANCE': return 'Advance';
       case 'RETURN': return 'Return';
       case 'ADJUSTMENT': return 'Adjustment';
+      case 'LOAN': return 'Loan';
+      case 'LOAN_REPAYMENT': return 'Loan Repayment';
       case 'EXPENSE': return 'Expense';
       case 'TRANSFER': return 'Transfer';
       default: return type;
@@ -385,6 +391,8 @@ export function EmployeeWalletDetail({ employeeId, onBack }: Props) {
                 <option value="ADVANCE">Advance</option>
                 <option value="RETURN">Return</option>
                 <option value="ADJUSTMENT">Adjustment</option>
+                <option value="LOAN">Loan</option>
+                <option value="LOAN_REPAYMENT">Loan Repayment</option>
                 <option value="EXPENSE">Expense</option>
                 <option value="TRANSFER">Transfer</option>
               </select>

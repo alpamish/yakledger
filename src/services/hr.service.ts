@@ -36,6 +36,7 @@ import {
 import { Prisma } from "@prisma/client";
 import { walletService } from "./wallet.service";
 import { companyWalletService } from "./company-wallet.service";
+import { loanService } from "./loan.service";
 import type { EmployeeStatement, StatementEntry } from "../types/statement";
 
 export type SalaryAtDate = {
@@ -404,6 +405,16 @@ export async function generatePayroll(params: {
     grossPayMinor
   );
 
+  // Propose the automatic loan repayment for this period (Plan-payroll.pdf
+  // §1 "Loans"): capped by whatever is still payable after the advance
+  // offset, stored on the draft line for HR to review — allocations only
+  // happen when the payroll is approved.
+  const loanCapMinor = Math.max(fig.netPayableMinor, 0);
+  const loanDeductionMinor = (
+    await loanService.proposeDeduction(params.employeeId, loanCapMinor)
+  ).totalMinor;
+  const netPayableMinor = fig.netPayableMinor - loanDeductionMinor;
+
   const payroll = await db.payroll.create({
     data: {
       employeeId: params.employeeId,
@@ -432,9 +443,10 @@ export async function generatePayroll(params: {
           amountAlreadyReceivedMinor: fig.amountAlreadyReceivedMinor,
           previousDebtMinor: fig.previousDebtMinor,
           advancesDeductedMinor: fig.amountAlreadyReceivedMinor,
-          netPayableMinor: fig.netPayableMinor,
+          loanDeductionMinor,
+          netPayableMinor,
           remainingEmployeeDebtMinor: fig.remainingEmployeeDebtMinor,
-          netPayMinor: Math.max(fig.netPayableMinor, 0),
+          netPayMinor: Math.max(netPayableMinor, 0),
           paymentStatus: "UNPAID",
           salarySnapshotDate: salary.effectiveFrom,
         },
@@ -451,7 +463,8 @@ export async function generatePayroll(params: {
     newValues: {
       status: "DRAFT",
       grossPayMinor,
-      netPayMinor: Math.max(fig.netPayableMinor, 0),
+      loanDeductionMinor,
+      netPayMinor: Math.max(netPayableMinor, 0),
     },
     userId: params.createdById,
   });
@@ -705,6 +718,20 @@ async function allocateAdvances(
   return totalAllocated;
 }
 
+/**
+ * An HR-entered loan deduction may never exceed the salary that is still
+ * payable after the advance offset — the remainder stays on the loan for HR
+ * to settle separately (Plan-payroll.pdf §1 "Loans": HR decides).
+ */
+function validateLoanDeduction(targetMinor: number, capMinor: number) {
+  if (targetMinor > capMinor) {
+    throw new Error(
+      `Loan deduction (${fromMinor(targetMinor)} AFN) exceeds the net salary after advances ` +
+        `(${fromMinor(capMinor)} AFN); lower the deduction — the rest of the loan stays outstanding`
+    );
+  }
+}
+
 /** Approve a payroll record. Approval finalizes and settles it: */
 /**
  * Approve a payroll (Plan-payroll.pdf §2 action 6 / action 9).
@@ -740,7 +767,24 @@ export async function approvePayroll(payrollId: string, approvedById: string) {
   );
 
   const employeeId = payroll.employeeId;
-  const netPayMinor = Math.max(fig.netPayableMinor, 0);
+  // Loan repayment (§1 "Loans"): an explicit HR override wins, validated
+  // against what is still payable after the advance offset; otherwise the
+  // auto-deduction proposal is taken fresh — the ledger may have changed
+  // since the draft was generated.
+  const loanCapMinor = Math.max(fig.netPayableMinor, 0);
+  let loanDeductionMinor: number;
+  if (line.loanDeductionOverridden) {
+    validateLoanDeduction(line.loanDeductionMinor, loanCapMinor);
+    loanDeductionMinor = line.loanDeductionMinor;
+  } else {
+    loanDeductionMinor = (
+      await loanService.proposeDeduction(employeeId, loanCapMinor, db, {
+        effectivePayrollId: payrollId,
+      })
+    ).totalMinor;
+  }
+  const netPayableMinor = fig.netPayableMinor - loanDeductionMinor;
+  const netPayMinor = Math.max(netPayableMinor, 0);
 
   // Payments recorded before a revert are preserved (PDF §1 "Payroll Editing
   // & Correction") and re-attach to the payroll when it is approved again.
@@ -776,6 +820,10 @@ export async function approvePayroll(payrollId: string, approvedById: string) {
       fig.amountAlreadyReceivedMinor
     );
 
+    // Take the loan repayment out of the outstanding balances; throws (and
+    // rolls the approval back) if HR's override exceeds them.
+    await loanService.allocate(tx, employeeId, payrollId, loanDeductionMinor);
+
     // Salary accounting on approval (§2 action 9): the accrued gross is
     // recognised as a company expense; every actual payment posts its own
     // PAYROLL_PAYMENT entry, and corrections reverse this entry instead of
@@ -806,7 +854,8 @@ export async function approvePayroll(payrollId: string, approvedById: string) {
               amountAlreadyReceivedMinor: fig.amountAlreadyReceivedMinor,
               previousDebtMinor: fig.previousDebtMinor,
               advancesDeductedMinor: allocatedMinor,
-              netPayableMinor: fig.netPayableMinor,
+              loanDeductionMinor,
+              netPayableMinor,
               remainingEmployeeDebtMinor: fig.remainingEmployeeDebtMinor,
               netPayMinor,
               paymentStatus:
@@ -835,7 +884,7 @@ export async function approvePayroll(payrollId: string, approvedById: string) {
       action: "APPROVED",
       summary: `${periodLabel} → ${status}`,
       oldValues: { status: payroll.status },
-      newValues: { status, netPayMinor, totalPaidMinor: paidMinor },
+      newValues: { status, netPayMinor, loanDeductionMinor, totalPaidMinor: paidMinor },
       userId: approvedById,
     });
   });
@@ -1104,6 +1153,7 @@ export async function updatePayrollLine(
     allowancesMinor?: number;
     bonusesMinor?: number;
     deductionsMinor?: number;
+    loanDeductionMinor?: number;
     netPayableMinor?: number;
     remainingEmployeeDebtMinor?: number;
     deductExpenses?: boolean;
@@ -1158,9 +1208,45 @@ export async function updatePayrollLine(
     Math.min(grossPayMinor, previousDebtMinor)
   );
 
+  // Loan repayment (§1 "Loans"): an explicit HR entry becomes the override;
+  // an existing override keeps its stored value; a partially paid payroll
+  // keeps the plan it was approved with; anything else is re-proposed fresh
+  // from the ledger (the proposal already treats this payroll's own
+  // allocations as restored — they are rebuilt inside the transaction).
+  const loanCapMinor = Math.max(grossPayMinor - previousDebtMinor, 0);
+  let loanDeductionMinor: number;
+  let loanDeductionOverridden = line.loanDeductionOverridden;
+  if (updates.loanDeductionMinor !== undefined) {
+    validateLoanDeduction(updates.loanDeductionMinor, loanCapMinor);
+    if (payroll.status === "DRAFT") {
+      // Drafts hold no allocations, so the outstanding balances are exact.
+      const outstanding = await loanService.outstandingTotalMinor(line.employeeId);
+      if (updates.loanDeductionMinor > outstanding) {
+        throw new Error(
+          `Loan deduction (${fromMinor(updates.loanDeductionMinor)} AFN) exceeds the outstanding ` +
+            `loan balances (${fromMinor(outstanding)} AFN); HR must adjust the deduction`
+        );
+      }
+    }
+    loanDeductionMinor = updates.loanDeductionMinor;
+    loanDeductionOverridden = true;
+  } else if (line.loanDeductionOverridden) {
+    validateLoanDeduction(line.loanDeductionMinor, loanCapMinor);
+    loanDeductionMinor = line.loanDeductionMinor;
+  } else if (payroll.status === "PARTIALLY_PAID") {
+    loanDeductionMinor = line.loanDeductionMinor;
+  } else {
+    loanDeductionMinor = (
+      await loanService.proposeDeduction(line.employeeId, loanCapMinor, db, {
+        effectivePayrollId: payroll.status === "DRAFT" ? undefined : payrollId,
+      })
+    ).totalMinor;
+  }
+
   // Allow manual override of netPayableMinor / remainingEmployeeDebtMinor
   const netPayableMinor =
-    updates.netPayableMinor ?? grossPayMinor - previousDebtMinor;
+    updates.netPayableMinor ??
+    grossPayMinor - previousDebtMinor - loanDeductionMinor;
   const remainingEmployeeDebtMinor =
     updates.remainingEmployeeDebtMinor ??
     Math.max(previousDebtMinor - grossPayMinor, 0);
@@ -1230,6 +1316,14 @@ export async function updatePayrollLine(
       );
     }
 
+    // Loan deductions are rebuilt alongside: free the balances this payroll
+    // held, then re-allocate the resolved target (throws if HR's override
+    // exceeds the balances, rolling the edit back).
+    if (payroll.status !== "DRAFT") {
+      await loanService.restoreAllocations(tx, payrollId);
+      await loanService.allocate(tx, line.employeeId, payrollId, loanDeductionMinor);
+    }
+
     await tx.payrollLine.update({
       where: { id: lineId },
       data: {
@@ -1244,6 +1338,8 @@ export async function updatePayrollLine(
         amountAlreadyReceivedMinor,
         previousDebtMinor,
         advancesDeductedMinor,
+        loanDeductionMinor,
+        loanDeductionOverridden,
         netPayableMinor,
         remainingEmployeeDebtMinor,
         netPayMinor,
@@ -1280,6 +1376,7 @@ export async function updatePayrollLine(
       bonusesMinor: line.bonusesMinor,
       deductionsMinor: line.deductionsMinor,
       grossPayMinor: line.grossPayMinor,
+      loanDeductionMinor: line.loanDeductionMinor,
       walletId: payroll.walletId,
       payrollStatus: payroll.status,
     },
@@ -1289,6 +1386,7 @@ export async function updatePayrollLine(
       bonusesMinor,
       deductionsMinor,
       grossPayMinor,
+      loanDeductionMinor,
       netPayMinor,
       walletId: updates.walletId !== undefined ? updates.walletId || null : payroll.walletId,
       payrollStatus,
@@ -1337,8 +1435,10 @@ export async function revertPayroll(
     // the correction (PDF §1 "Payroll Editing & Correction"): only the
     // approval itself is undone.
     // Free the advances allocated to this payroll so they can be re-allocated
-    // when the corrected payroll is generated.
+    // when the corrected payroll is generated, and give the deducted loan
+    // balances back to the loans (they are re-proposed on re-approval).
     await tx.payrollAdvanceAllocation.deleteMany({ where: { payrollId: payroll.id } });
+    await loanService.restoreAllocations(tx, payroll.id);
 
     // Reverse the salary accounting posted at approval: corrections replace an
     // entry, they never rewrite it (§2 action 9). Only still-active accruals
@@ -1437,7 +1537,27 @@ export async function recalculatePayroll(payrollId: string, userId?: string) {
     line.grossPayMinor
   );
 
+  // Loan repayment: HR's override stands, otherwise re-propose fresh. The
+  // proposal treats this payroll's own allocations as still available (they
+  // are restored below before re-allocating).
+  const loanCapMinor = Math.max(fig.netPayableMinor, 0);
+  let loanDeductionMinor: number;
+  if (line.loanDeductionOverridden) {
+    validateLoanDeduction(line.loanDeductionMinor, loanCapMinor);
+    loanDeductionMinor = line.loanDeductionMinor;
+  } else {
+    loanDeductionMinor = (
+      await loanService.proposeDeduction(payroll.employeeId, loanCapMinor, db, {
+        effectivePayrollId: payrollId,
+      })
+    ).totalMinor;
+  }
+  const netPayableMinor = fig.netPayableMinor - loanDeductionMinor;
+
   await db.$transaction(async (tx) => {
+    // Free the loan balances this payroll held, then rebuild both deduction
+    // plans against the refreshed ledger.
+    await loanService.restoreAllocations(tx, payrollId);
     await tx.payrollAdvanceAllocation.deleteMany({ where: { payrollId } });
     const allocatedMinor = await allocateAdvances(
       tx,
@@ -1446,6 +1566,7 @@ export async function recalculatePayroll(payrollId: string, userId?: string) {
       payrollId,
       fig.amountAlreadyReceivedMinor
     );
+    await loanService.allocate(tx, payroll.employeeId, payrollId, loanDeductionMinor);
 
     await tx.payroll.update({
       where: { id: payrollId },
@@ -1459,9 +1580,10 @@ export async function recalculatePayroll(payrollId: string, userId?: string) {
               amountAlreadyReceivedMinor: fig.amountAlreadyReceivedMinor,
               previousDebtMinor: fig.previousDebtMinor,
               advancesDeductedMinor: allocatedMinor,
-              netPayableMinor: fig.netPayableMinor,
+              loanDeductionMinor,
+              netPayableMinor,
               remainingEmployeeDebtMinor: fig.remainingEmployeeDebtMinor,
-              netPayMinor: Math.max(fig.netPayableMinor, 0),
+              netPayMinor: Math.max(netPayableMinor, 0),
             },
           },
         },
@@ -1487,7 +1609,8 @@ export async function recalculatePayroll(payrollId: string, userId?: string) {
       },
       newValues: {
         status: "NEEDS_RECALCULATION",
-        netPayMinor: Math.max(fig.netPayableMinor, 0),
+        netPayMinor: Math.max(netPayableMinor, 0),
+        loanDeductionMinor,
       },
       userId: userId ?? null,
     });
@@ -1626,8 +1749,15 @@ export async function getEmployeeFinancialSummary(employeeId: string) {
       ? new Date(employee.quitingDate)
       : now;
 
-  const [attendanceRecords, salaryPayments, expensesTo, expensesBy, advances, otAgg] =
-    await Promise.all([
+  const [
+    attendanceRecords,
+    salaryPayments,
+    expensesTo,
+    expensesBy,
+    advances,
+    otAgg,
+    loansAgg,
+  ] = await Promise.all([
       db.attendance.findMany({
         where: {
           employeeId,
@@ -1664,6 +1794,12 @@ export async function getEmployeeFinancialSummary(employeeId: string) {
           approvalStatus: "APPROVED",
         },
         _sum: { overtimeHours: true },
+      }),
+      // Loans (Plan-payroll.pdf §1): issued principal and what is still owed.
+      // Repaid history is derived from the two sums (issued − outstanding).
+      db.loan.aggregate({
+        where: { employeeId, approvalStatus: "APPROVED" },
+        _sum: { principalMinor: true, balanceMinor: true },
       }),
     ]);
 
@@ -1714,6 +1850,9 @@ export async function getEmployeeFinancialSummary(employeeId: string) {
     expensesPaidTo,
     reimbursements,
     advancesReceived,
+    // Major AFN (like advancesReceived above); derived from exact minor units.
+    loansIssued: (loansAgg._sum.principalMinor ?? 0) / 100,
+    loansOutstanding: (loansAgg._sum.balanceMinor ?? 0) / 100,
     totalPaid,
     totalReceived,
     outstanding,
@@ -1733,8 +1872,10 @@ export async function getEmployeeFinancialSummary(employeeId: string) {
  * Not-yet-posted corrections (PayrollAdjustment) are listed as `memo` rows
  * and excluded from the totals.
  *
- * Loans will appear with the `LOAN` category once loan tracking lands
- * (deferred, Plan-payroll.pdf Phase plan).
+ * Loans use the `LOAN` category: the disbursed principal is a DEBIT and a
+ * manual repayment a CREDIT. Payroll-deducted repayments post no cash row —
+ * they only shrink the salary payment, which already appears as its own
+ * entry, so the totals still reconcile with the balance.
  */
 export async function getEmployeeStatement(
   employeeId: string,
@@ -1820,6 +1961,20 @@ export async function getEmployeeStatement(
           category: "ADVANCE",
           description: t.note ?? "Cash advance",
           direction: "DEBIT",
+        };
+        break;
+      case "LOAN":
+        entry = {
+          category: "LOAN",
+          description: t.note ?? "Loan issued",
+          direction: "DEBIT",
+        };
+        break;
+      case "LOAN_REPAYMENT":
+        entry = {
+          category: "LOAN",
+          description: t.note ?? "Loan repayment",
+          direction: "CREDIT",
         };
         break;
       case "SALARY_PAYMENT":
@@ -2070,6 +2225,8 @@ export async function deletePayroll(
         performedById: userId,
       },
     });
+    // Give loan balances back before the cascade removes the allocation rows.
+    await loanService.restoreAllocations(tx, payrollId);
     await logPayrollChange(tx, {
       payrollId,
       employeeId: payroll.employeeId,

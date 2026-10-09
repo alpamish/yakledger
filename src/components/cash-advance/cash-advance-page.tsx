@@ -14,6 +14,7 @@ import { TransferForm } from './transfer-form';
 import { LedgerView } from './ledger-view';
 import { TransactionsList } from './transactions-list';
 import { EmployeeWalletDetail } from './employee-wallet-detail';
+import { LoansTab } from './loans-tab';
 import { usePermissions } from '@/hooks/use-permissions';
 
 export function CashAdvancePage() {
@@ -31,6 +32,7 @@ export function CashAdvancePage() {
           {canCreate('cashAdvance') && <TabsTrigger value="transfer">Transfer</TabsTrigger>}
           {canCreate('cashAdvance') && <TabsTrigger value="issue">Issue Advance</TabsTrigger>}
           {canCreate('cashAdvance') && <TabsTrigger value="return">Record Return</TabsTrigger>}
+          <TabsTrigger value="loans">Loans</TabsTrigger>
           <TabsTrigger value="transactions">All Transactions</TabsTrigger>
           <TabsTrigger value="ledger">Employee Ledger</TabsTrigger>
         </TabsList>
@@ -65,6 +67,10 @@ export function CashAdvancePage() {
             <ReturnForm onSuccess={() => setActiveTab('wallets')} />
           </TabsContent>
         )}
+
+        <TabsContent value="loans">
+          <LoansTab />
+        </TabsContent>
 
         <TabsContent value="transactions">
           <TransactionsList />

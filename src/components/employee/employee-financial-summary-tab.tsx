@@ -180,6 +180,16 @@ export function EmployeeFinancialSummaryTab({
                 <span className="text-muted-foreground">Advances received</span>
                 <span className="font-medium font-mono">{fmt(summary.advancesReceived ?? 0)}</span>
               </div>
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">Loans issued</span>
+                <span className="font-medium font-mono">{fmt(summary.loansIssued ?? 0)}</span>
+              </div>
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">Loans outstanding</span>
+                <span className="font-medium font-mono text-rose-500">
+                  {fmt(summary.loansOutstanding ?? 0)}
+                </span>
+              </div>
             </div>
           </div>
         </CardContent>

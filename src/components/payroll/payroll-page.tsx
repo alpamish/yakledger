@@ -74,6 +74,7 @@ interface PayrollLine {
   amountAlreadyReceivedMinor: number;
   previousDebtMinor: number;
   advancesDeductedMinor: number;
+  loanDeductionMinor: number;
   netPayableMinor: number;
   remainingEmployeeDebtMinor: number;
   paymentStatus: string;
@@ -477,6 +478,42 @@ export function PayrollPage() {
           return (
             <span className="font-mono">
               {prevDebt === 0 ? "—" : formatMinor(prevDebt)}
+            </span>
+          );
+        },
+      },
+      {
+        id: "loanDeduction",
+        accessorFn: (row) => row.lines?.[0]?.loanDeductionMinor ?? 0,
+        header: ({ column }) => <SortableHeader column={column}>Loan Repayment</SortableHeader>,
+        cell: ({ row }) => {
+          const line = row.original.lines?.[0];
+          const isEditable = isPayrollEditable(row.original.status);
+          if (editMode && isEditable && line) {
+            return (
+              <div className="flex items-center gap-1">
+                <Input
+                  type="number"
+                  min={0}
+                  defaultValue={(line.loanDeductionMinor ?? 0) / 100}
+                  className="h-7 w-20 text-xs font-mono"
+                  disabled={savingLineId === line.id}
+                  onBlur={(e) => {
+                    const val = parseFloat(e.target.value);
+                    const next = isNaN(val) ? 0 : Math.max(0, val);
+                    if (next !== ((line.loanDeductionMinor ?? 0) / 100)) {
+                      handleInlineSave(row.original.id, line.id, "loanDeductionMinor", next);
+                    }
+                  }}
+                />
+                {savingLineId === line.id && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />}
+              </div>
+            );
+          }
+          const loanDeduction = line?.loanDeductionMinor ?? 0;
+          return (
+            <span className="font-mono">
+              {loanDeduction === 0 ? "—" : formatMinor(loanDeduction)}
             </span>
           );
         },

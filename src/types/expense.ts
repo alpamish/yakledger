@@ -351,6 +351,8 @@ export const CASH_TRANSACTION_TYPES = [
   "ADJUSTMENT",
   "SALARY_PAYMENT",
   "REIMBURSEMENT",
+  "LOAN",
+  "LOAN_REPAYMENT",
 ] as const;
 export type CashTransactionType = (typeof CASH_TRANSACTION_TYPES)[number];
 
@@ -360,6 +362,8 @@ export const CASH_TRANSACTION_TYPE_LABELS: Record<CashTransactionType, string> =
   ADJUSTMENT: "Adjustment",
   SALARY_PAYMENT: "Salary Payment",
   REIMBURSEMENT: "Reimbursement",
+  LOAN: "Loan",
+  LOAN_REPAYMENT: "Loan Repayment",
 };
 
 export interface EmployeeCashAccount {
@@ -445,6 +449,8 @@ export interface LedgerEntry {
     | "ADJUSTMENT"
     | "SALARY_PAYMENT"
     | "REIMBURSEMENT"
+    | "LOAN"
+    | "LOAN_REPAYMENT"
     | "EXPENSE"
     | "TRANSFER";
   description: string;
@@ -458,6 +464,8 @@ export const CASH_TXN_TYPE_COLORS: Record<CashTransactionType, string> = {
   ADJUSTMENT: "#6366f1",
   SALARY_PAYMENT: "#0ea5e9",
   REIMBURSEMENT: "#14b8a6",
+  LOAN: "#e11d48",
+  LOAN_REPAYMENT: "#84cc16",
 };
 
 export const CATEGORY_LABELS: Record<Category, string> = {

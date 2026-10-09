@@ -41,6 +41,7 @@ export const APPROVAL_ENTITIES = new Set<string>([
   "transfer",
   "attendance",
   "assetLog",
+  "loan",
 ]);
 
 export function isAdmin(user: { role: string }): boolean {

@@ -233,11 +233,39 @@ export async function GET(request: NextRequest) {
             entity: "assetLog",
             id: r.id,
             summary: `${r.asset?.name ?? "Asset"} - ${r.status}`,
-            date: r.date.toISOString(),
+            date: r.createdAt.toISOString(),
             status: r.approvalStatus,
             approvalNote: r.approvalNote,
             createdAt: r.createdAt.toISOString(),
             createdBy: r.creator,
+          })),
+        }));
+
+    const fetchLoans = entityFilter && entityFilter !== "loan"
+      ? Promise.resolve<{ rows: ApprovalItem[]; count: number }>({ rows: [], count: 0 })
+      : Promise.all([
+          db.loan.count({ where }),
+          db.loan.findMany({
+            where,
+            include: {
+              createdBy: { select: { id: true, name: true } },
+              employee: { select: { fullName: true } },
+            },
+            orderBy: { createdAt: "asc" },
+            take,
+          }),
+        ]).then(([count, rows]) => ({
+          count,
+          rows: rows.map((r) => ({
+            entity: "loan",
+            id: r.id,
+            summary: `Loan - ${r.employee?.fullName ?? "Employee"}`,
+            amount: r.principalMinor / 100,
+            date: r.issueDate.toISOString(),
+            status: r.approvalStatus,
+            approvalNote: r.approvalNote,
+            createdAt: r.createdAt.toISOString(),
+            createdBy: r.createdBy,
           })),
         }));
 
@@ -249,6 +277,7 @@ export async function GET(request: NextRequest) {
       transfers,
       attendance,
       assetLogs,
+      loans,
     ] = await Promise.all([
       fetchExpenses,
       fetchTimesheets,
@@ -257,6 +286,7 @@ export async function GET(request: NextRequest) {
       fetchTransfers,
       fetchAttendance,
       fetchAssetLogs,
+      fetchLoans,
     ]);
 
     const allItems: ApprovalItem[] = [
@@ -267,6 +297,7 @@ export async function GET(request: NextRequest) {
       ...transfers.rows,
       ...attendance.rows,
       ...assetLogs.rows,
+      ...loans.rows,
     ].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 
     const total =
@@ -276,7 +307,8 @@ export async function GET(request: NextRequest) {
       cashTransactions.count +
       transfers.count +
       attendance.count +
-      assetLogs.count;
+      assetLogs.count +
+      loans.count;
 
     const totalPages = Math.max(1, Math.ceil(total / pageSize));
     const safePage = Math.min(page, totalPages);
@@ -291,6 +323,7 @@ export async function GET(request: NextRequest) {
       transfer: transfers.count,
       attendance: attendance.count,
       assetLog: assetLogs.count,
+      loan: loans.count,
     };
 
     return NextResponse.json({

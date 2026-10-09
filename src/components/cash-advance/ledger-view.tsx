@@ -102,6 +102,8 @@ export function LedgerView() {
       case 'ADVANCE': return 'Advance';
       case 'RETURN': return 'Return';
       case 'ADJUSTMENT': return 'Adjustment';
+      case 'LOAN': return 'Loan';
+      case 'LOAN_REPAYMENT': return 'Loan Repayment';
       case 'EXPENSE': return 'Expense';
       default: return type;
     }
@@ -112,6 +114,8 @@ export function LedgerView() {
       case 'ADVANCE': return 'text-amber-500';
       case 'RETURN': return 'text-emerald-500';
       case 'ADJUSTMENT': return 'text-indigo-500';
+      case 'LOAN': return 'text-rose-500';
+      case 'LOAN_REPAYMENT': return 'text-lime-600';
       case 'EXPENSE': return 'text-red-500';
       default: return '';
     }
@@ -199,6 +203,8 @@ export function LedgerView() {
                 <option value="ADVANCE">Advance</option>
                 <option value="RETURN">Return</option>
                 <option value="ADJUSTMENT">Adjustment</option>
+                <option value="LOAN">Loan</option>
+                <option value="LOAN_REPAYMENT">Loan Repayment</option>
                 <option value="EXPENSE">Expense</option>
                 <option value="TRANSFER">Transfer</option>
               </select>

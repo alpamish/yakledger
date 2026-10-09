@@ -83,6 +83,8 @@ export interface UpdatePayrollLineBody {
   allowancesMinor?: number;
   bonusesMinor?: number;
   deductionsMinor?: number;
+  /** AFN amount of loan repayment to deduct this period (0 = none). */
+  loanDeductionMinor?: number;
   netPayableMinor?: number;
   remainingEmployeeDebtMinor?: number;
   deductExpenses?: boolean;

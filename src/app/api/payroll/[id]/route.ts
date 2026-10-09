@@ -28,6 +28,7 @@ export async function PATCH(
       ...(d.allowancesMinor !== undefined && { allowancesMinor: toMinor(d.allowancesMinor) }),
       ...(d.bonusesMinor !== undefined && { bonusesMinor: toMinor(d.bonusesMinor) }),
       ...(d.deductionsMinor !== undefined && { deductionsMinor: toMinor(d.deductionsMinor) }),
+      ...(d.loanDeductionMinor !== undefined && { loanDeductionMinor: toMinor(d.loanDeductionMinor) }),
       ...(d.netPayableMinor !== undefined && { netPayableMinor: toMinor(d.netPayableMinor) }),
       ...(d.remainingEmployeeDebtMinor !== undefined && { remainingEmployeeDebtMinor: toMinor(d.remainingEmployeeDebtMinor) }),
       ...(d.deductExpenses !== undefined && { deductExpenses: d.deductExpenses }),

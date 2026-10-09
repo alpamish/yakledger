@@ -76,6 +76,9 @@ export const payrollLineUpdateSchema = z.object({
   allowancesMinor: z.number().int().min(0).optional(),
   bonusesMinor: z.number().int().min(0).optional(),
   deductionsMinor: z.number().int().min(0).optional(),
+  // AFN amount of loan repayment to deduct this period (0 = none). Becomes a
+  // sticky HR override of the automatic proposal.
+  loanDeductionMinor: z.number().min(0).optional(),
   netPayableMinor: z.number().int().optional(),
   remainingEmployeeDebtMinor: z.number().int().min(0).optional(),
   deductExpenses: z.boolean().optional(),

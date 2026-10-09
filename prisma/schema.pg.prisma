@@ -110,6 +110,8 @@ enum CashTransactionType {
   ADJUSTMENT
   SALARY_PAYMENT
   REIMBURSEMENT
+  LOAN
+  LOAN_REPAYMENT
 }
 
 enum FuelType {
@@ -214,6 +216,7 @@ model User {
   accountingEntriesPosted    AccountingEntry[]    @relation("AccountingEntryPoster")
   payrollAdjustmentsCreated  PayrollAdjustment[]  @relation("PayrollAdjustmentCreator")
   payrollAuditLogs           PayrollAuditLog[]
+  createdLoans               Loan[]               @relation("LoanCreator")
 }
 
 model RecordAccess {
@@ -336,6 +339,7 @@ model Employee {
   payrolls              Payroll[]
   payrollLines          PayrollLine[]
   payrollAdjustments    PayrollAdjustment[]
+  loans                 Loan[]
   auditEvents           EmployeeAuditEvent[]
   wallets               WalletEmployee[]
 
@@ -522,6 +526,7 @@ model Payroll {
   updatedAt   DateTime @updatedAt
   lines       PayrollLine[]
   allocations PayrollAdvanceAllocation[]
+  loanAllocations PayrollLoanAllocation[]
   expenses    Expense[]
   payments    PayrollPayment[]
   adjustments PayrollAdjustment[]
@@ -651,6 +656,11 @@ model PayrollLine {
   amountAlreadyReceivedMinor Int @default(0)
   previousDebtMinor   Int      @default(0)
   advancesDeductedMinor Int     @default(0)
+  // Loan repayment auto-deducted from this payroll (Plan-payroll.pdf §1
+  // "Loans"). `loanDeductionOverridden` marks an HR-entered value that must
+  // survive a recomputation (otherwise the figure is re-proposed fresh).
+  loanDeductionMinor  Int      @default(0)
+  loanDeductionOverridden Boolean @default(false)
   netPayableMinor     Int      @default(0)
   remainingEmployeeDebtMinor Int @default(0)
   paymentStatus       String   @default("UNPAID")
@@ -677,6 +687,62 @@ model PayrollAdvanceAllocation {
   @@unique([payrollId, cashTransactionId])
   @@index([payrollId])
   @@index([cashTransactionId])
+}
+
+// Loan repayment deducted from a payroll (Plan-payroll.pdf §1 "Loans").
+// Mirrors PayrollAdvanceAllocation: the row is the record that the deduction
+// happened — there is no cash transaction for it, because the salary payment
+// itself already paid out the reduced net. Restoring these rows on revert
+// gives the loan balances back.
+model PayrollLoanAllocation {
+  id          String   @id @default(cuid())
+  payrollId   String
+  payroll     Payroll  @relation(fields: [payrollId], references: [id], onDelete: Cascade)
+  loanId      String
+  loan        Loan     @relation(fields: [loanId], references: [id], onDelete: Cascade)
+  amountMinor Int
+  createdAt   DateTime @default(now())
+
+  @@unique([payrollId, loanId])
+  @@index([payrollId])
+  @@index([loanId])
+}
+
+// Formal employee loan (Plan-payroll.pdf §1 "Loans"). Goes through the same
+// approval workflow as advances: once approved the principal is disbursed as a
+// `LOAN` cash transaction (feeding the employee balance like an ADVANCE) and
+// `balanceMinor` tracks what is still owed — reduced by payroll auto-deduction
+// (PayrollLoanAllocation) or a manual `LOAN_REPAYMENT` cash transaction.
+// `monthlyInstallmentMinor` / `dueDate` are an optional repayment schedule;
+// `autoDeduct` (default on) lets payroll propose the deduction each period.
+model Loan {
+  id                    String   @id @default(cuid())
+  employeeId            String
+  employee              Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  principalMinor        Int
+  balanceMinor          Int
+  currency              String   @default("AFN")
+  issueDate             DateTime
+  dueDate               DateTime?
+  monthlyInstallmentMinor Int?
+  autoDeduct            Boolean  @default(true)
+  // PENDING | ACTIVE | PAID | CANCELLED
+  status                String   @default("PENDING")
+  note                  String?
+  createdById           String?
+  createdBy             User?    @relation("LoanCreator", fields: [createdById], references: [id])
+  approvalStatus        String   @default("PENDING")
+  approvedById          String?
+  approvedAt            DateTime?
+  approvalNote          String?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  allocations           PayrollLoanAllocation[]
+  repayments            CashTransaction[] @relation("LoanRepayment")
+
+  @@index([employeeId])
+  @@index([status])
+  @@index([approvalStatus])
 }
 
 // Every payroll change records who changed it and when (Plan-payroll.pdf
@@ -1063,8 +1129,12 @@ model CashTransaction {
     approvalNote    String?
     payrollId       String?
     walletId        String?
+    // Set on manual LOAN_REPAYMENT rows so the loan balance can be reduced
+    // when the transaction is approved.
+    loanId          String?
     approver        User?              @relation("CashTransactionApprover", fields: [approvedById], references: [id], onDelete: SetNull)
     wallet          Wallet?            @relation(fields: [walletId], references: [id])
+    loan            Loan?              @relation("LoanRepayment", fields: [loanId], references: [id])
     payrollAllocations PayrollAdvanceAllocation[]
     accountingEntries  AccountingEntry[]
     reimbursements     Expense[]

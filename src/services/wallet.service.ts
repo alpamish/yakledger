@@ -44,6 +44,19 @@ async function recalculateBalance(employeeId: string, client: Prisma.Transaction
     where: { employeeId, type: "RETURN", approvalStatus: APPROVED },
   });
 
+  // Loans behave like advances on the cash balance: the disbursed principal
+  // increases what the employee owes, manual repayments decrease it. Payroll
+  // deductions never post a repayment row — the reduced salary payment already
+  // carries the effect.
+  const loansAgg = await client.cashTransaction.aggregate({
+    _sum: { amount: true },
+    where: { employeeId, type: "LOAN", approvalStatus: APPROVED },
+  });
+  const loanRepaymentsAgg = await client.cashTransaction.aggregate({
+    _sum: { amount: true },
+    where: { employeeId, type: "LOAN_REPAYMENT", approvalStatus: APPROVED },
+  });
+
   const salaryPaymentsAgg = await client.cashTransaction.aggregate({
     _sum: { amount: true },
     where: { employeeId, type: "SALARY_PAYMENT", approvalStatus: APPROVED },
@@ -99,6 +112,8 @@ async function recalculateBalance(employeeId: string, client: Prisma.Transaction
 
   const totalAdvances = advancesAgg._sum.amount ?? 0;
   const totalReturns = returnsAgg._sum.amount ?? 0;
+  const totalLoans = loansAgg._sum.amount ?? 0;
+  const totalLoanRepayments = loanRepaymentsAgg._sum.amount ?? 0;
   const totalSalaryPayments = salaryPaymentsAgg._sum.amount ?? 0;
   const totalAdjustments = adjustmentsAgg._sum.amount ?? 0;
   const totalDeductions = deductionsAgg._sum.amount ?? 0;
@@ -114,9 +129,11 @@ async function recalculateBalance(employeeId: string, client: Prisma.Transaction
   // Positive => employee owes the company.
   const balance =
     totalAdvances +
+    totalLoans +
     totalSalaryPayments +
     totalAdjustments -
     totalReturns -
+    totalLoanRepayments -
     totalDeductions -
     totalEarned +
     totalTransfersIn -
@@ -560,12 +577,14 @@ export const walletService = {
 
     for (const txn of transactions) {
       // Sign convention must match `recalculateBalance`: amounts that increase
-      // what the employee owes (ADVANCE, SALARY_PAYMENT, ADJUSTMENT) are shown
-      // positive; amounts that reduce it (RETURN, DEBIT) are shown negative.
-      // A reimbursement is cash paid back to the employee, so like a payment
-      // it increases their balance and cancels out the EXPENSE entry.
+      // what the employee owes (ADVANCE, LOAN, SALARY_PAYMENT, ADJUSTMENT) are
+      // shown positive; amounts that reduce it (RETURN, LOAN_REPAYMENT, DEBIT)
+      // are shown negative. A reimbursement is cash paid back to the employee,
+      // so like a payment it increases their balance and cancels out the
+      // EXPENSE entry.
       const increasesDebt =
         txn.type === "ADVANCE" ||
+        txn.type === "LOAN" ||
         txn.type === "SALARY_PAYMENT" ||
         txn.type === "ADJUSTMENT" ||
         txn.type === "REIMBURSEMENT";
@@ -582,7 +601,11 @@ export const walletService = {
                 ? "Salary Payment"
                 : txn.type === "REIMBURSEMENT"
                   ? "Expense Reimbursement"
-                  : "Adjustment"),
+                  : txn.type === "LOAN"
+                    ? "Loan"
+                    : txn.type === "LOAN_REPAYMENT"
+                      ? "Loan Repayment"
+                      : "Adjustment"),
         amount: increasesDebt ? txn.amount : -txn.amount,
       });
     }
