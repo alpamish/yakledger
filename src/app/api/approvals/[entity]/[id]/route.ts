@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/permissions";
 import { APPROVED, REJECTED, APPROVAL_ENTITIES } from "@/lib/access-control";
 import { ENTITY_CONFIG, applyWalletEffect } from "@/lib/approvals";
+import { recalculatePayrollsForAttendance } from "@/services/hr.service";
 
 const actionSchema = z.object({
   action: z.enum(["approve", "reject"]),
@@ -85,6 +86,28 @@ export async function POST(
 
       return result;
     });
+
+    // Approving attendance through the queue has the same effect as editing
+    // an approved record: the affected payrolls are brought up to date
+    // (Plan-payroll.pdf §1 "Attendance & Hiring/Termination"). A failure here
+    // must never fail the approval itself.
+    if (entity === "attendance" && action === "approve") {
+      const attendance = record as unknown as {
+        employeeId?: string;
+        date?: Date | string | null;
+      };
+      if (attendance.employeeId && attendance.date) {
+        try {
+          await recalculatePayrollsForAttendance({
+            employeeId: attendance.employeeId,
+            dates: [attendance.date],
+            userId: user.id,
+          });
+        } catch (error) {
+          console.error("Attendance payroll recalculation error:", error);
+        }
+      }
+    }
 
     return NextResponse.json({
       success: true,

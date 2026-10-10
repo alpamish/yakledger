@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/permissions";
 import { buildAccessScope, withScope, resolveApprovalStatusOnCreate, resolveApprovalStatusOnEdit, APPROVED } from "@/lib/access-control";
+import { recalculatePayrollsForAttendance } from "@/services/hr.service";
 import { format } from "date-fns";
 
 const ATTENDANCE_STATUSES = ["PRESENT", "ABSENT", "HALF_DAY", "LEAVE", "HOLIDAY"] as const;
@@ -36,6 +37,15 @@ export async function POST(request: NextRequest) {
 
     let created = 0;
     let updated = 0;
+    // Dates whose approval state is (or was) APPROVED, per employee — these
+    // are the ones that can change a payroll's attendance figures.
+    const affected = new Map<string, string[]>();
+    const noteAffected = (employeeId: string, date: string, involved: boolean) => {
+      if (!involved) return;
+      const dates = affected.get(employeeId) ?? [];
+      dates.push(date);
+      affected.set(employeeId, dates);
+    };
 
     for (const record of records) {
       const { employeeId, date, status, notes } = record;
@@ -65,6 +75,7 @@ export async function POST(request: NextRequest) {
             approvedAt: approvalStatus === APPROVED ? new Date() : null,
           },
         });
+        noteAffected(employeeId, date, approvalStatus === APPROVED || existing.approvalStatus === APPROVED);
         updated++;
       } else {
         const approvalStatus = resolveApprovalStatusOnCreate(user);
@@ -80,7 +91,18 @@ export async function POST(request: NextRequest) {
             approvedAt: approvalStatus === APPROVED ? new Date() : null,
           },
         });
+        noteAffected(employeeId, date, approvalStatus === APPROVED);
         created++;
+      }
+    }
+
+    // Approved attendance automatically recalculates the affected payrolls;
+    // a recalculation failure must never fail the bulk write itself.
+    for (const [employeeId, dates] of affected) {
+      try {
+        await recalculatePayrollsForAttendance({ employeeId, dates, userId: user.id });
+      } catch (error) {
+        console.error("Attendance payroll recalculation error:", error);
       }
     }
 

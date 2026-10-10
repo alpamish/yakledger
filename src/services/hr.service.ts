@@ -758,12 +758,22 @@ export async function approvePayroll(payrollId: string, approvedById: string) {
   const line = payroll.lines[0];
   if (!line) throw new Error("Payroll has no line items");
 
+  // Attendance may have been approved after this draft was generated: refresh
+  // the attendance figures first so approval freezes the current truth
+  // (Plan-payroll.pdf §1 "Attendance & Hiring/Termination").
+  const att = await computeAttendanceFigures(
+    payroll.employeeId,
+    payroll.periodStart,
+    payroll.periodEnd,
+    line
+  );
+
   // Recompute final figures at approval time (ledger may have changed).
   const fig = await computePayrollFigures(
     payroll.employeeId,
     payroll.periodStart,
     payroll.periodEnd,
-    line.grossPayMinor
+    att.grossPayMinor
   );
 
   const employeeId = payroll.employeeId;
@@ -831,7 +841,7 @@ export async function approvePayroll(payrollId: string, approvedById: string) {
     await tx.accountingEntry.create({
       data: {
         type: "PAYROLL_APPROVAL",
-        amountMinor: -line.grossPayMinor,
+        amountMinor: -att.grossPayMinor,
         description: `Payroll approved for ${employeeName} (${periodLabel})`,
         payrollId,
         postedById: approvedById,
@@ -851,6 +861,10 @@ export async function approvePayroll(payrollId: string, approvedById: string) {
           update: {
             where: { id: line.id },
             data: {
+              attendanceDays: att.attendanceDays,
+              overtimeHours: att.overtimeHours,
+              overtimePayMinor: att.overtimePayMinor,
+              grossPayMinor: att.grossPayMinor,
               amountAlreadyReceivedMinor: fig.amountAlreadyReceivedMinor,
               previousDebtMinor: fig.previousDebtMinor,
               advancesDeductedMinor: allocatedMinor,
@@ -883,8 +897,14 @@ export async function approvePayroll(payrollId: string, approvedById: string) {
       employeeId,
       action: "APPROVED",
       summary: `${periodLabel} → ${status}`,
-      oldValues: { status: payroll.status },
-      newValues: { status, netPayMinor, loanDeductionMinor, totalPaidMinor: paidMinor },
+      oldValues: { status: payroll.status, grossPayMinor: line.grossPayMinor },
+      newValues: {
+        status,
+        grossPayMinor: att.grossPayMinor,
+        netPayMinor,
+        loanDeductionMinor,
+        totalPaidMinor: paidMinor,
+      },
       userId: approvedById,
     });
   });
@@ -1501,6 +1521,200 @@ export async function revertPayroll(
 }
 
 /**
+ * Recompute the attendance-derived figures (attendance days, overtime hours
+ * and overtime pay) for a payroll period from approved attendance records,
+ * and the gross that follows from them. Only attendance moves: the base
+ * salary and HR-entered allowances/bonuses/deductions stay as stored on the
+ * line (Plan-payroll.pdf §1 "Attendance & Hiring/Termination" — approved
+ * attendance changes automatically recalculate payroll).
+ */
+async function computeAttendanceFigures(
+  employeeId: string,
+  periodStart: Date,
+  periodEnd: Date,
+  line: {
+    baseSalaryMinor: number;
+    allowancesMinor: number;
+    bonusesMinor: number;
+    deductionsMinor: number;
+    overtimePayMinor: number;
+  }
+): Promise<{
+  attendanceDays: number;
+  overtimeHours: number;
+  overtimePayMinor: number;
+  grossPayMinor: number;
+}> {
+  const [attendance, halfDays, overtime] = await Promise.all([
+    db.attendance.aggregate({
+      where: {
+        employeeId,
+        date: { gte: periodStart, lte: periodEnd },
+        status: "PRESENT",
+        approvalStatus: "APPROVED",
+      },
+      _count: { _all: true },
+    }),
+    db.attendance.count({
+      where: {
+        employeeId,
+        date: { gte: periodStart, lte: periodEnd },
+        status: "HALF_DAY",
+        approvalStatus: "APPROVED",
+      },
+    }),
+    db.attendance.aggregate({
+      where: {
+        employeeId,
+        date: { gte: periodStart, lte: periodEnd },
+        approvalStatus: "APPROVED",
+      },
+      _sum: { overtimeHours: true },
+    }),
+  ]);
+
+  const attendanceDays = attendance._count._all + halfDays * 0.5;
+  const overtimeHours = overtime._sum.overtimeHours ?? 0;
+
+  // Overtime pay uses the salary applicable at the period end — the same
+  // inputs generatePayroll uses. Without a salary record the stored overtime
+  // pay is kept as-is rather than zeroed.
+  const salary = await getEmployeeSalaryAtDate(employeeId, periodEnd);
+  let overtimePayMinor = line.overtimePayMinor;
+  if (salary) {
+    const { rate, paidDailyHours } = await employeePayrollParams(employeeId);
+    const hourlyMinor = Math.round(salary.amountMinor / 30 / paidDailyHours);
+    overtimePayMinor = Math.round(hourlyMinor * rate * overtimeHours);
+  }
+
+  const grossPayMinor =
+    line.baseSalaryMinor +
+    overtimePayMinor +
+    line.allowancesMinor +
+    line.bonusesMinor -
+    line.deductionsMinor;
+
+  return { attendanceDays, overtimeHours, overtimePayMinor, grossPayMinor };
+}
+
+/**
+ * Refresh the attendance-derived figures of one payroll in place. Used for
+ * drafts, which stay DRAFT (their debt figures are recomputed at approval,
+ * but the attendance lines HR reviews must reflect the newly approved
+ * attendance right away). Payment-begun and terminal payrolls are never
+ * touched — attendance changes after payment are ignored for that historical
+ * payroll (Plan-payroll.pdf §1).
+ */
+export async function refreshPayrollAttendance(
+  payrollId: string,
+  userId?: string
+): Promise<{ changed: boolean }> {
+  const payroll = await db.payroll.findUnique({
+    where: { id: payrollId },
+    include: { lines: true },
+  });
+  if (!payroll) throw new Error("Payroll not found");
+  const line = payroll.lines[0];
+  if (!line) throw new Error("Payroll has no line items");
+
+  if (
+    payroll.status === "PAID" ||
+    payroll.status === "CANCELLED" ||
+    payroll.status === "PARTIALLY_PAID" ||
+    payroll.totalPaidMinor > 0 ||
+    line.paymentStatus !== "UNPAID"
+  ) {
+    return { changed: false };
+  }
+
+  const att = await computeAttendanceFigures(
+    payroll.employeeId,
+    payroll.periodStart,
+    payroll.periodEnd,
+    line
+  );
+  const changed =
+    att.attendanceDays !== line.attendanceDays ||
+    att.overtimeHours !== line.overtimeHours ||
+    att.overtimePayMinor !== line.overtimePayMinor ||
+    att.grossPayMinor !== line.grossPayMinor;
+  if (!changed) return { changed: false };
+
+  await db.payrollLine.update({ where: { id: line.id }, data: att });
+  await logPayrollChange(db, {
+    payrollId,
+    employeeId: payroll.employeeId,
+    action: "ATTENDANCE_RECALCULATED",
+    summary: `Attendance figures refreshed (attendance ${line.attendanceDays} → ${att.attendanceDays} days, overtime ${line.overtimeHours} → ${att.overtimeHours}h)`,
+    oldValues: {
+      attendanceDays: line.attendanceDays,
+      overtimeHours: line.overtimeHours,
+      overtimePayMinor: line.overtimePayMinor,
+      grossPayMinor: line.grossPayMinor,
+    },
+    newValues: att,
+    userId: userId ?? null,
+  });
+  return { changed: true };
+}
+
+/**
+ * React to attendance that was approved, edited or revoked
+ * (Plan-payroll.pdf §1 "Attendance & Hiring/Termination"): every payroll of
+ * that employee whose period overlaps the affected dates is brought up to
+ * date — drafts are refreshed in place, approved-but-unpaid payrolls go
+ * through recalculatePayroll (→ NEEDS_RECALCULATION for HR review), and
+ * payment-begun or terminal payrolls are left alone.
+ *
+ * Never throws: attendance writes must not fail because a payroll
+ * recalculation hit an unexpected state.
+ */
+export async function recalculatePayrollsForAttendance(opts: {
+  employeeId: string;
+  dates: (Date | string)[];
+  userId?: string;
+}): Promise<{ recalculated: string[]; refreshed: string[] }> {
+  const result = { recalculated: [] as string[], refreshed: [] as string[] };
+  const times = opts.dates
+    .map((d) => new Date(d).getTime())
+    .filter((t) => !Number.isNaN(t));
+  if (times.length === 0) return result;
+
+  // Compare on day granularity: attendance dates are day-only values while
+  // payroll periods may be stored at either end of the day.
+  const start = new Date(Math.min(...times));
+  start.setUTCHours(0, 0, 0, 0);
+  const end = new Date(Math.max(...times));
+  end.setUTCHours(23, 59, 59, 999);
+
+  const payrolls = await db.payroll.findMany({
+    where: {
+      employeeId: opts.employeeId,
+      status: { in: ["DRAFT", "APPROVED", "NEEDS_RECALCULATION"] },
+      periodStart: { lte: end },
+      periodEnd: { gte: start },
+    },
+    select: { id: true, status: true },
+    orderBy: { periodStart: "asc" },
+  });
+
+  for (const payroll of payrolls) {
+    try {
+      if (payroll.status === "DRAFT") {
+        const { changed } = await refreshPayrollAttendance(payroll.id, opts.userId);
+        if (changed) result.refreshed.push(payroll.id);
+      } else {
+        await recalculatePayroll(payroll.id, opts.userId);
+        result.recalculated.push(payroll.id);
+      }
+    } catch (error) {
+      console.error(`Attendance payroll recalculation failed for ${payroll.id}:`, error);
+    }
+  }
+  return result;
+}
+
+/**
  * Recalculate an approved-but-unpaid payroll after the ledger changed
  * (advance edited, attendance approved, ...): refresh the debt figures, rebuild
  * the advance allocations and flag the payroll NEEDS_RECALCULATION so HR
@@ -1530,11 +1744,20 @@ export async function recalculatePayroll(payrollId: string, userId?: string) {
     throw new Error("A paid payroll cannot be recalculated; use an adjustment");
   }
 
+  // Attendance first: newly approved attendance may change overtime pay and
+  // gross, and the debt figures are computed against the refreshed gross.
+  const att = await computeAttendanceFigures(
+    payroll.employeeId,
+    payroll.periodStart,
+    payroll.periodEnd,
+    line
+  );
+
   const fig = await computePayrollFigures(
     payroll.employeeId,
     payroll.periodStart,
     payroll.periodEnd,
-    line.grossPayMinor
+    att.grossPayMinor
   );
 
   // Loan repayment: HR's override stands, otherwise re-propose fresh. The
@@ -1576,6 +1799,10 @@ export async function recalculatePayroll(payrollId: string, userId?: string) {
           update: {
             where: { id: line.id },
             data: {
+              attendanceDays: att.attendanceDays,
+              overtimeHours: att.overtimeHours,
+              overtimePayMinor: att.overtimePayMinor,
+              grossPayMinor: att.grossPayMinor,
               expensesPaidMinor: fig.periodExpensesMinor,
               amountAlreadyReceivedMinor: fig.amountAlreadyReceivedMinor,
               previousDebtMinor: fig.previousDebtMinor,
@@ -1602,13 +1829,15 @@ export async function recalculatePayroll(payrollId: string, userId?: string) {
       payrollId,
       employeeId: payroll.employeeId,
       action: "RECALCULATED",
-      summary: `Debt figures refreshed (${payroll.status} → NEEDS_RECALCULATION)`,
+      summary: `Attendance and debt figures refreshed (${payroll.status} → NEEDS_RECALCULATION)`,
       oldValues: {
         status: payroll.status,
+        grossPayMinor: line.grossPayMinor,
         netPayMinor: line.netPayMinor,
       },
       newValues: {
         status: "NEEDS_RECALCULATION",
+        grossPayMinor: att.grossPayMinor,
         netPayMinor: Math.max(netPayableMinor, 0),
         loanDeductionMinor,
       },

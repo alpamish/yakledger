@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/permissions";
 import { buildListScope, buildAccessScope, withScope, resolveApprovalStatusOnCreate, resolveApprovalStatusOnEdit, APPROVED } from "@/lib/access-control";
-import { computeAttendanceHours } from "@/services/hr.service";
+import { computeAttendanceHours, recalculatePayrollsForAttendance } from "@/services/hr.service";
 
 const ATTENDANCE_STATUSES = ["PRESENT", "ABSENT", "HALF_DAY", "LEAVE", "HOLIDAY"] as const;
 
@@ -161,6 +161,20 @@ export async function POST(request: NextRequest) {
           approvedAt: approvalStatus === APPROVED ? new Date() : null,
         },
       });
+    }
+
+    // Approved attendance automatically recalculates the affected payrolls;
+    // a recalculation failure must never fail the attendance write itself.
+    if (record.approvalStatus === APPROVED || existing?.approvalStatus === APPROVED) {
+      try {
+        await recalculatePayrollsForAttendance({
+          employeeId: record.employeeId,
+          dates: [record.date],
+          userId: user.id,
+        });
+      } catch (error) {
+        console.error("Attendance payroll recalculation error:", error);
+      }
     }
 
     return NextResponse.json({ success: true, data: record });

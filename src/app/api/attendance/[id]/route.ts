@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/permissions";
 import { buildAccessScope, withScope, resolveApprovalStatusOnEdit, APPROVED } from "@/lib/access-control";
-import { computeAttendanceHours } from "@/services/hr.service";
+import { computeAttendanceHours, recalculatePayrollsForAttendance } from "@/services/hr.service";
 
 const ATTENDANCE_STATUSES = ["PRESENT", "ABSENT", "HALF_DAY", "LEAVE", "HOLIDAY"] as const;
 const VALID_STATUSES = new Set(ATTENDANCE_STATUSES);
@@ -76,6 +76,20 @@ export async function PUT(
       data: updateData,
     });
 
+    // Approved attendance automatically recalculates the affected payrolls —
+    // including when an approved record is edited or its approval revoked.
+    if (existing.approvalStatus === APPROVED || record.approvalStatus === APPROVED) {
+      try {
+        await recalculatePayrollsForAttendance({
+          employeeId: record.employeeId,
+          dates: [record.date],
+          userId: user.id,
+        });
+      } catch (error) {
+        console.error("Attendance payroll recalculation error:", error);
+      }
+    }
+
     return NextResponse.json({ success: true, data: record });
   } catch (error) {
     console.error("Attendance update error:", error);
@@ -100,7 +114,7 @@ export async function DELETE(
 
     const existing = await db.attendance.findFirst({
       where: withScope({ id }, await buildAccessScope(user, "attendance")),
-      select: { id: true },
+      select: { id: true, approvalStatus: true, employeeId: true, date: true },
     });
     if (!existing) {
       return NextResponse.json(
@@ -110,6 +124,20 @@ export async function DELETE(
     }
 
     await db.attendance.delete({ where: { id } });
+
+    // Removing approved attendance changes the payroll's attendance figures
+    // too, so the affected payrolls are brought up to date.
+    if (existing.approvalStatus === APPROVED) {
+      try {
+        await recalculatePayrollsForAttendance({
+          employeeId: existing.employeeId,
+          dates: [existing.date],
+          userId: user.id,
+        });
+      } catch (error) {
+        console.error("Attendance payroll recalculation error:", error);
+      }
+    }
 
     return NextResponse.json({ success: true, message: "Attendance record deleted" });
   } catch (error) {
