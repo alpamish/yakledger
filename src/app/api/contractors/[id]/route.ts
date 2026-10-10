@@ -96,7 +96,10 @@ export async function GET(
         },
         _count: {
           select: {
-            expensesPaidTo: { where: expenseListScope },
+            // Counts are financial figures: approved records only (aggregate
+            // scope), matching timesheets/fuelUsages and totalExpensesPaid.
+            // The expensesPaidTo list above keeps the wider list scope.
+            expensesPaidTo: { where: expenseScope },
             timesheets: { where: timesheetScope },
             fuelUsages: { where: fuelUsageScope },
             machinery: { where: machineryScope },

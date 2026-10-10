@@ -5,6 +5,8 @@ import sharp from "sharp";
 import { rm } from "fs/promises";
 import path from "path";
 
+import type { NextRequest } from "next/server";
+
 import * as DocumentUploadRoute from "@/app/api/employees/[id]/documents/upload/route";
 import * as ContractUploadRoute from "@/app/api/employees/[id]/contracts/upload/route";
 
@@ -40,14 +42,14 @@ function uploadRequest(
   route: string,
   file: File,
   token: string
-): Request {
+): NextRequest {
   const form = new FormData();
   form.append("file", file);
   return new Request(`http://localhost:3000${route}`, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}` },
     body: form,
-  }) as unknown as Request;
+  }) as unknown as NextRequest;
 }
 
 describe("Document upload", () => {
@@ -57,7 +59,7 @@ describe("Document upload", () => {
     })
       .png()
       .toBuffer();
-    const file = new File([buffer], "id.png", { type: "image/png" });
+    const file = new File([new Uint8Array(buffer)], "id.png", { type: "image/png" });
 
     const res = await DocumentUploadRoute.POST(
       uploadRequest(`/api/employees/${employeeId}/documents/upload`, file, tokens.adminToken),
@@ -75,7 +77,7 @@ describe("Document upload", () => {
     })
       .png()
       .toBuffer();
-    const file = new File([buffer], "big.png", { type: "image/png" });
+    const file = new File([new Uint8Array(buffer)], "big.png", { type: "image/png" });
 
     const res = await DocumentUploadRoute.POST(
       uploadRequest(`/api/employees/${employeeId}/documents/upload`, file, tokens.adminToken),
@@ -113,7 +115,7 @@ describe("Document upload", () => {
     })
       .png()
       .toBuffer();
-    const file = new File([buffer], "x.png", { type: "image/png" });
+    const file = new File([new Uint8Array(buffer)], "x.png", { type: "image/png" });
     const res = await DocumentUploadRoute.POST(
       uploadRequest(`/api/employees/${employeeId}/documents/upload`, file, tokens.userToken),
       { params: Promise.resolve({ id: employeeId }) }

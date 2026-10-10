@@ -38,6 +38,9 @@
   ],
   "exclude": [
     "node_modules",
-    "tests"
+    "tests",
+    // One-off bun-only migration script (bun:sqlite); can't be typechecked
+    // without @types/bun, which is intentionally not added as a dependency.
+    "scripts/translate-job-titles.ts"
   ]
 }

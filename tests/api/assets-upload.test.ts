@@ -4,6 +4,8 @@ import sharp from "sharp";
 import { rm } from "fs/promises";
 import path from "path";
 
+import type { NextRequest } from "next/server";
+
 import * as AssetUploadRoute from "@/app/api/assets/upload/route";
 
 let tokens: Awaited<ReturnType<typeof seedUsers>>;
@@ -19,14 +21,14 @@ afterAll(async () => {
   }).catch(() => {});
 });
 
-function uploadRequest(file: File, token: string): Request {
+function uploadRequest(file: File, token: string): NextRequest {
   const form = new FormData();
   form.append("file", file);
   return new Request("http://localhost:3000/api/assets/upload", {
     method: "POST",
     headers: { Authorization: `Bearer ${token}` },
     body: form,
-  }) as unknown as Request;
+  }) as unknown as NextRequest;
 }
 
 describe("Asset document upload", () => {
@@ -36,7 +38,7 @@ describe("Asset document upload", () => {
     })
       .png()
       .toBuffer();
-    const file = new File([buffer], "doc.png", { type: "image/png" });
+    const file = new File([new Uint8Array(buffer)], "doc.png", { type: "image/png" });
 
     const res = await AssetUploadRoute.POST(uploadRequest(file, tokens.adminToken));
     expect(res.status).toBe(200);

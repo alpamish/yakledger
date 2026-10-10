@@ -1,6 +1,7 @@
 import { describe, it, expect, afterAll } from "vitest";
 import { mkdir, writeFile, rm } from "fs/promises";
 import path from "path";
+import type { NextRequest } from "next/server";
 
 import { GET } from "@/app/uploads/[...path]/route";
 
@@ -10,10 +11,10 @@ afterAll(async () => {
   await rm(uploadsRoot, { recursive: true, force: true }).catch(() => {});
 });
 
-function getRequest(pathname: string): Request {
+function getRequest(pathname: string): NextRequest {
   return new Request(`http://localhost:3000${pathname}`, {
     method: "GET",
-  });
+  }) as unknown as NextRequest;
 }
 
 async function callGet(pathname: string) {

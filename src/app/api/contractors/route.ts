@@ -3,7 +3,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/permissions";
 import { Prisma } from "@prisma/client";
-import { buildAccessScope, withScope } from "@/lib/access-control";
+import { buildAccessScope, buildAggregateScope, withScope } from "@/lib/access-control";
 import { generateContractorNumber } from "@/lib/contractor-number";
 
 const CONTRACTOR_TYPE_VALUES = [
@@ -120,7 +120,20 @@ export async function GET(request: NextRequest) {
     const sortField = validSortFields.includes(sortBy) ? sortBy : "createdAt";
     const order = sortOrder === "asc" ? "asc" : "desc";
 
-    const scopedWhere = withScope(where, await buildAccessScope(user, "contractor"));
+    const [
+      contractorScope,
+      expenseScope,
+      timesheetScope,
+      fuelUsageScope,
+      machineryScope,
+    ] = await Promise.all([
+      buildAccessScope(user, "contractor"),
+      buildAggregateScope(user, "expense"),
+      buildAggregateScope(user, "timesheet"),
+      buildAggregateScope(user, "fuelUsage"),
+      buildAggregateScope(user, "machinery"),
+    ]);
+    const scopedWhere = withScope(where, contractorScope);
 
     const [contractors, total] = await Promise.all([
       db.contractor.findMany({
@@ -129,12 +142,14 @@ export async function GET(request: NextRequest) {
           creator: {
             select: { id: true, email: true, name: true, role: true, avatar: true },
           },
+          // Counts respect visibility: only records this user may see as
+          // settled (approved) are tallied, same as the profile endpoint.
           _count: {
             select: {
-              expensesPaidTo: true,
-              timesheets: true,
-              fuelUsages: true,
-              machinery: true,
+              expensesPaidTo: { where: expenseScope },
+              timesheets: { where: timesheetScope },
+              fuelUsages: { where: fuelUsageScope },
+              machinery: { where: machineryScope },
             },
           },
         },

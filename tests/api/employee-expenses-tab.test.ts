@@ -50,6 +50,8 @@ describe("/api/expenses — paidToId filtering (employee Expenses tab)", () => {
         paidBy: "Company",
         expenseDate: new Date(2026, 0, i).toISOString(),
         paidToId: employeeId,
+        // The schema requires a wallet or a paying employee for traceability.
+        paidById: employeeId,
       });
       expect(res.status).toBe(201);
     }
@@ -64,6 +66,7 @@ describe("/api/expenses — paidToId filtering (employee Expenses tab)", () => {
       paidBy: "Company",
       expenseDate: new Date(2026, 0, 5).toISOString(),
       paidToContractorId: contractorId,
+      paidById: employeeId,
     });
     expect(contractorRes.status).toBe(201);
 
@@ -75,6 +78,7 @@ describe("/api/expenses — paidToId filtering (employee Expenses tab)", () => {
       paidTo: "External vendor",
       paidBy: "Company",
       expenseDate: new Date(2026, 0, 6).toISOString(),
+      paidById: employeeId,
     });
     expect(otherRes.status).toBe(201);
 
@@ -109,6 +113,7 @@ describe("/api/expenses — paidToId filtering (employee Expenses tab)", () => {
         paidBy: "Company",
         expenseDate: new Date(2026, 1, i).toISOString(),
         paidToId: employeeId,
+        paidById: employeeId,
       });
     }
 
