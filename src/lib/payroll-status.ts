@@ -134,6 +134,60 @@ export function isPayrollAdjustmentKind(
   );
 }
 
+// PayrollAdjustment.direction — the sign of the adjustment. Implied by kind
+// for the automatic PREVIOUS_* kinds (overpayment deducts, underpayment
+// earns); HR chooses it for OTHER.
+export const PAYROLL_ADJUSTMENT_DIRECTIONS = ["DEDUCTION", "EARNING"] as const;
+export type PayrollAdjustmentDirection =
+  (typeof PAYROLL_ADJUSTMENT_DIRECTIONS)[number];
+
+export const PAYROLL_ADJUSTMENT_DIRECTION_LABELS: Record<
+  PayrollAdjustmentDirection,
+  string
+> = {
+  DEDUCTION: "Deduction",
+  EARNING: "Earning",
+};
+
+export function isPayrollAdjustmentDirection(
+  value: unknown
+): value is PayrollAdjustmentDirection {
+  return (
+    typeof value === "string" &&
+    (PAYROLL_ADJUSTMENT_DIRECTIONS as readonly string[]).includes(value)
+  );
+}
+
+export function adjustmentDirectionForKind(
+  kind: PayrollAdjustmentKind
+): PayrollAdjustmentDirection {
+  return kind === "PREVIOUS_UNDERPAYMENT_EARNING" ? "EARNING" : "DEDUCTION";
+}
+
+// PayrollAdjustment.source — MANUAL rows HR created are applied additively
+// to gross; ADVANCE_EDIT rows are memo-only, itemising a previousDebt delta
+// the edited advance already embedded (PDF §1 "Payroll Adjustments").
+export const PAYROLL_ADJUSTMENT_SOURCES = ["MANUAL", "ADVANCE_EDIT"] as const;
+export type PayrollAdjustmentSource =
+  (typeof PAYROLL_ADJUSTMENT_SOURCES)[number];
+
+export const PAYROLL_ADJUSTMENT_SOURCE_LABELS: Record<
+  PayrollAdjustmentSource,
+  string
+> = {
+  MANUAL: "Manual",
+  ADVANCE_EDIT: "Advance Edit",
+};
+
+export function isPayrollAdjustmentSource(
+  value: unknown
+): value is PayrollAdjustmentSource {
+  return (
+    typeof value === "string" &&
+    (PAYROLL_ADJUSTMENT_SOURCES as readonly string[]).includes(value)
+  );
+}
+
 // Payment methods available for salary payments and paid advances
 // (PDF §2 actions 5 and 6). A superset of these exists for expenses in
 // src/types/expense.ts (PAYMENT_METHODS).

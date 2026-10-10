@@ -30,8 +30,13 @@ import { db } from "../lib/db";
 import { toMinor, fromMinor } from "../lib/money";
 import {
   ALLOCATING_PAYROLL_STATUSES,
+  adjustmentDirectionForKind,
   isPayrollEditable,
   isPayrollPaymentMethod,
+} from "../lib/payroll-status";
+import type {
+  PayrollAdjustmentDirection,
+  PayrollAdjustmentKind,
 } from "../lib/payroll-status";
 import { Prisma } from "@prisma/client";
 import { walletService } from "./wallet.service";
@@ -393,8 +398,19 @@ export async function generatePayroll(params: {
   const allowancesMinor = params.allowancesMinor ?? 0;
   const bonusesMinor = params.bonusesMinor ?? 0;
   const deductionsMinor = params.deductionsMinor ?? 0;
+  // Manual payroll adjustments apply additively to this draft's gross — a
+  // deduction lowers what the employee is paid, an earning raises it
+  // (Plan-payroll.pdf §1 "Payroll Adjustments"). Advance-edit rows only
+  // itemise previousDebt and never add to gross.
+  const adj = await computeAdjustmentFigures(params.employeeId, null);
   const grossPayMinor =
-    baseSalaryMinor + overtimePayMinor + allowancesMinor + bonusesMinor - deductionsMinor;
+    baseSalaryMinor +
+    overtimePayMinor +
+    allowancesMinor +
+    bonusesMinor -
+    deductionsMinor +
+    adj.adjustmentsEarnedMinor -
+    adj.adjustmentsDeductedMinor;
 
   // Apply the employee's outstanding advance/debt balance.
   const deductExpenses = params.deductExpenses !== false;
@@ -443,6 +459,10 @@ export async function generatePayroll(params: {
           amountAlreadyReceivedMinor: fig.amountAlreadyReceivedMinor,
           previousDebtMinor: fig.previousDebtMinor,
           advancesDeductedMinor: fig.amountAlreadyReceivedMinor,
+          adjustmentsDeductedMinor: adj.adjustmentsDeductedMinor,
+          adjustmentsEarnedMinor: adj.adjustmentsEarnedMinor,
+          previousAdjustmentsDeductedMinor: adj.previousAdjustmentsDeductedMinor,
+          previousAdjustmentsEarnedMinor: adj.previousAdjustmentsEarnedMinor,
           loanDeductionMinor,
           netPayableMinor,
           remainingEmployeeDebtMinor: fig.remainingEmployeeDebtMinor,
@@ -758,14 +778,15 @@ export async function approvePayroll(payrollId: string, approvedById: string) {
   const line = payroll.lines[0];
   if (!line) throw new Error("Payroll has no line items");
 
-  // Attendance may have been approved after this draft was generated: refresh
-  // the attendance figures first so approval freezes the current truth
-  // (Plan-payroll.pdf §1 "Attendance & Hiring/Termination").
+  // Attendance may have been approved after this draft was generated, and
+  // manual adjustments may have been created: refresh both first so
+  // approval freezes the current truth (Plan-payroll.pdf §1).
+  const adj = await computeAdjustmentFigures(payroll.employeeId, payrollId);
   const att = await computeAttendanceFigures(
     payroll.employeeId,
     payroll.periodStart,
     payroll.periodEnd,
-    line
+    { ...line, ...adj }
   );
 
   // Recompute final figures at approval time (ledger may have changed).
@@ -834,6 +855,13 @@ export async function approvePayroll(payrollId: string, approvedById: string) {
     // rolls the approval back) if HR's override exceeds them.
     await loanService.allocate(tx, employeeId, payrollId, loanDeductionMinor);
 
+    // Post the adjustments that were included in this approval's figures, so
+    // they never apply to a later payroll as well (Plan-payroll.pdf §1).
+    await tx.payrollAdjustment.updateMany({
+      where: { employeeId, payrollId: null },
+      data: { payrollId },
+    });
+
     // Salary accounting on approval (§2 action 9): the accrued gross is
     // recognised as a company expense; every actual payment posts its own
     // PAYROLL_PAYMENT entry, and corrections reverse this entry instead of
@@ -868,6 +896,10 @@ export async function approvePayroll(payrollId: string, approvedById: string) {
               amountAlreadyReceivedMinor: fig.amountAlreadyReceivedMinor,
               previousDebtMinor: fig.previousDebtMinor,
               advancesDeductedMinor: allocatedMinor,
+              adjustmentsDeductedMinor: adj.adjustmentsDeductedMinor,
+              adjustmentsEarnedMinor: adj.adjustmentsEarnedMinor,
+              previousAdjustmentsDeductedMinor: adj.previousAdjustmentsDeductedMinor,
+              previousAdjustmentsEarnedMinor: adj.previousAdjustmentsEarnedMinor,
               loanDeductionMinor,
               netPayableMinor,
               remainingEmployeeDebtMinor: fig.remainingEmployeeDebtMinor,
@@ -1210,9 +1242,16 @@ export async function updatePayrollLine(
   const hourlyMinor = Math.round(line.baseSalaryMinor / 30 / paidDailyHours);
   const overtimePayMinor = Math.round(hourlyMinor * rate * overtimeHours);
 
-  // Recompute gross
+  // Recompute gross — stored manual adjustments stay inside it until the
+  // next full recomputation refreshes them.
   const grossPayMinor =
-    line.baseSalaryMinor + overtimePayMinor + allowancesMinor + bonusesMinor - deductionsMinor;
+    line.baseSalaryMinor +
+    overtimePayMinor +
+    allowancesMinor +
+    bonusesMinor -
+    deductionsMinor +
+    line.adjustmentsEarnedMinor -
+    line.adjustmentsDeductedMinor;
 
   // Recompute debt figures (employee-paid expenses are reimbursed outside
   // payroll, so the legacy deductExpenses toggle no longer affects them)
@@ -1459,6 +1498,12 @@ export async function revertPayroll(
     // balances back to the loans (they are re-proposed on re-approval).
     await tx.payrollAdvanceAllocation.deleteMany({ where: { payrollId: payroll.id } });
     await loanService.restoreAllocations(tx, payroll.id);
+    // Posted adjustments go back to unposted so the next approval re-applies
+    // them (Plan-payroll.pdf §1 "Payroll Adjustments").
+    await tx.payrollAdjustment.updateMany({
+      where: { payrollId: payroll.id },
+      data: { payrollId: null },
+    });
 
     // Reverse the salary accounting posted at approval: corrections replace an
     // entry, they never rewrite it (§2 action 9). Only still-active accruals
@@ -1528,6 +1573,52 @@ export async function revertPayroll(
  * line (Plan-payroll.pdf §1 "Attendance & Hiring/Termination" — approved
  * attendance changes automatically recalculate payroll).
  */
+/**
+ * Sum the payroll adjustments that apply to one payroll
+ * (Plan-payroll.pdf §1 "Payroll Adjustments"): every unposted adjustment of
+ * the employee plus the ones already posted to this payroll, so repeated
+ * recomputations are idempotent and each row lands on exactly one payroll.
+ *
+ * Manual rows (source MANUAL) are additive: they change what is earned this
+ * period. Advance-edit rows (source ADVANCE_EDIT) only itemise the delta the
+ * edited advance already put into previousDebt — applying them again would
+ * double-count.
+ */
+async function computeAdjustmentFigures(
+  employeeId: string,
+  payrollId: string | null
+): Promise<{
+  adjustmentsDeductedMinor: number;
+  adjustmentsEarnedMinor: number;
+  previousAdjustmentsDeductedMinor: number;
+  previousAdjustmentsEarnedMinor: number;
+}> {
+  const rows = await db.payrollAdjustment.findMany({
+    where: {
+      employeeId,
+      OR: [{ payrollId: null }, ...(payrollId ? [{ payrollId }] : [])],
+    },
+    select: { source: true, direction: true, amountMinor: true },
+  });
+  const figures = {
+    adjustmentsDeductedMinor: 0,
+    adjustmentsEarnedMinor: 0,
+    previousAdjustmentsDeductedMinor: 0,
+    previousAdjustmentsEarnedMinor: 0,
+  };
+  for (const row of rows) {
+    const isDeduction = row.direction !== "EARNING";
+    if (row.source === "ADVANCE_EDIT") {
+      if (isDeduction) figures.previousAdjustmentsDeductedMinor += row.amountMinor;
+      else figures.previousAdjustmentsEarnedMinor += row.amountMinor;
+    } else {
+      if (isDeduction) figures.adjustmentsDeductedMinor += row.amountMinor;
+      else figures.adjustmentsEarnedMinor += row.amountMinor;
+    }
+  }
+  return figures;
+}
+
 async function computeAttendanceFigures(
   employeeId: string,
   periodStart: Date,
@@ -1538,6 +1629,8 @@ async function computeAttendanceFigures(
     bonusesMinor: number;
     deductionsMinor: number;
     overtimePayMinor: number;
+    adjustmentsDeductedMinor: number;
+    adjustmentsEarnedMinor: number;
   }
 ): Promise<{
   attendanceDays: number;
@@ -1592,18 +1685,20 @@ async function computeAttendanceFigures(
     overtimePayMinor +
     line.allowancesMinor +
     line.bonusesMinor -
-    line.deductionsMinor;
+    line.deductionsMinor +
+    line.adjustmentsEarnedMinor -
+    line.adjustmentsDeductedMinor;
 
   return { attendanceDays, overtimeHours, overtimePayMinor, grossPayMinor };
 }
 
 /**
- * Refresh the attendance-derived figures of one payroll in place. Used for
- * drafts, which stay DRAFT (their debt figures are recomputed at approval,
- * but the attendance lines HR reviews must reflect the newly approved
- * attendance right away). Payment-begun and terminal payrolls are never
- * touched — attendance changes after payment are ignored for that historical
- * payroll (Plan-payroll.pdf §1).
+ * Refresh the attendance- and adjustment-derived figures of one payroll in
+ * place. Used for drafts, which stay DRAFT (their debt figures are
+ * recomputed at approval, but the figures HR reviews must reflect newly
+ * approved attendance or newly created adjustments right away).
+ * Payment-begun and terminal payrolls are never touched — changes after
+ * payment are ignored for that historical payroll (Plan-payroll.pdf §1).
  */
 export async function refreshPayrollAttendance(
   payrollId: string,
@@ -1627,20 +1722,28 @@ export async function refreshPayrollAttendance(
     return { changed: false };
   }
 
+  // Attendance and manual adjustments both feed gross: recompute the
+  // adjustments fresh (the hook shares this refresh) and let the attendance
+  // figures follow from them.
+  const adj = await computeAdjustmentFigures(payroll.employeeId, payrollId);
   const att = await computeAttendanceFigures(
     payroll.employeeId,
     payroll.periodStart,
     payroll.periodEnd,
-    line
+    { ...line, ...adj }
   );
   const changed =
     att.attendanceDays !== line.attendanceDays ||
     att.overtimeHours !== line.overtimeHours ||
     att.overtimePayMinor !== line.overtimePayMinor ||
-    att.grossPayMinor !== line.grossPayMinor;
+    att.grossPayMinor !== line.grossPayMinor ||
+    adj.adjustmentsDeductedMinor !== line.adjustmentsDeductedMinor ||
+    adj.adjustmentsEarnedMinor !== line.adjustmentsEarnedMinor ||
+    adj.previousAdjustmentsDeductedMinor !== line.previousAdjustmentsDeductedMinor ||
+    adj.previousAdjustmentsEarnedMinor !== line.previousAdjustmentsEarnedMinor;
   if (!changed) return { changed: false };
 
-  await db.payrollLine.update({ where: { id: line.id }, data: att });
+  await db.payrollLine.update({ where: { id: line.id }, data: { ...att, ...adj } });
   await logPayrollChange(db, {
     payrollId,
     employeeId: payroll.employeeId,
@@ -1651,8 +1754,10 @@ export async function refreshPayrollAttendance(
       overtimeHours: line.overtimeHours,
       overtimePayMinor: line.overtimePayMinor,
       grossPayMinor: line.grossPayMinor,
+      adjustmentsDeductedMinor: line.adjustmentsDeductedMinor,
+      adjustmentsEarnedMinor: line.adjustmentsEarnedMinor,
     },
-    newValues: att,
+    newValues: { ...att, ...adj },
     userId: userId ?? null,
   });
   return { changed: true };
@@ -1699,17 +1804,59 @@ export async function recalculatePayrollsForAttendance(opts: {
   });
 
   for (const payroll of payrolls) {
-    try {
-      if (payroll.status === "DRAFT") {
-        const { changed } = await refreshPayrollAttendance(payroll.id, opts.userId);
-        if (changed) result.refreshed.push(payroll.id);
-      } else {
-        await recalculatePayroll(payroll.id, opts.userId);
-        result.recalculated.push(payroll.id);
-      }
-    } catch (error) {
-      console.error(`Attendance payroll recalculation failed for ${payroll.id}:`, error);
+    await runPayrollRefresh(payroll, opts.userId, result);
+  }
+  return result;
+}
+
+/**
+ * Run one entry of a payroll refresh batch: drafts are refreshed in place,
+ * approved-but-unpaid payrolls go through recalculatePayroll (→
+ * NEEDS_RECALCULATION), and unexpected states are logged rather than thrown
+ * so the originating write (attendance, adjustment, ...) always succeeds.
+ */
+async function runPayrollRefresh(
+  payroll: { id: string; status: string },
+  userId: string | undefined,
+  result: { recalculated: string[]; refreshed: string[] }
+): Promise<void> {
+  try {
+    if (payroll.status === "DRAFT") {
+      const { changed } = await refreshPayrollAttendance(payroll.id, userId);
+      if (changed) result.refreshed.push(payroll.id);
+    } else {
+      await recalculatePayroll(payroll.id, userId);
+      result.recalculated.push(payroll.id);
     }
+  } catch (error) {
+    console.error(`Payroll recalculation failed for ${payroll.id}:`, error);
+  }
+}
+
+/**
+ * React to a payroll adjustment that was created or deleted
+ * (Plan-payroll.pdf §1 "Payroll Adjustments"): every open payroll of that
+ * employee is brought up to date — adjustments are not period-scoped, so no
+ * date filter is applied. Drafts recompute their figures in place; approved
+ * payrolls are flagged NEEDS_RECALCULATION for HR review. Never throws:
+ * an adjustment write must not fail because a recalculation hit an
+ * unexpected state.
+ */
+export async function recalculatePayrollsForAdjustments(opts: {
+  employeeId: string;
+  userId?: string;
+}): Promise<{ recalculated: string[]; refreshed: string[] }> {
+  const result = { recalculated: [] as string[], refreshed: [] as string[] };
+  const payrolls = await db.payroll.findMany({
+    where: {
+      employeeId: opts.employeeId,
+      status: { in: ["DRAFT", "APPROVED", "NEEDS_RECALCULATION"] },
+    },
+    select: { id: true, status: true },
+    orderBy: { periodStart: "asc" },
+  });
+  for (const payroll of payrolls) {
+    await runPayrollRefresh(payroll, opts.userId, result);
   }
   return result;
 }
@@ -1744,13 +1891,15 @@ export async function recalculatePayroll(payrollId: string, userId?: string) {
     throw new Error("A paid payroll cannot be recalculated; use an adjustment");
   }
 
-  // Attendance first: newly approved attendance may change overtime pay and
-  // gross, and the debt figures are computed against the refreshed gross.
+  // Attendance and adjustments first: approved attendance or a new manual
+  // adjustment may change gross, and the debt figures are computed against
+  // the refreshed gross.
+  const adj = await computeAdjustmentFigures(payroll.employeeId, payrollId);
   const att = await computeAttendanceFigures(
     payroll.employeeId,
     payroll.periodStart,
     payroll.periodEnd,
-    line
+    { ...line, ...adj }
   );
 
   const fig = await computePayrollFigures(
@@ -1807,6 +1956,10 @@ export async function recalculatePayroll(payrollId: string, userId?: string) {
               amountAlreadyReceivedMinor: fig.amountAlreadyReceivedMinor,
               previousDebtMinor: fig.previousDebtMinor,
               advancesDeductedMinor: allocatedMinor,
+              adjustmentsDeductedMinor: adj.adjustmentsDeductedMinor,
+              adjustmentsEarnedMinor: adj.adjustmentsEarnedMinor,
+              previousAdjustmentsDeductedMinor: adj.previousAdjustmentsDeductedMinor,
+              previousAdjustmentsEarnedMinor: adj.previousAdjustmentsEarnedMinor,
               loanDeductionMinor,
               netPayableMinor,
               remainingEmployeeDebtMinor: fig.remainingEmployeeDebtMinor,
@@ -1897,13 +2050,15 @@ export async function applyAdvanceEditToPayrolls(opts: {
       payroll.lines[0]?.paymentStatus === "PAID";
 
     if (!paid) {
-      if (payroll.status === "CANCELLED" || payroll.status === "DRAFT") continue;
-      await recalculatePayroll(payroll.id, opts.userId);
-      result.recalculated.push(payroll.id);
+      // Open payrolls are refreshed by the shared hook below (drafts stay
+      // DRAFT, approved ones are flagged NEEDS_RECALCULATION).
       continue;
     }
 
     // Preserve the paid history: post an adjustment for a future payroll.
+    // source ADVANCE_EDIT marks it as memo-only — the edited amount is
+    // already inside that payroll's previousDebt, so the row itemises the
+    // delta instead of being applied on top of it a second time.
     const adjustment = await db.payrollAdjustment.create({
       data: {
         employeeId: opts.employeeId,
@@ -1911,6 +2066,8 @@ export async function applyAdvanceEditToPayrolls(opts: {
           deltaMinor > 0
             ? "PREVIOUS_OVERPAYMENT_DEDUCTION"
             : "PREVIOUS_UNDERPAYMENT_EARNING",
+        direction: deltaMinor > 0 ? "DEDUCTION" : "EARNING",
+        source: "ADVANCE_EDIT",
         amountMinor: Math.abs(deltaMinor),
         reason,
         createdById: opts.userId,
@@ -1937,7 +2094,143 @@ export async function applyAdvanceEditToPayrolls(opts: {
     result.adjustments.push(adjustment.id);
   }
 
+  // Every open payroll of the employee follows: the ones with an allocation
+  // of this advance need their deduction plan rebuilt, the ones without
+  // still hold a previousDebt figure that moved with the edit, and any new
+  // memo rows must appear on their lines.
+  const refreshed = await recalculatePayrollsForAdjustments({
+    employeeId: opts.employeeId,
+    userId: opts.userId,
+  });
+  result.recalculated = refreshed.recalculated;
+
   return result;
+}
+
+/**
+ * Create a manual payroll adjustment (Plan-payroll.pdf §1 "Payroll
+ * Adjustments"): an additive figure that enters gross on the next approval —
+ * a DEDUCTION lowers this period's pay, an EARNING raises it. The row stays
+ * unposted until an approval applies it to exactly one payroll; every open
+ * payroll of the employee is refreshed so its figures follow right away.
+ *
+ * The direction is implied by the kind for the PREVIOUS_* adjustments and
+ * chosen by HR for OTHER.
+ */
+export async function createPayrollAdjustment(input: {
+  employeeId: string;
+  kind: PayrollAdjustmentKind;
+  direction?: PayrollAdjustmentDirection;
+  amountMinor: number;
+  reason: string;
+  note?: string;
+  createdById: string;
+}) {
+  const employee = await db.employee.findUnique({
+    where: { id: input.employeeId },
+    select: { id: true },
+  });
+  if (!employee) throw new Error("Employee not found");
+
+  const direction =
+    input.kind === "OTHER"
+      ? (input.direction ?? "DEDUCTION")
+      : adjustmentDirectionForKind(input.kind);
+
+  const adjustment = await db.payrollAdjustment.create({
+    data: {
+      employeeId: input.employeeId,
+      kind: input.kind,
+      direction,
+      source: "MANUAL",
+      amountMinor: input.amountMinor,
+      reason: input.reason,
+      note: input.note,
+      createdById: input.createdById,
+    },
+  });
+  await db.employeeAuditEvent.create({
+    data: {
+      employeeId: input.employeeId,
+      action: "PAYROLL_ADJUSTMENT_CREATED",
+      newValue: adjustment.id,
+      reason: input.reason,
+      performedById: input.createdById,
+    },
+  });
+  await logPayrollChange(db, {
+    payrollId: null,
+    employeeId: input.employeeId,
+    action: "ADJUSTMENT_CREATED",
+    summary: `${direction === "DEDUCTION" ? "Deduct" : "Earn"} ${fromMinor(input.amountMinor)} AFN — ${input.reason}`,
+    newValues: {
+      adjustmentId: adjustment.id,
+      kind: input.kind,
+      direction,
+      amountMinor: input.amountMinor,
+    },
+    reason: input.reason,
+    userId: input.createdById,
+  });
+
+  await recalculatePayrollsForAdjustments({
+    employeeId: input.employeeId,
+    userId: input.createdById,
+  });
+
+  return adjustment;
+}
+
+/**
+ * Delete an adjustment that has not been posted to a payroll yet. Posted
+ * ones are part of an approved payroll's history — revert that payroll
+ * instead, which un-posts its adjustments for re-application.
+ */
+export async function deletePayrollAdjustment(
+  adjustmentId: string,
+  userId: string
+) {
+  const adjustment = await db.payrollAdjustment.findUnique({
+    where: { id: adjustmentId },
+  });
+  if (!adjustment) throw new Error("Adjustment not found");
+  if (adjustment.payrollId) {
+    throw new Error(
+      "This adjustment is already posted to a payroll; revert that payroll to release it"
+    );
+  }
+
+  await db.payrollAdjustment.delete({ where: { id: adjustmentId } });
+  await db.employeeAuditEvent.create({
+    data: {
+      employeeId: adjustment.employeeId,
+      action: "PAYROLL_ADJUSTMENT_DELETED",
+      newValue: adjustmentId,
+      reason: adjustment.reason,
+      performedById: userId,
+    },
+  });
+  await logPayrollChange(db, {
+    payrollId: null,
+    employeeId: adjustment.employeeId,
+    action: "ADJUSTMENT_DELETED",
+    summary: `Removed adjustment of ${fromMinor(adjustment.amountMinor)} AFN — ${adjustment.reason}`,
+    oldValues: {
+      adjustmentId,
+      kind: adjustment.kind,
+      direction: adjustment.direction,
+      amountMinor: adjustment.amountMinor,
+    },
+    reason: adjustment.reason,
+    userId,
+  });
+
+  await recalculatePayrollsForAdjustments({
+    employeeId: adjustment.employeeId,
+    userId,
+  });
+
+  return { id: adjustmentId };
 }
 
 /**
@@ -2454,8 +2747,13 @@ export async function deletePayroll(
         performedById: userId,
       },
     });
-    // Give loan balances back before the cascade removes the allocation rows.
+    // Give loan balances back before the cascade removes the allocation rows,
+    // and un-post this payroll's adjustments (the DB would SetNull them too).
     await loanService.restoreAllocations(tx, payrollId);
+    await tx.payrollAdjustment.updateMany({
+      where: { payrollId },
+      data: { payrollId: null },
+    });
     await logPayrollChange(tx, {
       payrollId,
       employeeId: payroll.employeeId,

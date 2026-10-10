@@ -428,6 +428,14 @@ model PayrollAdjustment {
   payrollId   String?
   payroll     Payroll?  @relation(fields: [payrollId], references: [id], onDelete: SetNull)
   kind        String
+  // DEDUCTION | EARNING — the adjustment's sign. Implied by kind for the
+  // PREVIOUS_* kinds; chosen by HR for OTHER.
+  direction   String  @default("DEDUCTION")
+  // MANUAL = HR-created, applied additively to the payroll's gross.
+  // ADVANCE_EDIT = auto-created when a paid advance's amount changed; it
+  // itemises the already-embedded previousDebt delta instead of being
+  // applied on top of it (which would double-count).
+  source      String  @default("MANUAL")
   amountMinor Int
   currency    String    @default("AFN")
   reason      String
@@ -494,6 +502,16 @@ model PayrollLine {
   deductExpenses      Boolean  @default(true)
   amountAlreadyReceivedMinor Int @default(0)
   previousDebtMinor   Int      @default(0)
+  // Manual payroll adjustments (Plan-payroll.pdf §1 "Payroll Adjustments"):
+  // additive figures inside gross — a deduction lowers what the employee is
+  // paid this period, an earning raises it. `previousAdjustments*` itemise
+  // the part of previousDebt that comes from advance-edit corrections
+  // (source ADVANCE_EDIT): the edited advance is already inside the received
+  // total, so those rows explain the figure instead of adding to it.
+  adjustmentsDeductedMinor Int @default(0)
+  adjustmentsEarnedMinor   Int @default(0)
+  previousAdjustmentsDeductedMinor Int @default(0)
+  previousAdjustmentsEarnedMinor   Int @default(0)
   advancesDeductedMinor Int     @default(0)
   // Loan repayment auto-deducted from this payroll (Plan-payroll.pdf §1
   // "Loans"). `loanDeductionOverridden` marks an HR-entered value that must

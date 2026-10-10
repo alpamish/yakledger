@@ -39,6 +39,7 @@ import {
 import { EmptyState } from "@/components/common/empty-state";
 import { PayrollActions } from "@/components/payroll/payroll-actions";
 import { PayrollGenerateDialog } from "@/components/payroll/payroll-generate-dialog";
+import { PayrollAdjustmentDialog } from "@/components/payroll/payroll-adjustment-dialog";
 import { PayrollExportDropdown } from "@/components/payroll/payroll-export-dropdown";
 import { payrollApi, type PayrollListParams, type UpdatePayrollLineBody } from "@/services/payroll-api";
 import { walletApi } from "@/services/wallet-api";
@@ -58,6 +59,7 @@ import {
   ArrowUp,
   ArrowDown,
   Loader2,
+  SlidersHorizontal,
 } from "lucide-react";
 
 interface PayrollLine {
@@ -74,6 +76,10 @@ interface PayrollLine {
   amountAlreadyReceivedMinor: number;
   previousDebtMinor: number;
   advancesDeductedMinor: number;
+  adjustmentsDeductedMinor: number;
+  adjustmentsEarnedMinor: number;
+  previousAdjustmentsDeductedMinor: number;
+  previousAdjustmentsEarnedMinor: number;
   loanDeductionMinor: number;
   netPayableMinor: number;
   remainingEmployeeDebtMinor: number;
@@ -179,6 +185,7 @@ export function PayrollPage() {
   const [status, setStatus] = useState<string>("");
   const [searchInput, setSearchInput] = useState("");
   const [generateOpen, setGenerateOpen] = useState(false);
+  const [adjustmentOpen, setAdjustmentOpen] = useState(false);
   const [sortingState, setSortingState] = useState<SortingState>([]);
   const [editMode, setEditMode] = useState(false);
   const [savingLineId, setSavingLineId] = useState<string | null>(null);
@@ -343,10 +350,25 @@ export function PayrollPage() {
         header: ({ column }) => <SortableHeader column={column}>Gross</SortableHeader>,
         cell: ({ row }) => {
           const line = row.original.lines?.[0];
+          const deducted = line?.adjustmentsDeductedMinor ?? 0;
+          const earned = line?.adjustmentsEarnedMinor ?? 0;
           return (
-            <span className="font-mono">
-              {line ? formatMinor(line.grossPayMinor ?? line.netPayMinor, line.currency) : "—"}
-            </span>
+            <div>
+              <span className="font-mono">
+                {line ? formatMinor(line.grossPayMinor ?? line.netPayMinor, line.currency) : "—"}
+              </span>
+              {(deducted > 0 || earned > 0) && (
+                <div
+                  className="text-xs text-muted-foreground whitespace-nowrap"
+                  title="Manual payroll adjustments applied inside gross"
+                >
+                  Adj:{" "}
+                  {deducted > 0 ? `−${formatMinor(deducted)}` : ""}
+                  {deducted > 0 && earned > 0 ? " / " : ""}
+                  {earned > 0 ? `+${formatMinor(earned)}` : ""}
+                </div>
+              )}
+            </div>
           );
         },
       },
@@ -474,11 +496,27 @@ export function PayrollPage() {
         accessorFn: (row) => row.lines?.[0]?.previousDebtMinor ?? 0,
         header: ({ column }) => <SortableHeader column={column}>Prev Debt</SortableHeader>,
         cell: ({ row }) => {
-          const prevDebt = row.original.lines?.[0]?.previousDebtMinor ?? 0;
+          const line = row.original.lines?.[0];
+          const prevDebt = line?.previousDebtMinor ?? 0;
+          const prevDeducted = line?.previousAdjustmentsDeductedMinor ?? 0;
+          const prevEarned = line?.previousAdjustmentsEarnedMinor ?? 0;
           return (
-            <span className="font-mono">
-              {prevDebt === 0 ? "—" : formatMinor(prevDebt)}
-            </span>
+            <div>
+              <span className="font-mono">
+                {prevDebt === 0 ? "—" : formatMinor(prevDebt)}
+              </span>
+              {(prevDeducted > 0 || prevEarned > 0) && (
+                <div
+                  className="text-xs text-muted-foreground whitespace-nowrap"
+                  title="Advance-edit adjustment already itemised inside previous debt"
+                >
+                  Adj:{" "}
+                  {prevDeducted > 0 ? `−${formatMinor(prevDeducted)}` : ""}
+                  {prevDeducted > 0 && prevEarned > 0 ? " / " : ""}
+                  {prevEarned > 0 ? `+${formatMinor(prevEarned)}` : ""}
+                </div>
+              )}
+            </div>
           );
         },
       },
@@ -788,6 +826,12 @@ export function PayrollPage() {
               Generate Payroll
             </Button>
           )}
+          {canManage && (
+            <Button variant="outline" onClick={() => setAdjustmentOpen(true)}>
+              <SlidersHorizontal className="mr-2 h-4 w-4" />
+              Adjustment
+            </Button>
+          )}
           <PayrollExportDropdown status={status || undefined} />
         </div>
       </div>
@@ -1004,6 +1048,12 @@ export function PayrollPage() {
           setPage(1);
           load();
         }}
+      />
+
+      <PayrollAdjustmentDialog
+        open={adjustmentOpen}
+        onOpenChange={setAdjustmentOpen}
+        onCreated={() => load()}
       />
     </div>
   );

@@ -1,5 +1,9 @@
 import { z } from "zod";
-import { PAYROLL_TYPES } from "../payroll-status";
+import {
+  PAYROLL_ADJUSTMENT_DIRECTIONS,
+  PAYROLL_ADJUSTMENT_KINDS,
+  PAYROLL_TYPES,
+} from "../payroll-status";
 
 export const salaryChangeSchema = z.object({
   amount: z.number().min(0, "Salary must be non-negative"),
@@ -83,6 +87,20 @@ export const payrollLineUpdateSchema = z.object({
   remainingEmployeeDebtMinor: z.number().int().min(0).optional(),
   deductExpenses: z.boolean().optional(),
   walletId: z.string().optional(),
+});
+
+// Manual payroll adjustment (PDF §1 "Payroll Adjustments"). `amount` is AFN
+// on the wire — the route converts with toMinor, like every other payroll
+// payload. `direction` only applies to kind OTHER: the PREVIOUS_* kinds
+// imply their sign (overpayment deducts, underpayment earns). A reason is
+// always required.
+export const payrollAdjustmentSchema = z.object({
+  employeeId: z.string().min(1, "Employee is required"),
+  kind: z.enum(PAYROLL_ADJUSTMENT_KINDS),
+  direction: z.enum(PAYROLL_ADJUSTMENT_DIRECTIONS).optional(),
+  amount: z.number().positive("Amount must be greater than zero"),
+  reason: z.string().trim().min(1, "A reason is required"),
+  note: z.string().optional(),
 });
 
 // Split a payroll's gross pay across projects. `value` is a percentage when

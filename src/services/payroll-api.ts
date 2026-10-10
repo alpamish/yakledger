@@ -91,6 +91,35 @@ export interface UpdatePayrollLineBody {
   walletId?: string;
 }
 
+export interface PayrollAdjustment {
+  id: string;
+  employeeId: string;
+  payrollId: string | null;
+  kind: string;
+  direction: string;
+  source: string;
+  amountMinor: number;
+  currency: string;
+  reason: string;
+  note?: string | null;
+  createdById?: string | null;
+  createdAt: string;
+  employee?: { id: string; fullName: string };
+  createdBy?: { id: string; name: string } | null;
+  payroll?: { id: string; status: string } | null;
+}
+
+export interface CreatePayrollAdjustmentBody {
+  employeeId: string;
+  kind: string;
+  /** Only used for kind OTHER; the PREVIOUS_* kinds imply their sign. */
+  direction?: "DEDUCTION" | "EARNING";
+  /** AFN (major units) — the route converts to minor. */
+  amount: number;
+  reason: string;
+  note?: string;
+}
+
 export const payrollApi = {
   list: async (
     params: PayrollListParams = {}
@@ -175,4 +204,18 @@ export const payrollApi = {
 
   updateLine: async (payrollId: string, data: UpdatePayrollLineBody): Promise<ApiResponse<any>> =>
     request(`/payroll/${payrollId}`, { method: "PATCH", body: JSON.stringify(data) }),
+
+  // Manual payroll adjustments (PDF §1 "Payroll Adjustments").
+  adjustments: async (employeeId?: string): Promise<ApiResponse<PayrollAdjustment[]>> => {
+    const q = employeeId ? `?employeeId=${encodeURIComponent(employeeId)}` : "";
+    return request(`/payroll/adjustments${q}`);
+  },
+
+  createAdjustment: async (
+    body: CreatePayrollAdjustmentBody
+  ): Promise<ApiResponse<PayrollAdjustment>> =>
+    request("/payroll/adjustments", { method: "POST", body: JSON.stringify(body) }),
+
+  deleteAdjustment: async (id: string): Promise<ApiResponse<any>> =>
+    request(`/payroll/adjustments/${id}`, { method: "DELETE" }),
 };
