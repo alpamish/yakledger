@@ -5,11 +5,16 @@ import { requirePermission } from "@/lib/permissions";
 import { resolveApprovalStatusOnCreate, APPROVED } from "@/lib/access-control";
 import { calculateHoursWithOvertime } from "@/lib/timesheet-hours";
 import { DEFAULT_WORK_HOURS_PER_DAY } from "@/lib/contractor-rate";
+import { resolveRateForWork } from "@/services/contract-rate.service";
 
 const bulkRecordSchema = z.object({
   contractorId: z.string().min(1, "Contractor is required"),
   machineryId: z.string().optional().nullable(),
   machineryRateId: z.string().optional().nullable(),
+  // Contract billing (Phase 2): omitted = auto-discover the contractor's
+  // active contract for the date; null = explicitly bill without a contract.
+  contractId: z.string().optional().nullable(),
+  rateLabel: z.string().optional().nullable(),
   operatorName: z.string().optional().nullable(),
   workSite: z.string().optional().nullable(),
   date: z.string().min(1, "Date is required"),
@@ -45,18 +50,51 @@ export async function POST(request: NextRequest) {
 
     const { records } = parsed.data;
 
-    // Prefetch work-hours-per-day for the referenced machinery so overtime is
-    // derived from each machine's configuration instead of a hard-coded 9.
+    // Prefetch machinery rate fields (for overtime derivation and rate
+    // resolution) instead of hard-coding 9 hours anywhere.
     const machineryIds = [...new Set(records.map((r) => r.machineryId).filter(Boolean))] as string[];
     const machineryRows = machineryIds.length > 0
       ? await db.machinery.findMany({
           where: { id: { in: machineryIds } },
-          select: { id: true, workHoursPerDay: true },
+          select: {
+            id: true,
+            workHoursPerDay: true,
+            hourlyRate: true,
+            dailyRate: true,
+            monthlyRate: true,
+            contractDaysPerMonth: true,
+          },
         })
       : [];
     const workHoursByMachinery = new Map<string, number>(
       machineryRows.map((m) => [m.id, m.workHoursPerDay])
     );
+    const machineryById = new Map<string, (typeof machineryRows)[number]>(
+      machineryRows.map((m) => [m.id, m])
+    );
+
+    // Prefetch each contractor's active contracts (for auto-discovery).
+    const contractorIds = [...new Set(records.map((r) => r.contractorId))];
+    const activeContracts = contractorIds.length > 0
+      ? await db.contractorContract.findMany({
+          where: {
+            contractorId: { in: contractorIds },
+            status: "ACTIVE",
+          },
+          select: { id: true, contractorId: true, startDate: true, endDate: true },
+        })
+      : [];
+    const discoverContract = (contractorId: string, at: Date): string | null => {
+      const candidates = activeContracts
+        .filter(
+          (c) =>
+            c.contractorId === contractorId &&
+            c.startDate <= at &&
+            (!c.endDate || c.endDate >= at)
+        )
+        .sort((a, b) => b.startDate.getTime() - a.startDate.getTime());
+      return candidates[0]?.id ?? null;
+    };
 
     const includes = {
       contractor: {
@@ -80,11 +118,29 @@ export async function POST(request: NextRequest) {
           ? { totalHours: record.totalHours, overtimeHours: record.overtimeHours ?? 0 }
           : calculateHoursWithOvertime(record.startTime, record.lunchStart, record.lunchEnd, record.endTime, workHoursPerDay);
 
+        const workDate = new Date(record.date);
+        const contractId =
+          record.contractId === undefined
+            ? discoverContract(record.contractorId, workDate)
+            : record.contractId;
+        const resolved = await resolveRateForWork({
+          client: tx,
+          contractId,
+          machineryId: record.machineryId,
+          label: record.rateLabel ?? null,
+          at: workDate,
+          machinery: record.machineryId ? machineryById.get(record.machineryId) ?? null : null,
+        });
+
         const timesheet = await tx.timesheet.create({
           data: {
             contractorId: record.contractorId,
             machineryId: record.machineryId ?? null,
             machineryRateId: record.machineryRateId ?? null,
+            contractId,
+            contractRateId: resolved.contractRateId,
+            rateLabel: resolved.label,
+            rateAmount: resolved.hourlyRate > 0 ? resolved.hourlyRate : null,
             operatorName: record.operatorName ?? null,
             workSite: record.workSite ?? null,
             date: new Date(record.date),

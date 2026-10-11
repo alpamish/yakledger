@@ -4,11 +4,14 @@ import { db } from "@/lib/db";
 import { requirePermission, isAdminUser } from "@/lib/permissions";
 import { buildAccessScope, withScope, resolveApprovalStatusOnEdit, APPROVED } from "@/lib/access-control";
 import { calculateTotalHours } from "@/lib/timesheet-hours";
+import { resolveRateForWork } from "@/services/contract-rate.service";
 
 const updateTimesheetSchema = z.object({
   contractorId: z.string().min(1).optional(),
   machineryId: z.string().min(1).optional(),
   machineryRateId: z.string().optional().nullable(),
+  contractId: z.string().optional().nullable(),
+  rateLabel: z.string().optional().nullable(),
   operatorName: z.string().optional().nullable(),
   workSite: z.string().optional().nullable(),
   date: z.string().min(1).optional(),
@@ -78,7 +81,14 @@ export async function PUT(
 
     const current = await db.timesheet.findFirst({
       where: withScope({ id }, await buildAccessScope(user, "timesheet")),
-      select: { approvalStatus: true },
+      select: {
+        approvalStatus: true,
+        date: true,
+        contractorId: true,
+        machineryId: true,
+        contractId: true,
+        rateLabel: true,
+      },
     });
 
     if (!current) {
@@ -99,6 +109,57 @@ export async function PUT(
     updateData.approvalStatus = approvalStatus;
     updateData.approvedById = approvalStatus === APPROVED ? user.id : null;
     updateData.approvedAt = approvalStatus === APPROVED ? new Date() : null;
+
+    // Re-stamp the rate snapshot when any billing-relevant field changes so
+    // the stored rate always matches the work's date/contract/label.
+    const billingChanged =
+      data.date !== undefined ||
+      data.contractorId !== undefined ||
+      data.machineryId !== undefined ||
+      data.contractId !== undefined ||
+      data.rateLabel !== undefined;
+    if (billingChanged) {
+      const workDate = data.date ? new Date(data.date) : current.date;
+      const contractorId = data.contractorId ?? current.contractorId;
+      const machineryId = data.machineryId ?? current.machineryId;
+      let contractId: string | null;
+      if (data.contractId !== undefined) {
+        contractId = data.contractId;
+      } else if (data.date !== undefined || data.contractorId !== undefined) {
+        // The date/contractor moved: re-discover the active contract unless
+        // the existing contract still covers it.
+        const active = await db.contractorContract.findFirst({
+          where: {
+            id: current.contractId ?? "__none__",
+            contractorId,
+            status: "ACTIVE",
+            startDate: { lte: workDate },
+            OR: [{ endDate: null }, { endDate: { gte: workDate } }],
+          },
+          select: { id: true },
+        });
+        contractId = active?.id ?? null;
+      } else {
+        contractId = current.contractId;
+      }
+
+      const machinery = await db.machinery.findUnique({
+        where: { id: machineryId },
+        select: { id: true, hourlyRate: true, dailyRate: true, monthlyRate: true, workHoursPerDay: true, contractDaysPerMonth: true },
+      });
+      const resolved = await resolveRateForWork({
+        client: db,
+        contractId,
+        machineryId,
+        label: data.rateLabel !== undefined ? data.rateLabel : current.rateLabel,
+        at: workDate,
+        machinery,
+      });
+      updateData.contractId = contractId;
+      updateData.contractRateId = resolved.contractRateId;
+      updateData.rateLabel = resolved.label;
+      updateData.rateAmount = resolved.hourlyRate > 0 ? resolved.hourlyRate : null;
+    }
 
     const timesheet = await db.timesheet.update({
       where: { id },

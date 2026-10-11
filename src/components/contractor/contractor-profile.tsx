@@ -31,6 +31,7 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { MachineryDetailModal } from '@/components/machinery/machinery-detail-modal';
+import { ContractorContractsTab } from '@/components/contractor/contractor-contracts-tab';
 import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -755,6 +756,9 @@ export function ContractorProfile({ contractorId }: { contractorId?: string }) {
           </TabsTrigger>
           <TabsTrigger value="machinery" className="gap-1.5">
             <Truck className="h-4 w-4" /> Machinery
+          </TabsTrigger>
+          <TabsTrigger value="contracts" className="gap-1.5">
+            <FileText className="h-4 w-4" /> Contracts
           </TabsTrigger>
           <TabsTrigger value="financial" className="gap-1.5">
             <Calculator className="h-4 w-4" /> Financial Summary
@@ -1583,6 +1587,17 @@ export function ContractorProfile({ contractorId }: { contractorId?: string }) {
               </CardContent>
             </Card>
           )}
+        </TabsContent>
+
+        {/* ─── Contracts Tab ─────────────────────────────────── */}
+        <TabsContent value="contracts">
+          <ContractorContractsTab
+            contractorId={selectedContractor.id}
+            canCreate={hasPermission('contracts:create')}
+            canEdit={hasPermission('contracts:edit')}
+            canDelete={hasPermission('contracts:delete')}
+            canApprove={hasPermission('contracts:approve')}
+          />
         </TabsContent>
 
         {/* ─── Financial Summary Tab ──────────────────────────── */}

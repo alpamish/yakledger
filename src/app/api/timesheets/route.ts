@@ -5,11 +5,17 @@ import { requirePermission } from "@/lib/permissions";
 import { Prisma } from "@prisma/client";
 import { buildListScope, withScope, resolveApprovalStatusOnCreate, APPROVED } from "@/lib/access-control";
 import { calculateTotalHours } from "@/lib/timesheet-hours";
+import { resolveRateForWork } from "@/services/contract-rate.service";
 
 const createTimesheetSchema = z.object({
   contractorId: z.string().min(1, "Contractor is required"),
   machineryId: z.string().min(1, "Machinery is required"),
   machineryRateId: z.string().optional().nullable(),
+  // Contract billing (Phase 2). When omitted, the contractor's active contract
+  // for the work date is auto-discovered; pass contractId: null to explicitly
+  // bill without a contract (legacy machinery-rate billing).
+  contractId: z.string().optional().nullable(),
+  rateLabel: z.string().optional().nullable(),
   operatorName: z.string().optional().nullable(),
   workSite: z.string().optional().nullable(),
   date: z.string().min(1, "Date is required"),
@@ -152,6 +158,40 @@ export async function POST(request: NextRequest) {
       totalHours = calculateTotalHours(data.startTime, data.lunchStart, data.lunchEnd, data.endTime);
     }
 
+    const workDate = new Date(data.date);
+
+    // Resolve which contract (if any) bills this work.
+    let contractId: string | null = data.contractId ?? null;
+    if (data.contractId === undefined) {
+      // Auto-discover the contractor's active contract covering the work date.
+      const active = await db.contractorContract.findFirst({
+        where: {
+          contractorId: data.contractorId,
+          status: "ACTIVE",
+          startDate: { lte: workDate },
+          OR: [{ endDate: null }, { endDate: { gte: workDate } }],
+        },
+        orderBy: { startDate: "desc" },
+        select: { id: true },
+      });
+      contractId = active?.id ?? null;
+    }
+
+    // Snapshot the resolved rate at creation so later rate changes never
+    // rewrite what this work was billed at.
+    const machinery = await db.machinery.findUnique({
+      where: { id: data.machineryId },
+      select: { id: true, hourlyRate: true, dailyRate: true, monthlyRate: true, workHoursPerDay: true, contractDaysPerMonth: true },
+    });
+    const resolved = await resolveRateForWork({
+      client: db,
+      contractId,
+      machineryId: data.machineryId,
+      label: data.rateLabel ?? null,
+      at: workDate,
+      machinery,
+    });
+
     const timesheet = await db.$transaction(async (tx) => {
       const approvalStatus = resolveApprovalStatusOnCreate(user);
       const created = await tx.timesheet.create({
@@ -159,6 +199,12 @@ export async function POST(request: NextRequest) {
           contractorId: data.contractorId,
           machineryId: data.machineryId,
           machineryRateId: data.machineryRateId ?? null,
+          // Stamp the contract whenever one governs the work, even when the
+          // rate itself fell back to machinery (traceability + delete guard).
+          contractId,
+          contractRateId: resolved.contractRateId,
+          rateLabel: resolved.label,
+          rateAmount: resolved.hourlyRate > 0 ? resolved.hourlyRate : null,
           operatorName: data.operatorName ?? null,
           workSite: data.workSite ?? null,
           date: new Date(data.date),

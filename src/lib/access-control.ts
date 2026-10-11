@@ -6,6 +6,9 @@ const ENTITY_CONTENT_PERMISSION: Record<string, string> = {
   employee: "content:employees",
   contractor: "content:contractors",
   machineryRate: "content:machinery-rates",
+  // Contracts ride along with the contractor reference-list permission:
+  // anyone who can see all contractors can see their contracts.
+  contract: "content:contractors",
 };
 
 export const APPROVAL_STATUSES = ["PENDING", "APPROVED", "REJECTED"] as const;
@@ -30,6 +33,7 @@ export const RECORD_ENTITIES = [
   "fuelTransaction",
   "maintenance",
   "assetLog",
+  "contract",
 ] as const;
 export type RecordEntity = (typeof RECORD_ENTITIES)[number];
 

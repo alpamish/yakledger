@@ -25,6 +25,11 @@ model User {
   cashTransactionApprovals   CashTransaction[]   @relation("CashTransactionApprover")
   cashTransactions           CashTransaction[]
   contractors                Contractor[]
+  contractorContractsCreated ContractorContract[]       @relation("ContractorContractCreator")
+  contractRatesCreated       ContractRate[]             @relation("ContractRateCreator")
+  contractRateApprovals      ContractRate[]             @relation("ContractRateApprover")
+  contractVariationsCreated  ContractVariation[]        @relation("ContractVariationCreator")
+  contractVariationApprovals ContractVariation[]        @relation("ContractVariationApprover")
   employees                  Employee[]
   expenseApprovals           Expense[]           @relation("ExpenseApprover")
   expenses                   Expense[]
@@ -747,11 +752,102 @@ model Contractor {
   fuelUsages       FuelUsage[]
   machinery        Machinery[]
   timesheets       Timesheet[]
+  contracts        ContractorContract[]
 
   @@index([phoneNumber])
   @@index([nationalId])
   @@index([status])
   @@index([createdBy])
+}
+
+model ContractorContract {
+  id                    String    @id @default(cuid())
+  contractNumber        String    @unique
+  contractorId          String
+  title                 String
+  // Free-text project reference (no Project model exists yet; kept consistent
+  // with EmployeeContract.project / Asset.project conventions).
+  projectName           String?
+  contractType          String    @default("MACHINERY_HIRE")
+  value                 Float     @default(0)
+  startDate             DateTime
+  endDate               DateTime?
+  paymentTerms          String?
+  retentionPercent      Float     @default(0)
+  advanceAllowed        Boolean   @default(true)
+  workHoursPerDay       Int       @default(9)
+  contractDaysPerMonth  Int       @default(28)
+  overtimeRatePercent   Float?
+  penaltyTerms          String?
+  // Responsibility matrix
+  companyProvidesFuel     Boolean @default(false)
+  contractorProvidesOperator Boolean @default(true)
+  companyHandlesMaintenance Boolean @default(false)
+  downtimeChargeable     Boolean @default(true)
+  status                String    @default("DRAFT") // DRAFT | ACTIVE | SUSPENDED | COMPLETED | TERMINATED
+  notes                 String?
+  createdBy             String
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  creator               User      @relation("ContractorContractCreator", fields: [createdBy], references: [id], onDelete: Cascade)
+  contractor            Contractor @relation(fields: [contractorId], references: [id], onDelete: Restrict)
+  rates                 ContractRate[]
+  variations            ContractVariation[]
+  timesheets            Timesheet[]
+
+  @@index([contractorId])
+  @@index([status])
+  @@index([projectName])
+}
+
+model ContractRate {
+  id                 String             @id @default(cuid())
+  contractId         String
+  // Business label, e.g. EXCAVATOR_HOUR, TRIP_LOAD, LABOR_DAY
+  label              String
+  // HOURLY | DAILY | MONTHLY | UNIT
+  rateType           String
+  unitLabel          String?
+  amount             Float
+  effectiveFrom      DateTime
+  effectiveTo        DateTime?
+  isDefault          Boolean            @default(false)
+  notes              String?
+  approvedById       String?
+  approvedAt         DateTime?
+  createdBy          String
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+  contract           ContractorContract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  approver           User?              @relation("ContractRateApprover", fields: [approvedById], references: [id])
+  creator            User               @relation("ContractRateCreator", fields: [createdBy], references: [id], onDelete: Cascade)
+  timesheets         Timesheet[]
+
+  @@index([contractId, label])
+  @@index([contractId, isDefault])
+}
+
+model ContractVariation {
+  id             String             @id @default(cuid())
+  contractId     String
+  variationNumber String
+  description    String
+  valueChange    Float              @default(0)
+  // Optional rate change embedded in the variation
+  rateLabel      String?
+  newAmount      Float?
+  effectiveFrom  DateTime
+  status         String             @default("PENDING") // PENDING | APPROVED | REJECTED
+  approvedById   String?
+  approvedAt     DateTime?
+  createdBy      String
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+  contract       ContractorContract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  approver       User?              @relation("ContractVariationApprover", fields: [approvedById], references: [id])
+  creator        User               @relation("ContractVariationCreator", fields: [createdBy], references: [id], onDelete: Cascade)
+
+  @@index([contractId, status])
 }
 
 model Sequence {
@@ -764,6 +860,12 @@ model Timesheet {
   contractorId     String
   machineryId      String?
   machineryRateId  String?
+  // Contract/rate snapshot stamped at approval time so later rate changes
+  // never rewrite what this work was billed at (Phase 2).
+  contractId       String?
+  contractRateId   String?
+  rateLabel        String?
+  rateAmount       Float?
   operatorName     String?
   workSite         String?
   date             DateTime
@@ -787,11 +889,14 @@ model Timesheet {
   creator          User           @relation(fields: [createdBy], references: [id], onDelete: Cascade)
   machineryRate    MachineryRate? @relation(fields: [machineryRateId], references: [id])
   machinery        Machinery?     @relation(fields: [machineryId], references: [id])
+  contract         ContractorContract? @relation(fields: [contractId], references: [id])
+  contractRate     ContractRate?  @relation(fields: [contractRateId], references: [id])
   contractor       Contractor     @relation(fields: [contractorId], references: [id], onDelete: Cascade)
 
   @@index([contractorId, date])
   @@index([machineryId])
   @@index([machineryId, date])
+  @@index([contractId])
   @@index([approvedBy])
   @@index([createdBy])
   @@index([approvalStatus])
