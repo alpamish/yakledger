@@ -8,6 +8,16 @@
  */
 export const MINOR_PER_UNIT = 100;
 
+/**
+ * Round a major-unit AFN amount (Float fields: Expense.amount, machinery
+ * rates, contractor financials) to 2 decimal places. All server-side money
+ * math on Float fields must round through this helper so routes, services,
+ * and PDFs agree on the same figures.
+ */
+export function round2(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
 export function toMinor(amount: number | string): number {
   const n = typeof amount === "string" ? parseFloat(amount) : amount;
   if (!Number.isFinite(n)) return 0;

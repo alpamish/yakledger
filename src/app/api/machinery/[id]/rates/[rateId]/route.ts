@@ -57,10 +57,22 @@ export async function PUT(
         });
       }
 
-      return await tx.machineryRate.update({
+      const updated = await tx.machineryRate.update({
         where: { id: rateId },
         data,
       });
+
+      await tx.auditLog.create({
+        data: {
+          action: "UPDATE",
+          entity: "MachineryRate",
+          entityId: rateId,
+          details: `Updated rate "${updated.rateName}" for machinery ${id}`,
+          userId: user.id,
+        },
+      });
+
+      return updated;
     });
 
     return NextResponse.json({ success: true, data: rate });
@@ -104,7 +116,18 @@ export async function DELETE(
       );
     }
 
-    await db.machineryRate.delete({ where: { id: rateId } });
+    await db.$transaction(async (tx) => {
+      await tx.machineryRate.delete({ where: { id: rateId } });
+      await tx.auditLog.create({
+        data: {
+          action: "DELETE",
+          entity: "MachineryRate",
+          entityId: rateId,
+          details: `Deleted rate ${rateId} for machinery ${id}`,
+          userId: user.id,
+        },
+      });
+    });
 
     return NextResponse.json({ success: true });
   } catch (error) {

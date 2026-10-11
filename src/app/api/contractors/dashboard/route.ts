@@ -16,10 +16,10 @@ export async function GET(request: NextRequest) {
       buildAggregateScope(user, "fuelUsage"),
     ]);
 
-    // Get counts by status
+    // Get counts by status (archived contractors excluded, like the lists)
     const [totalContractors, activeContractors, inactiveContractors, suspendedContractors] =
       await Promise.all([
-        db.contractor.count({ where: contractorScope }),
+        db.contractor.count({ where: withScope({ status: { not: "ARCHIVED" } }, contractorScope) }),
         db.contractor.count({ where: withScope({ status: "ACTIVE" }, contractorScope) }),
         db.contractor.count({ where: withScope({ status: "INACTIVE" }, contractorScope) }),
         db.contractor.count({ where: withScope({ status: "SUSPENDED" }, contractorScope) }),

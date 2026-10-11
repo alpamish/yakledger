@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/permissions";
 import { Prisma } from "@prisma/client";
 import { buildListScope, withScope, resolveApprovalStatusOnCreate, APPROVED } from "@/lib/access-control";
+import { calculateTotalHours } from "@/lib/timesheet-hours";
 
 const createTimesheetSchema = z.object({
   contractorId: z.string().min(1, "Contractor is required"),
@@ -21,29 +22,6 @@ const createTimesheetSchema = z.object({
   approvedBy: z.string().optional().nullable(),
   notes: z.string().optional().nullable(),
 });
-
-// Helper: calculate total hours from start/end time strings (HH:mm format)
-function calculateHours(start: string | null | undefined, end: string | null | undefined): number {
-  if (!start || !end) return 0;
-  const [h1, m1] = start.split(":").map(Number);
-  const [h2, m2] = end.split(":").map(Number);
-  if (isNaN(h1) || isNaN(m1) || isNaN(h2) || isNaN(m2)) return 0;
-  const s = h1 * 60 + m1;
-  const e = h2 * 60 + m2;
-  if (e <= s) return 0;
-  return Math.round(((e - s) / 60) * 100) / 100;
-}
-
-function calculateTotalHours(
-  startTime: string | null | undefined,
-  lunchStart: string | null | undefined,
-  lunchEnd: string | null | undefined,
-  endTime: string | null | undefined
-): number {
-  const morning = calculateHours(startTime, lunchStart);
-  const afternoon = calculateHours(lunchEnd, endTime);
-  return Math.round((morning + afternoon) * 100) / 100;
-}
 
 // GET /api/timesheets - List timesheets with filtering, pagination, sorting
 export async function GET(request: NextRequest) {

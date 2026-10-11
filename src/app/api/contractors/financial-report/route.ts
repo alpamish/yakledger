@@ -3,6 +3,8 @@ import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/permissions";
 import { buildAccessScope, buildListScope, withScope } from "@/lib/access-control";
 import { format } from "date-fns";
+import { resolveHourlyRate } from "@/lib/contractor-rate";
+import { round2 } from "@/lib/money";
 
 export async function POST(request: NextRequest) {
   try {
@@ -94,9 +96,19 @@ export async function POST(request: NextRequest) {
     // Fetch all default MachineryRates for the machinery list
     const defaultRates = await db.machineryRate.findMany({
       where: withScope({ machineryId: { in: machineryIds }, isDefault: true }, machineryRateScope),
-      select: { machineryId: true, hourlyRate: true, rateName: true },
+      select: {
+        machineryId: true,
+        rateName: true,
+        hourlyRate: true,
+        dailyRate: true,
+        monthlyRate: true,
+        contractDaysPerMonth: true,
+        workHoursPerDay: true,
+      },
     });
-    const rateByMachinery = new Map<string, { hourlyRate: number }>(defaultRates.map((r) => [r.machineryId, { hourlyRate: r.hourlyRate }]));
+    const rateByMachinery = new Map<string, (typeof defaultRates)[number]>(
+      defaultRates.map((r) => [r.machineryId, r])
+    );
 
     // Map machineryId -> its timesheets
     const timesheetsByMachinery = new Map<string, typeof timesheets>();
@@ -111,9 +123,12 @@ export async function POST(request: NextRequest) {
     for (const m of machineryList) {
       const machineryTimesheets = timesheetsByMachinery.get(m.id) ?? [];
       const defaultRate = rateByMachinery.get(m.id);
-      const computedHourlyRate = defaultRate
-        ? defaultRate.hourlyRate
-        : (m.dailyRate > 0 ? m.dailyRate / 9 : m.hourlyRate);
+      // Contract-aware rate resolution: the default rate tier wins, derived
+      // rates divide by the configured workHoursPerDay — never a hard-coded 9.
+      const computedHourlyRate = resolveHourlyRate({
+        rateTier: defaultRate,
+        machinery: m,
+      });
 
       const monthMap = new Map<string, number>();
       for (const ts of machineryTimesheets) {
@@ -132,10 +147,10 @@ export async function POST(request: NextRequest) {
           const totalPrice = totalHours * pricePerHour;
           return {
             monthLabel,
-            totalHours: Math.round(totalHours * 100) / 100,
+            totalHours: round2(totalHours),
             totalWorkDays: m.contractDaysPerMonth,
-            pricePerHour: Math.round(pricePerHour * 100) / 100,
-            totalPrice: Math.round(totalPrice * 100) / 100,
+            pricePerHour: round2(pricePerHour),
+            totalPrice: round2(totalPrice),
           };
         });
 
@@ -176,7 +191,7 @@ export async function POST(request: NextRequest) {
           machineryDistributedExpenses.set(m.id, ctrTotalExpense - runningTotal);
         } else {
           const share = (machineryMoneyMap.get(m.id)?.totalMoney ?? 0) / ctrTotalMoney;
-          const distributed = Math.round(ctrTotalExpense * share * 100) / 100;
+          const distributed = round2(ctrTotalExpense * share);
           machineryDistributedExpenses.set(m.id, distributed);
           runningTotal += distributed;
         }
@@ -205,7 +220,7 @@ export async function POST(request: NextRequest) {
         machineryName: m.machineryName,
         plateNumber: m.plateNumber,
         driverName: m.driverName,
-        hourlyRate: Math.round(agg.computedHourlyRate * 100) / 100,
+        hourlyRate: round2(agg.computedHourlyRate),
         dailyRate: m.dailyRate,
         contractorId: m.assignedContractorId,
         contractorName: m.assignedContractor?.contractorName ?? "",
@@ -213,10 +228,10 @@ export async function POST(request: NextRequest) {
         contractDaysPerMonth: m.contractDaysPerMonth,
         monthlyWork: agg.monthlyWork,
         summary: {
-          totalHours: Math.round(agg.totalHours * 100) / 100,
-          totalMoney: Math.round(agg.totalMoney * 100) / 100,
-          totalWithdrawals: Math.round(totalWithdrawals * 100) / 100,
-          totalReceivable: Math.round(totalReceivable * 100) / 100,
+          totalHours: round2(agg.totalHours),
+          totalMoney: round2(agg.totalMoney),
+          totalWithdrawals: round2(totalWithdrawals),
+          totalReceivable: round2(totalReceivable),
         },
         payments,
       };

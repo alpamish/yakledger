@@ -3,6 +3,8 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/permissions";
 import { resolveApprovalStatusOnCreate, APPROVED } from "@/lib/access-control";
+import { calculateHoursWithOvertime } from "@/lib/timesheet-hours";
+import { DEFAULT_WORK_HOURS_PER_DAY } from "@/lib/contractor-rate";
 
 const bulkRecordSchema = z.object({
   contractorId: z.string().min(1, "Contractor is required"),
@@ -24,35 +26,6 @@ const bulkCreateSchema = z.object({
   records: z.array(bulkRecordSchema).min(1, "At least one record is required"),
 });
 
-function parseMinutes(val: string | null | undefined): number {
-  if (!val) return -1;
-  const [h, m] = val.split(":").map(Number);
-  if (isNaN(h) || isNaN(m)) return -1;
-  return h * 60 + m;
-}
-
-function calculateHours(
-  startTime: string | null | undefined,
-  lunchStart: string | null | undefined,
-  lunchEnd: string | null | undefined,
-  endTime: string | null | undefined,
-  workHoursPerDay: number
-): { totalHours: number; overtimeHours: number } {
-  const s = parseMinutes(startTime);
-  const ls = parseMinutes(lunchStart);
-  const le = parseMinutes(lunchEnd);
-  const e = parseMinutes(endTime);
-
-  let total = 0;
-  if (s >= 0 && (ls ?? -1) > s) total += ((ls ?? 0) - s) / 60;
-  if ((le ?? -1) >= 0 && e > (le ?? -1)) total += (e - (le ?? 0)) / 60;
-
-  total = Math.round(total * 100) / 100;
-  const ot = Math.max(0, Math.round((total - workHoursPerDay) * 100) / 100);
-
-  return { totalHours: total, overtimeHours: ot };
-}
-
 export async function POST(request: NextRequest) {
   try {
     const result = await requirePermission(request, "timesheets:create");
@@ -72,6 +45,19 @@ export async function POST(request: NextRequest) {
 
     const { records } = parsed.data;
 
+    // Prefetch work-hours-per-day for the referenced machinery so overtime is
+    // derived from each machine's configuration instead of a hard-coded 9.
+    const machineryIds = [...new Set(records.map((r) => r.machineryId).filter(Boolean))] as string[];
+    const machineryRows = machineryIds.length > 0
+      ? await db.machinery.findMany({
+          where: { id: { in: machineryIds } },
+          select: { id: true, workHoursPerDay: true },
+        })
+      : [];
+    const workHoursByMachinery = new Map<string, number>(
+      machineryRows.map((m) => [m.id, m.workHoursPerDay])
+    );
+
     const includes = {
       contractor: {
         select: { id: true, contractorName: true, contractorType: true },
@@ -87,10 +73,12 @@ export async function POST(request: NextRequest) {
       const approvedById = approvalStatus === APPROVED ? user.id : null;
       const approvedAt = approvalStatus === APPROVED ? new Date() : null;
       for (const record of records) {
-        const WORK_HOURS_PER_DAY = 9;
+        const workHoursPerDay = record.machineryId
+          ? workHoursByMachinery.get(record.machineryId) ?? DEFAULT_WORK_HOURS_PER_DAY
+          : DEFAULT_WORK_HOURS_PER_DAY;
         const hours = record.totalHours != null && record.totalHours > 0
           ? { totalHours: record.totalHours, overtimeHours: record.overtimeHours ?? 0 }
-          : calculateHours(record.startTime, record.lunchStart, record.lunchEnd, record.endTime, WORK_HOURS_PER_DAY);
+          : calculateHoursWithOvertime(record.startTime, record.lunchStart, record.lunchEnd, record.endTime, workHoursPerDay);
 
         const timesheet = await tx.timesheet.create({
           data: {

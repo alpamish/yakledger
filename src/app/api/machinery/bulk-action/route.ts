@@ -3,11 +3,12 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/permissions";
 import { buildAccessScope, withScope } from "@/lib/access-control";
+import { MACHINERY_STATUS_VALUES } from "@/lib/validation/contractor";
 
 const bulkActionSchema = z.object({
   ids: z.array(z.string()).min(1, "At least one ID is required"),
   action: z.enum(["updateStatus"]),
-  value: z.string().optional(),
+  value: z.enum(MACHINERY_STATUS_VALUES).optional(),
 });
 
 export async function POST(request: NextRequest) {

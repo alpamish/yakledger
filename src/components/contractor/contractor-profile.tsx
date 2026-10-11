@@ -87,6 +87,7 @@ import {
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import { rotateCanvas } from '@/lib/image-utils';
+import { findRateTier, resolveHourlyRate, resolveTimesheetHourlyRate, computeTimesheetRevenue } from '@/lib/contractor-rate';
 
 function formatCurrency(amount: number): string {
   return new Intl.NumberFormat('en-US', {
@@ -305,25 +306,10 @@ export function ContractorProfile({ contractorId }: { contractorId?: string }) {
   const finTabExpenseList = finDateFrom || finDateTo ? finExpensesList : (c.expensesPaidTo ?? []);
 
   const timesheetRevenue = finFilteredTimesheets.reduce((sum, ts) => {
-    if (ts.machineryId) {
-      if (ts.machineryRateId) {
-        const rate = allMachineryRates.find((r) => r.id === ts.machineryRateId);
-        if (rate) {
-          return sum + ts.totalHours * rate.hourlyRate;
-        }
-      }
-      // Fallback: try default MachineryRate, then machinery fields
-      const defaultRate = allMachineryRates.find((r) => r.machineryId === ts.machineryId && r.isDefault);
-      if (defaultRate) {
-        return sum + ts.totalHours * defaultRate.hourlyRate;
-      }
-      const machine = machineryList.find((m) => m.id === ts.machineryId);
-      if (machine) {
-        const effectiveHourly = machine.workHoursPerDay > 0 ? machine.dailyRate / machine.workHoursPerDay : 0;
-        return sum + ts.totalHours * effectiveHourly;
-      }
-    }
-    return sum;
+    if (!ts.machineryId) return sum;
+    const machine = machineryList.find((m) => m.id === ts.machineryId);
+    const hourlyRate = resolveTimesheetHourlyRate(ts, allMachineryRates, machine);
+    return sum + computeTimesheetRevenue(ts.totalHours, hourlyRate);
   }, 0);
 
   const totalCosts = finTotalFuelCost + finTabTotalExpenses;
@@ -396,32 +382,20 @@ export function ContractorProfile({ contractorId }: { contractorId?: string }) {
       const plateNumber = ts.machinery?.plateNumber ?? machineryList.find((m) => m.id === ts.machineryId)?.plateNumber ?? 'N/A';
       const machineryType = ts.machinery?.machineryType ?? machineryList.find((m) => m.id === ts.machineryId)?.machineryType ?? 'Unknown';
 
-      let rateLabel: string;
-      let hourlyRate: number;
+      const machine = machineryList.find((m) => m.id === ts.machineryId);
       const machDefaultRate = allMachineryRates.find((r) => r.machineryId === ts.machineryId && r.isDefault);
-      const defaultRateVal = machDefaultRate?.hourlyRate ?? 0;
-      if (ts.machineryRateId) {
-        const rate = allMachineryRates.find((r) => r.id === ts.machineryRateId);
-        if (rate) {
-          rateLabel = rate.rateName;
-          hourlyRate = rate.hourlyRate;
-        } else {
-          if (machDefaultRate) {
-            rateLabel = machDefaultRate.rateName;
-            hourlyRate = machDefaultRate.hourlyRate;
-          } else {
-            rateLabel = machineryName === 'Unknown' ? 'Unknown' : `Default (${machineryName})`;
-            hourlyRate = 0;
-          }
-        }
+      const defaultRateVal = machDefaultRate
+        ? resolveHourlyRate({ rateTier: machDefaultRate, machinery: machine })
+        : 0;
+      // Linked rate tier, else the machinery's default tier, else the
+      // machinery's own rates (shared resolver — no hard-coded hours).
+      const rateTier = findRateTier(ts, allMachineryRates);
+      const hourlyRate = resolveHourlyRate({ rateTier, machinery: machine });
+      let rateLabel: string;
+      if (rateTier) {
+        rateLabel = rateTier.rateName;
       } else {
-        if (machDefaultRate) {
-          rateLabel = machDefaultRate.rateName;
-          hourlyRate = machDefaultRate.hourlyRate;
-        } else {
-          rateLabel = machineryName === 'Unknown' ? 'Unknown' : `Default (${machineryName})`;
-          hourlyRate = 0;
-        }
+        rateLabel = machineryName === 'Unknown' ? 'Unknown' : `Default (${machineryName})`;
       }
 
       const key = `${plateNumber}||${machineryType}||${rateLabel}`;
@@ -430,7 +404,7 @@ export function ContractorProfile({ contractorId }: { contractorId?: string }) {
       }
       const entry = rateMap.get(key)!;
       entry.hours += ts.totalHours;
-      entry.revenue += ts.totalHours * hourlyRate;
+      entry.revenue += computeTimesheetRevenue(ts.totalHours, hourlyRate);
     }
     return monthMap;
   }, [finFilteredTimesheets, allMachineryRates, machineryList]);
@@ -442,23 +416,9 @@ export function ContractorProfile({ contractorId }: { contractorId?: string }) {
     acc[month].hours += ts.totalHours;
     acc[month].count += 1;
     if (ts.machineryId) {
-      if (ts.machineryRateId) {
-        const rate = allMachineryRates.find((r) => r.id === ts.machineryRateId);
-        if (rate) {
-          acc[month].revenue += ts.totalHours * rate.hourlyRate;
-          return acc;
-        }
-      }
-      const defaultRate = allMachineryRates.find((r) => r.machineryId === ts.machineryId && r.isDefault);
-      if (defaultRate) {
-        acc[month].revenue += ts.totalHours * defaultRate.hourlyRate;
-        return acc;
-      }
       const machine = machineryList.find((m) => m.id === ts.machineryId);
-      if (machine) {
-        const effectiveHourly = machine.workHoursPerDay > 0 ? machine.dailyRate / machine.workHoursPerDay : 0;
-        acc[month].revenue += ts.totalHours * effectiveHourly;
-      }
+      const hourlyRate = resolveTimesheetHourlyRate(ts, allMachineryRates, machine);
+      acc[month].revenue += computeTimesheetRevenue(ts.totalHours, hourlyRate);
     }
     return acc;
   }, {}), [finFilteredTimesheets, machineryList, allMachineryRates]);

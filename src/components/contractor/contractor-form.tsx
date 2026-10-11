@@ -351,7 +351,7 @@ export function ContractorForm() {
                   <Select onValueChange={field.onChange} value={field.value}>
                     <FormControl><SelectTrigger className="w-full"><SelectValue placeholder="Select status" /></SelectTrigger></FormControl>
                     <SelectContent>
-                      {CONTRACTOR_STATUSES.map((s) => (<SelectItem key={s} value={s}>{CONTRACTOR_STATUS_LABELS[s]}</SelectItem>))}
+                      {CONTRACTOR_STATUSES.filter((s) => s !== 'ARCHIVED').map((s) => (<SelectItem key={s} value={s}>{CONTRACTOR_STATUS_LABELS[s]}</SelectItem>))}
                     </SelectContent>
                   </Select>
                   <FormMessage />

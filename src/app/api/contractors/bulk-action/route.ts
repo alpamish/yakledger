@@ -1,22 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
-import { z } from "zod";
 import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/permissions";
+import { buildAccessScope, withScope } from "@/lib/access-control";
+import { contractorBulkActionSchema } from "@/lib/validation/contractor";
+import { archiveOrDeleteContractor } from "@/services/contractor.service";
 
-const bulkActionSchema = z.object({
-  ids: z.array(z.string()).min(1, "At least one ID is required"),
-  action: z.enum(["delete", "activate", "suspend"]),
-});
-
-// POST /api/contractors/bulk-action - Bulk actions on contractors
+// POST /api/contractors/bulk-action - Bulk actions on contractors.
+// - activate/suspend require contractors:edit (status management, not deletion)
+// - delete requires contractors:delete and applies archive-or-delete semantics
+// All IDs are scoped to the caller's access before any mutation.
 export async function POST(request: NextRequest) {
   try {
-    const result = await requirePermission(request, "contractors:delete");
-    if ("status" in result) return result;
-    const user = result.user;
-
     const body = await request.json();
-    const parsed = bulkActionSchema.safeParse(body);
+    const parsed = contractorBulkActionSchema.safeParse(body);
 
     if (!parsed.success) {
       const errors = parsed.error.issues.map((issue) => issue.message);
@@ -28,55 +24,69 @@ export async function POST(request: NextRequest) {
 
     const { ids, action } = parsed.data;
 
+    const permission = action === "delete" ? "contractors:delete" : "contractors:edit";
+    const result = await requirePermission(request, permission);
+    if ("status" in result) return result;
+    const user = result.user;
+
+    const scope = await buildAccessScope(user, "contractor");
+    const scopedWhere = withScope({ id: { in: ids } }, scope);
+
     let affected = 0;
 
     switch (action) {
       case "delete": {
-        const deleted = await db.contractor.deleteMany({
-          where: { id: { in: ids } },
+        // Archive contractors that still have history; hard-delete clean ones.
+        // Never cascade-wipes timesheets, fuel, machinery, or payment links.
+        const outcome = await db.$transaction(async (tx) => {
+          const targets = await tx.contractor.findMany({
+            where: scopedWhere,
+            select: { id: true },
+          });
+          const targetIds = targets.map((t) => t.id);
+          let deleted = 0;
+          let archived = 0;
+          for (const id of targetIds) {
+            const res = await archiveOrDeleteContractor(tx, id);
+            if (res.outcome === "DELETED") deleted++;
+            else archived++;
+          }
+          await tx.auditLog.create({
+            data: {
+              action: "BULK_DELETE",
+              entity: "Contractor",
+              details: `Bulk removed ${targetIds.length} contractor(s): ${deleted} deleted, ${archived} archived`,
+              userId: user.id,
+            },
+          });
+          return { affected: targetIds.length, deleted, archived };
         });
-        affected = deleted.count;
-        // Create audit log
-        await db.auditLog.create({
-          data: {
-            action: "BULK_DELETE",
-            entity: "Contractor",
-            details: `Bulk deleted ${affected} contractor(s)`,
-            userId: user.id,
-          },
+        affected = outcome.affected;
+        return NextResponse.json({
+          success: true,
+          data: { affected, deleted: outcome.deleted, archived: outcome.archived },
+          message: `Removed ${affected} contractor(s): ${outcome.deleted} deleted, ${outcome.archived} archived (history preserved)`,
         });
-        break;
       }
-      case "activate": {
-        const updated = await db.contractor.updateMany({
-          where: { id: { in: ids } },
-          data: { status: "ACTIVE" },
-        });
-        affected = updated.count;
-        await db.auditLog.create({
-          data: {
-            action: "BULK_ACTIVATE",
-            entity: "Contractor",
-            details: `Bulk activated ${affected} contractor(s)`,
-            userId: user.id,
-          },
-        });
-        break;
-      }
+      case "activate":
       case "suspend": {
-        const updated = await db.contractor.updateMany({
-          where: { id: { in: ids } },
-          data: { status: "SUSPENDED" },
+        const status = action === "activate" ? "ACTIVE" : "SUSPENDED";
+        const outcome = await db.$transaction(async (tx) => {
+          const updated = await tx.contractor.updateMany({
+            where: scopedWhere,
+            data: { status },
+          });
+          await tx.auditLog.create({
+            data: {
+              action: action === "activate" ? "BULK_ACTIVATE" : "BULK_SUSPEND",
+              entity: "Contractor",
+              details: `Bulk ${action === "activate" ? "activated" : "suspended"} ${updated.count} contractor(s)`,
+              userId: user.id,
+            },
+          });
+          return updated.count;
         });
-        affected = updated.count;
-        await db.auditLog.create({
-          data: {
-            action: "BULK_SUSPEND",
-            entity: "Contractor",
-            details: `Bulk suspended ${affected} contractor(s)`,
-            userId: user.id,
-          },
-        });
+        affected = outcome;
         break;
       }
     }
@@ -84,7 +94,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       data: { affected },
-      message: `Successfully ${action === "activate" ? "activated" : action === "suspend" ? "suspended" : "deleted"} ${affected} contractor(s)`,
+      message: `Successfully ${action === "activate" ? "activated" : "suspended"} ${affected} contractor(s)`,
     });
   } catch (error) {
     console.error("Bulk action error:", error);

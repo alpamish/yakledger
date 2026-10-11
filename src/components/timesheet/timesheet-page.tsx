@@ -34,6 +34,7 @@ import { BatchTimesheetForm } from './batch-timesheet-form';
 import { ConfirmDialog } from '@/components/common/confirm-dialog';
 import { timesheetsApi, machineryApi } from '@/services/contractor-api';
 import type { Timesheet, Machinery } from '@/types/contractor';
+import { resolveTimesheetHourlyRate } from '@/lib/contractor-rate';
 import { APPROVAL_STATUS_LABELS } from '@/types/expense';
 import type { ApprovalStatus } from '@/types/expense';
 import {
@@ -100,19 +101,11 @@ function formatCurrency(amount: number): string {
 
 function getHourlyRate(ts: Timesheet, machineryList: Machinery[]): number {
   if (!ts.machineryId) return 0;
-  if (ts.machineryRateId) {
-    const machine = machineryList.find((m) => m.id === ts.machineryId);
-    const rate = machine?.machineryRates?.find((r) => r.id === ts.machineryRateId);
-    if (rate) return rate.hourlyRate;
-  }
   const machine = machineryList.find((m) => m.id === ts.machineryId);
   if (!machine) return 0;
-  const defaultRate = machine.machineryRates?.find((r) => r.isDefault);
-  if (defaultRate) return defaultRate.hourlyRate;
-  if (machine.workHoursPerDay > 0 && machine.dailyRate > 0) {
-    return machine.dailyRate / machine.workHoursPerDay;
-  }
-  return 0;
+  // Shared contract-aware resolver: linked rate tier → default tier →
+  // machinery rates (derived via configured workHoursPerDay, never a hard 9).
+  return resolveTimesheetHourlyRate(ts, machine.machineryRates ?? [], machine);
 }
 
 function ChartTooltip({ active, payload }: { active?: boolean; payload?: Array<{ payload: ChartRow }> }) {

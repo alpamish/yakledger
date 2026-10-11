@@ -17,6 +17,7 @@ export const CONTRACTOR_STATUSES = [
   "ACTIVE",
   "INACTIVE",
   "SUSPENDED",
+  "ARCHIVED",
 ] as const;
 
 export const FUEL_TYPES = [
@@ -605,6 +606,7 @@ export const CONTRACTOR_STATUS_LABELS: Record<ContractorStatus, string> = {
   ACTIVE: "Active",
   INACTIVE: "Inactive",
   SUSPENDED: "Suspended",
+  ARCHIVED: "Archived",
 };
 
 export const FUEL_TYPE_LABELS: Record<FuelType, string> = {
@@ -638,6 +640,7 @@ export const CONTRACTOR_STATUS_COLORS: Record<ContractorStatus, string> = {
   ACTIVE: "#10b981",
   INACTIVE: "#f59e0b",
   SUSPENDED: "#ef4444",
+  ARCHIVED: "#64748b",
 };
 
 export const FUEL_TYPE_COLORS: Record<FuelType, string> = {

@@ -1,75 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { z } from "zod";
 import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/permissions";
 import { Prisma } from "@prisma/client";
 import { buildAccessScope, buildAggregateScope, withScope } from "@/lib/access-control";
 import { generateContractorNumber } from "@/lib/contractor-number";
-
-const CONTRACTOR_TYPE_VALUES = [
-  "MACHINERY_CONTRACTOR",
-  "TRANSPORTATION_CONTRACTOR",
-  "LABOR_CONTRACTOR",
-  "MATERIAL_SUPPLIER",
-  "OTHER",
-] as const;
-
-const CONTRACTOR_STATUS_VALUES = [
-  "ACTIVE",
-  "INACTIVE",
-  "SUSPENDED",
-] as const;
-
-const FUEL_TYPE_VALUES = [
-  "DIESEL", "GASOLINE", "LPG", "CNG", "OTHER",
-] as const;
-
-const MACHINERY_STATUS_VALUES = [
-  "OPERATIONAL", "UNDER_MAINTENANCE", "OUT_OF_SERVICE",
-] as const;
-
-const inlineMachinerySchema = z.object({
-  machineryName: z.string().min(1, "Machinery name is required"),
-  machineryType: z.string().min(1, "Machinery type is required"),
-  plateNumber: z.string().optional().nullable(),
-  model: z.string().optional().nullable(),
-  driverName: z.string().optional().nullable(),
-  status: z.enum(MACHINERY_STATUS_VALUES).default("OPERATIONAL"),
-  fuelType: z.enum(FUEL_TYPE_VALUES).default("DIESEL"),
-  hourlyConsumptionRate: z.number().min(0).default(0),
-  hourlyRate: z.number().min(0).default(0),
-  dailyRate: z.number().min(0).default(0),
-  monthlyRate: z.number().min(0).default(0),
-  contractDaysPerMonth: z.number().int().min(1).max(31).default(28),
-  workHoursPerDay: z.number().int().min(1).max(24).default(9),
-  contractStartDate: z.string().optional().nullable(),
-  contractEndDate: z.string().optional().nullable(),
-}).superRefine((data, ctx) => {
-  if (data.hourlyRate <= 0 && data.dailyRate <= 0 && data.monthlyRate <= 0) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ["monthlyRate"],
-      message: "At least one rate (hourly, daily, or monthly) is required",
-    });
-  }
-});
-
-const createContractorSchema = z.object({
-  contractorName: z.string().min(1, "Contractor name is required"),
-  fatherName: z.string().min(1, "Father name is required"),
-  companyName: z.string().optional().nullable(),
-  phoneNumber: z.string().min(1, "Phone number is required"),
-  alternativePhone: z.string().optional().nullable(),
-  email: z.string().email().optional().nullable(),
-  address: z.string().optional().nullable(),
-  nationalId: z.string().optional().nullable(),
-  idImageFront: z.string().optional().nullable(),
-  idImageBack: z.string().optional().nullable(),
-  contractorType: z.enum(CONTRACTOR_TYPE_VALUES),
-  status: z.enum(CONTRACTOR_STATUS_VALUES).default("ACTIVE"),
-  notes: z.string().optional().nullable(),
-  machinery: z.array(inlineMachinerySchema).optional(),
-});
+import { createContractorSchema } from "@/lib/validation/contractor";
 
 // GET /api/contractors - List contractors with filtering, pagination, sorting
 export async function GET(request: NextRequest) {
@@ -113,11 +48,24 @@ export async function GET(request: NextRequest) {
 
     if (statuses && statuses.length > 0) {
       where.status = { in: statuses as Prisma.StringFilter["in"] };
+    } else {
+      // Archived contractors are hidden from the default list; they remain
+      // reachable via the explicit status filter (and in reports/history).
+      where.status = { not: "ARCHIVED" };
     }
 
-    // Validate sort field
-    const validSortFields = ["createdAt", "contractorName", "hourlyRate", "dailyRate", "monthlyRate", "status"];
-    const sortField = validSortFields.includes(sortBy) ? sortBy : "createdAt";
+    // Validate sort field against real Contractor columns only. Rate columns
+    // live on Machinery/MachineryRate, not Contractor — sorting by them would
+    // 500 in Prisma. Unknown fields are rejected explicitly (400) so client
+    // bugs surface instead of silently falling back.
+    const validSortFields = ["createdAt", "contractorName", "status", "contractorNumber"];
+    if (!validSortFields.includes(sortBy)) {
+      return NextResponse.json(
+        { success: false, error: `Invalid sort field: ${sortBy}. Valid fields: ${validSortFields.join(", ")}` },
+        { status: 400 }
+      );
+    }
+    const sortField = sortBy;
     const order = sortOrder === "asc" ? "asc" : "desc";
 
     const [

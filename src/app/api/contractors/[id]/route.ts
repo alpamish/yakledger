@@ -1,39 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { z } from "zod";
 import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/permissions";
 import { Prisma } from "@prisma/client";
 import { buildAccessScope, buildListScope, buildAggregateScope, withScope } from "@/lib/access-control";
-
-const CONTRACTOR_TYPE_VALUES = [
-  "MACHINERY_CONTRACTOR",
-  "TRANSPORTATION_CONTRACTOR",
-  "LABOR_CONTRACTOR",
-  "MATERIAL_SUPPLIER",
-  "OTHER",
-] as const;
-
-const CONTRACTOR_STATUS_VALUES = [
-  "ACTIVE",
-  "INACTIVE",
-  "SUSPENDED",
-] as const;
-
-const updateContractorSchema = z.object({
-  contractorName: z.string().min(1).optional(),
-  fatherName: z.string().min(1).optional(),
-  companyName: z.string().optional().nullable(),
-  phoneNumber: z.string().min(1).optional(),
-  alternativePhone: z.string().optional().nullable(),
-  email: z.string().email().optional().nullable(),
-  address: z.string().optional().nullable(),
-  nationalId: z.string().optional().nullable(),
-  idImageFront: z.string().optional().nullable(),
-  idImageBack: z.string().optional().nullable(),
-  contractorType: z.enum(CONTRACTOR_TYPE_VALUES).optional(),
-  status: z.enum(CONTRACTOR_STATUS_VALUES).optional(),
-  notes: z.string().optional().nullable(),
-});
+import { updateContractorSchema } from "@/lib/validation/contractor";
+import { archiveOrDeleteContractor } from "@/services/contractor.service";
 
 // GET /api/contractors/[id] - Get single contractor with full profile
 export async function GET(
@@ -244,7 +215,7 @@ export async function PUT(
 
     return NextResponse.json({
       success: true,
-      data: contractor,
+      data: updateResult,
       message: "Contractor updated successfully",
     });
   } catch (error) {
@@ -262,7 +233,9 @@ export async function PUT(
   }
 }
 
-// DELETE /api/contractors/[id] - Delete contractor
+// DELETE /api/contractors/[id] - Archive-or-delete a contractor.
+// Contractors with operational/financial history are archived (history is
+// never cascade-deleted); only clean contractors are hard-deleted.
 export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -274,34 +247,48 @@ export async function DELETE(
 
     const { id } = await params;
 
-    // Get contractor name before deletion for audit log
-    const contractor = await db.contractor.findFirst({
-      where: withScope({ id }, await buildAccessScope(user, "contractor")),
-      select: { contractorName: true },
+    const contractorScope = await buildAccessScope(user, "contractor");
+    const existing = await db.contractor.findFirst({
+      where: withScope({ id }, contractorScope),
+      select: { id: true, contractorName: true, status: true },
     });
 
-    if (!contractor) {
+    if (!existing) {
       return NextResponse.json(
         { success: false, error: "Contractor not found" },
         { status: 404 }
       );
     }
 
-    // Create audit log entry before deletion
-    await db.auditLog.create({
-      data: {
-        action: "DELETE",
-        entity: "Contractor",
-        entityId: id,
-        details: `Deleted contractor: ${contractor.contractorName}`,
-        userId: user.id,
-      },
+    const outcome = await db.$transaction(async (tx) => {
+      const res = await archiveOrDeleteContractor(tx, id);
+      await tx.auditLog.create({
+        data: {
+          action: res.outcome === "DELETED" ? "DELETE" : "ARCHIVE",
+          entity: "Contractor",
+          entityId: id,
+          details:
+            res.outcome === "DELETED"
+              ? `Deleted contractor: ${existing.contractorName}`
+              : `Archived contractor: ${existing.contractorName} (has operational/financial history; history preserved)`,
+          userId: user.id,
+        },
+      });
+      return res;
     });
 
-    await db.contractor.delete({ where: { id } });
+    if (outcome.outcome === "ARCHIVED") {
+      return NextResponse.json({
+        success: true,
+        data: { archived: true, history: outcome.history },
+        message:
+          "Contractor has operational/financial history and was archived instead of deleted. History is preserved.",
+      });
+    }
 
     return NextResponse.json({
       success: true,
+      data: { archived: false },
       message: "Contractor deleted successfully",
     });
   } catch (error) {

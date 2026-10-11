@@ -843,7 +843,7 @@ model FuelUsage {
   @@index([approvalStatus, createdBy])
 }
 
-  model Machinery {
+model Machinery {
   id                    String            @id @default(cuid())
   machineryName         String
   machineryType         String

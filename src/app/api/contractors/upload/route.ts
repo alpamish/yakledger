@@ -5,16 +5,19 @@ import path from "path";
 import sharp from "sharp";
 import { CONTRACTOR_ID_UPLOAD } from "@/lib/upload-config";
 
-// POST /api/contractors/upload - Upload contractor ID images (front and/or back)
+// POST /api/contractors/upload - Upload contractor ID images (front and/or back).
+// Uploading into an existing contractor's folder requires edit permission;
+// temp uploads (before the contractor exists) require create permission.
 export async function POST(request: NextRequest) {
   try {
-    const permResult = await requirePermission(request, "contractors:create");
-    if ("status" in permResult) return permResult;
-
     const formData = await request.formData();
     const frontFile = formData.get("front") as File | null;
     const backFile = formData.get("back") as File | null;
     const contractorId = formData.get("contractorId") as string | null;
+
+    const permission = contractorId ? "contractors:edit" : "contractors:create";
+    const permResult = await requirePermission(request, permission);
+    if ("status" in permResult) return permResult;
 
     if (!frontFile && !backFile) {
       return NextResponse.json(
