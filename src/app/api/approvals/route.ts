@@ -22,6 +22,7 @@ const APPROVE_PERMISSIONS = [
   "cashAdvance:approve",
   "employees:approve",
   "assets:approve",
+  "contractors:claims:approve",
 ];
 
 const MAX_PAGE_SIZE = 200;
@@ -269,6 +270,37 @@ export async function GET(request: NextRequest) {
           })),
         }));
 
+    const fetchContractorClaims = entityFilter && entityFilter !== "contractorClaim"
+      ? Promise.resolve<{ rows: ApprovalItem[]; count: number }>({ rows: [], count: 0 })
+      : Promise.all([
+          db.contractorClaim.count({
+            where: status === "PENDING" ? { ...where, status: { in: ["SUBMITTED", "VERIFIED", "FINANCE_REVIEW"] } } : where,
+          }),
+          db.contractorClaim.findMany({
+            // Drafts are not yet submitted, so they never enter the queue.
+            where: status === "PENDING" ? { ...where, status: { in: ["SUBMITTED", "VERIFIED", "FINANCE_REVIEW"] } } : where,
+            include: {
+              creator: { select: { id: true, name: true } },
+              contractor: { select: { contractorName: true } },
+            },
+            orderBy: { createdAt: "asc" },
+            take,
+          }),
+        ]).then(([count, rows]) => ({
+          count,
+          rows: rows.map((r) => ({
+            entity: "contractorClaim",
+            id: r.id,
+            summary: `${r.claimNumber} - ${r.contractor?.contractorName ?? "Contractor"} (${r.title})`,
+            amount: r.netAmount,
+            date: r.periodEnd.toISOString(),
+            status: r.approvalStatus,
+            approvalNote: r.approvalNote,
+            createdAt: r.createdAt.toISOString(),
+            createdBy: r.creator,
+          })),
+        }));
+
     const [
       expenses,
       timesheets,
@@ -278,6 +310,7 @@ export async function GET(request: NextRequest) {
       attendance,
       assetLogs,
       loans,
+      contractorClaims,
     ] = await Promise.all([
       fetchExpenses,
       fetchTimesheets,
@@ -287,6 +320,7 @@ export async function GET(request: NextRequest) {
       fetchAttendance,
       fetchAssetLogs,
       fetchLoans,
+      fetchContractorClaims,
     ]);
 
     const allItems: ApprovalItem[] = [
@@ -298,6 +332,7 @@ export async function GET(request: NextRequest) {
       ...attendance.rows,
       ...assetLogs.rows,
       ...loans.rows,
+      ...contractorClaims.rows,
     ].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 
     const total =
@@ -308,7 +343,8 @@ export async function GET(request: NextRequest) {
       transfers.count +
       attendance.count +
       assetLogs.count +
-      loans.count;
+      loans.count +
+      contractorClaims.count;
 
     const totalPages = Math.max(1, Math.ceil(total / pageSize));
     const safePage = Math.min(page, totalPages);
@@ -324,6 +360,7 @@ export async function GET(request: NextRequest) {
       attendance: attendance.count,
       assetLog: assetLogs.count,
       loan: loans.count,
+      contractorClaim: contractorClaims.count,
     };
 
     return NextResponse.json({

@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/permissions";
 import { APPROVED, REJECTED, APPROVAL_ENTITIES } from "@/lib/access-control";
 import { ENTITY_CONFIG, applyWalletEffect } from "@/lib/approvals";
+import { approveAndPostClaim, rejectClaim, ClaimError } from "@/services/contractor-claim.service";
 import { recalculatePayrollsForAttendance } from "@/services/hr.service";
 
 const actionSchema = z.object({
@@ -38,6 +39,27 @@ export async function POST(
     }
 
     const { action, note } = parsed.data;
+
+    // Claims need their full posting flow (ledger + advance recovery), not the
+    // generic approvalStatus update. Route through the claim service instead.
+    if (entity === "contractorClaim") {
+      try {
+        const updated =
+          action === "approve"
+            ? await approveAndPostClaim(id, user.id, note ?? undefined)
+            : await rejectClaim(id, user.id, note ?? undefined);
+        return NextResponse.json({
+          success: true,
+          data: updated,
+          message: action === "approve" ? "Claim approved and posted" : "Claim rejected",
+        });
+      } catch (err) {
+        if (err instanceof ClaimError) {
+          return NextResponse.json({ success: false, error: err.message }, { status: err.status });
+        }
+        throw err;
+      }
+    }
 
     const model = db[cfg.model as keyof typeof db] as unknown as {
       findUnique: (args: { where: { id: string } }) => Promise<Record<string, unknown> | null>;

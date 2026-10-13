@@ -21,6 +21,10 @@ export const ENTITY_CONFIG: Record<string, ApprovalEntityConfig> = {
   attendance: { model: "attendance", permission: "employees:approve", auditEntity: "Attendance" },
   assetLog: { model: "assetLog", permission: "assets:approve", auditEntity: "AssetLog" },
   loan: { model: "loan", permission: "cashAdvance:approve", auditEntity: "Loan", amountField: "principalMinor", wallet: { type: "loan" } },
+  // Claims need their full posting flow (ledger entries + advance recovery),
+  // not the generic status update — the approval routes special-case this
+  // entity and call `approveAndPostClaim` / `rejectClaim` instead.
+  contractorClaim: { model: "contractorClaim", permission: "contractors:claims:approve", auditEntity: "ContractorClaim", amountField: "netAmount" },
 };
 
 /**

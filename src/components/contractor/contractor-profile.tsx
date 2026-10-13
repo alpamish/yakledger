@@ -32,6 +32,10 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { MachineryDetailModal } from '@/components/machinery/machinery-detail-modal';
 import { ContractorContractsTab } from '@/components/contractor/contractor-contracts-tab';
+import { ContractorClaimsTab } from '@/components/contractor/contractor-claims-tab';
+import { ContractorAdvancesTab } from '@/components/contractor/contractor-advances-tab';
+import { ContractorPaymentsTab } from '@/components/contractor/contractor-payments-tab';
+import { ContractorLedgerTab } from '@/components/contractor/contractor-ledger-tab';
 import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -84,6 +88,9 @@ import {
   Eye,
   ChevronLeft,
   ChevronRight,
+  ClipboardList,
+  Banknote,
+  Scale,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
@@ -759,6 +766,18 @@ export function ContractorProfile({ contractorId }: { contractorId?: string }) {
           </TabsTrigger>
           <TabsTrigger value="contracts" className="gap-1.5">
             <FileText className="h-4 w-4" /> Contracts
+          </TabsTrigger>
+          <TabsTrigger value="claims" className="gap-1.5">
+            <ClipboardList className="h-4 w-4" /> Claims
+          </TabsTrigger>
+          <TabsTrigger value="advances" className="gap-1.5">
+            <Banknote className="h-4 w-4" /> Advances
+          </TabsTrigger>
+          <TabsTrigger value="payments" className="gap-1.5">
+            <CreditCard className="h-4 w-4" /> Payments
+          </TabsTrigger>
+          <TabsTrigger value="ledger" className="gap-1.5">
+            <Scale className="h-4 w-4" /> Ledger
           </TabsTrigger>
           <TabsTrigger value="financial" className="gap-1.5">
             <Calculator className="h-4 w-4" /> Financial Summary
@@ -1598,6 +1617,39 @@ export function ContractorProfile({ contractorId }: { contractorId?: string }) {
             canDelete={hasPermission('contracts:delete')}
             canApprove={hasPermission('contracts:approve')}
           />
+        </TabsContent>
+
+        {/* ─── Claims Tab (Phase 4) ──────────────────────────────── */}
+        <TabsContent value="claims">
+          <ContractorClaimsTab
+            contractorId={selectedContractor.id}
+            canCreate={hasPermission('contractors:claims:create')}
+            canEdit={hasPermission('contractors:claims:edit')}
+            canApprove={hasPermission('contractors:claims:approve')}
+          />
+        </TabsContent>
+
+        {/* ─── Advances Tab (Phase 4) ────────────────────────────── */}
+        <TabsContent value="advances">
+          <ContractorAdvancesTab
+            contractorId={selectedContractor.id}
+            canCreate={hasPermission('contractors:advances:create')}
+            canWriteOff={hasPermission('contractors:advances:writeOff')}
+          />
+        </TabsContent>
+
+        {/* ─── Payments Tab (Phase 4) ────────────────────────────── */}
+        <TabsContent value="payments">
+          <ContractorPaymentsTab
+            contractorId={selectedContractor.id}
+            canCreate={hasPermission('contractors:payments:create')}
+            canReverse={hasPermission('contractors:payments:reverse')}
+          />
+        </TabsContent>
+
+        {/* ─── Ledger Tab (Phase 4) ──────────────────────────────── */}
+        <TabsContent value="ledger">
+          <ContractorLedgerTab contractorId={selectedContractor.id} />
         </TabsContent>
 
         {/* ─── Financial Summary Tab ──────────────────────────── */}

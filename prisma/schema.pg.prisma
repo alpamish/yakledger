@@ -126,6 +126,68 @@ enum ContractVariationStatus {
   REJECTED
 }
 
+enum ClaimStatus {
+  DRAFT
+  SUBMITTED
+  VERIFIED
+  FINANCE_REVIEW
+  APPROVED
+  POSTED
+  PARTIALLY_PAID
+  PAID
+  REJECTED
+  VOID
+}
+
+enum ClaimLineSourceType {
+  TIMESHEET
+  MANUAL
+  VARIATION
+}
+
+enum ClaimDeductionType {
+  FUEL
+  PENALTY
+  MATERIALS
+  ACCOMMODATION
+  FOOD
+  TRANSPORT
+  TAX
+  OTHER
+}
+
+enum AdvanceStatus {
+  OUTSTANDING
+  PARTIALLY_RECOVERED
+  RECOVERED
+  WRITTEN_OFF
+}
+
+enum PaymentMethodType {
+  CASH
+  BANK_TRANSFER
+  CHEQUE
+}
+
+enum ContractorPaymentStatus {
+  PENDING
+  COMPLETED
+  BOUNCED
+  REVERSED
+}
+
+enum ContractorLedgerEntryType {
+  CLAIM_POSTED
+  CLAIM_REVERSAL
+  RETENTION_HELD
+  RETENTION_RELEASED
+  ADVANCE_DISBURSED
+  ADVANCE_RECOVERY
+  PAYMENT
+  PAYMENT_REVERSAL
+  WRITE_OFF
+}
+
 enum AttendanceStatus {
   PRESENT
   ABSENT
@@ -212,6 +274,8 @@ model User {
   contractRateApprovals      ContractRate[]        @relation("ContractRateApprover")
   contractVariationsCreated  ContractVariation[]   @relation("ContractVariationCreator")
   contractVariationApprovals ContractVariation[]   @relation("ContractVariationApprover")
+  contractorClaimsCreated    ContractorClaim[]     @relation("ContractorClaimCreator")
+  contractorClaimApprovals   ContractorClaim[]     @relation("ContractorClaimApprover")
   timesheets      Timesheet[]
   fuelUsages      FuelUsage[]
   machinery       Machinery[]
@@ -984,6 +1048,10 @@ model Contractor {
   machinery           Machinery[]
   fuelTransactions    FuelTransaction[]
   contracts           ContractorContract[]
+  claims              ContractorClaim[]
+  advances            ContractorAdvance[]
+  payments            ContractorPayment[]
+  ledgerEntries       ContractorLedgerEntry[]
 
   @@index([phoneNumber])
   @@index([nationalId])
@@ -1025,6 +1093,7 @@ model ContractorContract {
   rates                 ContractRate[]
   variations            ContractVariation[]
   timesheets            Timesheet[]
+  claims                ContractorClaim[]
 
   @@index([contractorId])
   @@index([status])
@@ -1078,6 +1147,201 @@ model ContractVariation {
   creator         User               @relation("ContractVariationCreator", fields: [createdBy], references: [id], onDelete: Cascade)
 
   @@index([contractId, status])
+}
+
+// ─── Phase 4: Claims, advances, payments, ledger ────────────────────────────
+
+model ContractorClaim {
+  id                  String    @id @default(cuid())
+  claimNumber         String    @unique
+  contractorId        String
+  contractId          String
+  title               String
+  periodStart         DateTime
+  periodEnd           DateTime
+  grossAmount         Float
+  // Snapshot of the contract's retention terms at claim time.
+  retentionPercent    Float     @default(0)
+  retentionAmount     Float     @default(0)
+  deductionsTotal     Float     @default(0)
+  advanceRecoveryTotal Float    @default(0)
+  netAmount           Float
+  paidAmount          Float     @default(0)
+  status              ClaimStatus @default(DRAFT)
+  // Approval framework fields (submitted claims appear on the approvals page)
+  approvalStatus      String    @default("PENDING")
+  approvedById        String?
+  approvedAt          DateTime?
+  approvalNote        String?
+  // Ledger posting marker: liability posted exactly once.
+  postedAt            DateTime?
+  submittedById       String?
+  verifiedById        String?
+  financeReviewedById String?
+  voidedAt            DateTime?
+  notes               String?
+  createdBy           String
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+  contractor          Contractor @relation(fields: [contractorId], references: [id], onDelete: Restrict)
+  contract            ContractorContract @relation(fields: [contractId], references: [id], onDelete: Restrict)
+  approver            User?      @relation("ContractorClaimApprover", fields: [approvedById], references: [id], onDelete: SetNull)
+  creator             User       @relation("ContractorClaimCreator", fields: [createdBy], references: [id], onDelete: Cascade)
+  lines               ContractorClaimLine[]
+  deductions          ContractorDeduction[]
+  retentionReleases   RetentionRelease[]
+  advanceRecoveries   AdvanceRecovery[]
+  allocations         PaymentAllocation[]
+
+  @@index([contractorId])
+  @@index([contractId])
+  @@index([status])
+  @@index([approvalStatus, createdBy])
+}
+
+model ContractorClaimLine {
+  id          String          @id @default(cuid())
+  claimId     String
+  sourceType  ClaimLineSourceType @default(TIMESHEET)
+  timesheetId String?
+  description String
+  quantity    Float
+  unitLabel   String?
+  rateLabel   String?
+  // Snapshot of the rate at claim time — later rate changes never rewrite it.
+  rateAmount  Float
+  amount      Float
+  claim       ContractorClaim @relation(fields: [claimId], references: [id], onDelete: Cascade)
+
+  @@index([claimId])
+  @@index([timesheetId])
+}
+
+model ContractorDeduction {
+  id          String          @id @default(cuid())
+  claimId     String
+  type        ClaimDeductionType
+  description String
+  amount      Float
+  appliedBy   String
+  createdAt   DateTime        @default(now())
+  claim       ContractorClaim @relation(fields: [claimId], references: [id], onDelete: Cascade)
+
+  @@index([claimId])
+}
+
+model RetentionRelease {
+  id          String          @id @default(cuid())
+  claimId     String
+  amount      Float
+  date        DateTime
+  reason      String
+  releasedBy  String
+  createdAt   DateTime        @default(now())
+  claim       ContractorClaim @relation(fields: [claimId], references: [id], onDelete: Cascade)
+
+  @@index([claimId])
+}
+
+model ContractorAdvance {
+  id               String    @id @default(cuid())
+  advanceNumber    String    @unique
+  contractorId     String
+  contractId       String?
+  amount           Float
+  date             DateTime
+  recoveredAmount  Float     @default(0)
+  // Fraction of each future claim's net payable auto-recovered (0-100).
+  recoveryPercent  Float?
+  status           AdvanceStatus @default(OUTSTANDING)
+  walletId         String?
+  expenseId        String?
+  writtenOffAt     DateTime?
+  notes            String?
+  createdBy        String
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  contractor       Contractor @relation(fields: [contractorId], references: [id], onDelete: Restrict)
+  recoveries       AdvanceRecovery[]
+
+  @@index([contractorId])
+  @@index([status])
+}
+
+model AdvanceRecovery {
+  id        String            @id @default(cuid())
+  advanceId String
+  claimId   String
+  amount    Float
+  date      DateTime
+  advance   ContractorAdvance @relation(fields: [advanceId], references: [id], onDelete: Cascade)
+  claim     ContractorClaim   @relation(fields: [claimId], references: [id], onDelete: Cascade)
+
+  @@index([advanceId])
+  @@index([claimId])
+}
+
+model ContractorPayment {
+  id               String    @id @default(cuid())
+  paymentNumber    String    @unique
+  contractorId     String
+  contractId       String?
+  amount           Float
+  paymentDate      DateTime
+  method           PaymentMethodType @default(CASH)
+  walletId         String?
+  authorizedById   String?
+  // Link to the Expense row created for the cash-out (D4).
+  expenseId        String?
+  status           ContractorPaymentStatus @default(COMPLETED)
+  idempotencyKey   String?   @unique
+  notes            String?
+  createdBy        String
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  contractor       Contractor @relation(fields: [contractorId], references: [id], onDelete: Restrict)
+  allocations      PaymentAllocation[]
+
+  @@index([contractorId])
+  @@index([status])
+}
+
+model PaymentAllocation {
+  id        String            @id @default(cuid())
+  paymentId String
+  claimId   String
+  amount    Float
+  createdAt DateTime          @default(now())
+  payment   ContractorPayment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  claim     ContractorClaim   @relation(fields: [claimId], references: [id], onDelete: Restrict)
+
+  @@index([paymentId])
+  @@index([claimId])
+}
+
+model ContractorLedgerEntry {
+  id                String    @id @default(cuid())
+  contractorId      String
+  contractId        String?
+  claimId           String?
+  paymentId         String?
+  advanceId         String?
+  retentionReleaseId String?
+  // Signed: positive increases what the company owes the contractor.
+  type              ContractorLedgerEntryType
+  amount            Float
+  // Derived from the ledger sum inside the posting transaction (never trusted standalone).
+  balanceAfter      Float
+  reference         String?
+  occurredAt        DateTime
+  createdBy         String
+  createdAt         DateTime  @default(now())
+  contractor        Contractor @relation(fields: [contractorId], references: [id], onDelete: Restrict)
+
+  @@index([contractorId, occurredAt])
+  @@index([claimId])
+  @@index([paymentId])
+  @@index([advanceId])
 }
 
 model Sequence {

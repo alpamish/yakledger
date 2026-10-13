@@ -44,6 +44,7 @@ const ENTITY_LABELS: Record<string, string> = {
   attendance: 'Attendance',
   assetLog: 'Asset Log',
   loan: 'Loan',
+  contractorClaim: 'Contractor Claim',
 };
 
 const ENTITY_COLORS: Record<string, string> = {
@@ -55,6 +56,7 @@ const ENTITY_COLORS: Record<string, string> = {
   attendance: '#06b6d4',
   assetLog: '#6366f1',
   loan: '#e11d48',
+  contractorClaim: '#0f766e',
 };
 
 function formatAmount(value?: number): string {
@@ -63,7 +65,7 @@ function formatAmount(value?: number): string {
 }
 
 export function ApprovalsPage() {
-  const { canApprove } = usePermissions();
+  const { canApprove, hasPermission } = usePermissions();
   const [status, setStatus] = useState<ApprovalStatus>('PENDING');
   const [entity, setEntity] = useState<string>('all');
   const [items, setItems] = useState<ApprovalItem[]>([]);
@@ -79,7 +81,7 @@ export function ApprovalsPage() {
   const [detailExpense, setDetailExpense] = useState<Expense | null>(null);
   const [detailLoading, setDetailLoading] = useState<string | null>(null);
 
-  const canApproveAny = canApprove('expenses') || canApprove('timesheets') || canApprove('fuelUsage') || canApprove('cashAdvance') || canApprove('employees') || canApprove('assets');
+  const canApproveAny = canApprove('expenses') || canApprove('timesheets') || canApprove('fuelUsage') || canApprove('cashAdvance') || canApprove('employees') || canApprove('assets') || hasPermission('contractors:claims:approve');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -115,7 +117,7 @@ export function ApprovalsPage() {
     const tabs: { key: string; label: string; count: number }[] = [
       { key: 'all', label: 'All', count: Object.values(counts).reduce((a, b) => a + b, 0) },
     ];
-    for (const key of ['expense', 'timesheet', 'fuelUsage', 'cashTransaction', 'transfer', 'attendance', 'assetLog', 'loan']) {
+    for (const key of ['expense', 'timesheet', 'fuelUsage', 'cashTransaction', 'transfer', 'attendance', 'assetLog', 'loan', 'contractorClaim']) {
       tabs.push({ key, label: ENTITY_LABELS[key], count: counts[key] ?? 0 });
     }
     return tabs;

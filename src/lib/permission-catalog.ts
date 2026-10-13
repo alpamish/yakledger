@@ -47,6 +47,17 @@ export const PERMISSIONS: PermissionDef[] = [
   { name: "contracts:delete", label: "Delete Contracts", module: "contracts" },
   { name: "contracts:approve", label: "Approve Contracts & Rates", module: "contracts" },
 
+  { name: "contractors:claims:view", label: "View Contractor Claims", module: "contractors" },
+  { name: "contractors:claims:create", label: "Create Contractor Claims", module: "contractors" },
+  { name: "contractors:claims:edit", label: "Edit Contractor Claims", module: "contractors" },
+  { name: "contractors:claims:approve", label: "Approve & Post Contractor Claims", module: "contractors" },
+  { name: "contractors:payments:view", label: "View Contractor Payments", module: "contractors" },
+  { name: "contractors:payments:create", label: "Record Contractor Payments", module: "contractors" },
+  { name: "contractors:payments:reverse", label: "Reverse Contractor Payments", module: "contractors" },
+  { name: "contractors:advances:view", label: "View Contractor Advances", module: "contractors" },
+  { name: "contractors:advances:create", label: "Disburse Contractor Advances", module: "contractors" },
+  { name: "contractors:advances:writeOff", label: "Write Off Contractor Advances", module: "contractors" },
+
   { name: "timesheets:view", label: "View Timesheets", module: "timesheets" },
   { name: "timesheets:create", label: "Create Timesheets", module: "timesheets" },
   { name: "timesheets:edit", label: "Edit Timesheets", module: "timesheets" },
@@ -136,6 +147,9 @@ export const ROLE_PERMISSIONS: Record<string, string[]> = {
     "employees:payroll:view", "employees:payroll:manage",
     "employees:attendance:view", "employees:attendance:manage",
     "contractors:view", "contractors:create", "contractors:edit",
+    "contractors:claims:view", "contractors:claims:create", "contractors:claims:edit", "contractors:claims:approve",
+    "contractors:payments:view", "contractors:payments:create", "contractors:payments:reverse",
+    "contractors:advances:view", "contractors:advances:create", "contractors:advances:writeOff",
     "contracts:view", "contracts:create", "contracts:edit", "contracts:approve",
     "timesheets:view", "timesheets:create", "timesheets:edit", "timesheets:approve",
     "fuelUsage:view", "fuelUsage:create", "fuelUsage:edit", "fuelUsage:approve",
@@ -157,6 +171,7 @@ export const ROLE_PERMISSIONS: Record<string, string[]> = {
     "employees:leave:view", "employees:leave:manage",
     "employees:attendance:view", "employees:attendance:manage",
     "contractors:view", "contractors:create", "contractors:edit",
+    "contractors:claims:view", "contractors:payments:view", "contractors:advances:view",
     "contracts:view", "contracts:create", "contracts:edit",
     "timesheets:view", "timesheets:create", "timesheets:edit",
     "fuelUsage:view", "fuelUsage:create", "fuelUsage:edit",
@@ -173,6 +188,9 @@ export const ROLE_PERMISSIONS: Record<string, string[]> = {
     "employees:attendance:view",
     "employees:leave:view",
     "contractors:view",
+    "contractors:claims:view",
+    "contractors:payments:view",
+    "contractors:advances:view",
     "contracts:view",
     "timesheets:view",
     "fuelUsage:view",
@@ -235,6 +253,12 @@ export const PERMISSION_DEPENDENCIES: Record<string, string[]> = {
   "cashAdvance:create": ["wallets:view"],
   "assets:create": ["assets:view"],
   "assets:edit": ["assets:view"],
+  // Contractor financial subsystem: claims reference contracts, payments and
+  // advances move money out of wallets against the contractor reference list.
+  "contractors:claims:create": ["contracts:view", "content:contractors"],
+  "contractors:claims:edit": ["contracts:view", "content:contractors"],
+  "contractors:payments:create": ["contractors:view", "content:contractors", "wallets:view"],
+  "contractors:advances:create": ["contractors:view", "content:contractors", "wallets:view"],
 };
 
 /** Expand a permission list through its dependency graph (transitively). */

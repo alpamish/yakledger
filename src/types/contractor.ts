@@ -87,6 +87,11 @@ export interface Timesheet {
   contractorId: string;
   machineryId?: string | null;
   machineryRateId?: string | null;
+  // Contract billing snapshots (Phase 2/4).
+  contractId?: string | null;
+  contractRateId?: string | null;
+  rateLabel?: string | null;
+  rateAmount?: number | null;
   operatorName?: string | null;
   workSite?: string | null;
   date: string;

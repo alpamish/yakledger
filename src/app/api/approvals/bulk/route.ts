@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/permissions";
 import { APPROVED, APPROVAL_ENTITIES } from "@/lib/access-control";
 import { ENTITY_CONFIG, applyWalletEffect } from "@/lib/approvals";
+import { approveAndPostClaim } from "@/services/contractor-claim.service";
 
 const bulkApproveSchema = z.object({
   items: z
@@ -56,6 +57,13 @@ export async function POST(request: NextRequest) {
           continue;
         }
         const user = result.user;
+
+        // Claims go through their posting flow, not the generic status update.
+        if (entity === "contractorClaim") {
+          await approveAndPostClaim(id, user.id);
+          approved++;
+          continue;
+        }
 
         const model = db[cfg.model as keyof typeof db] as unknown as ApprovalModel;
 
