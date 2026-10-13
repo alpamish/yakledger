@@ -109,14 +109,20 @@ export async function recordPayment(input: RecordPaymentInput) {
 
     // 2. Wallet deduction for cash payments (inside the same transaction).
     if (method === "CASH" && walletId) {
-      await companyWalletService.deductForExpense(
-        tx,
-        walletId,
-        amount,
-        userId,
-        expense.id,
-        `Contractor payment ${paymentNumber}`
-      );
+      try {
+        await companyWalletService.deductForExpense(
+          tx,
+          walletId,
+          amount,
+          userId,
+          expense.id,
+          `Contractor payment ${paymentNumber}`
+        );
+      } catch (err) {
+        // Wallet problems (missing/inactive/insufficient balance) are
+        // client-fixable conditions, not server errors.
+        throw new PaymentError(err instanceof Error ? err.message : "Wallet deduction failed");
+      }
     }
 
     // 3. The payment row.

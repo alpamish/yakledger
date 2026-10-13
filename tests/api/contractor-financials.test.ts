@@ -2,7 +2,7 @@ import { POST as POST_CONTRACTOR } from "@/app/api/contractors/route";
 import { POST as POST_CONTRACT } from "@/app/api/contracts/route";
 import { POST as POST_RATE } from "@/app/api/contracts/[id]/rates/route";
 import { POST as POST_TIMESHEET } from "@/app/api/timesheets/route";
-import { POST as POST_CLAIM } from "@/app/api/contractor-claims/route";
+import { POST as POST_CLAIM, GET as GET_CLAIMS } from "@/app/api/contractor-claims/route";
 import { GET as GET_CLAIM_DETAIL, POST as CLAIM_ACTION, PUT as CLAIM_PUT, DELETE as DELETE_CLAIM } from "@/app/api/contractor-claims/[id]/route";
 import { POST as ADD_DEDUCTION, DELETE as DELETE_DEDUCTION } from "@/app/api/contractor-claims/[id]/deductions/route";
 import { POST as POST_APPROVAL_ACTION } from "@/app/api/approvals/[entity]/[id]/route";
@@ -10,11 +10,13 @@ import { GET as GET_APPROVALS } from "@/app/api/approvals/route";
 import { POST as POST_ADVANCE } from "@/app/api/contractor-advances/route";
 import { POST as WRITE_OFF } from "@/app/api/contractor-advances/[id]/write-off/route";
 import { POST as POST_PAYMENT, GET as GET_PAYMENTS } from "@/app/api/contractor-payments/route";
+import { GET as GET_PAYMENT_DETAIL } from "@/app/api/contractor-payments/[id]/route";
 import { POST as ALLOCATE } from "@/app/api/contractor-payments/[id]/allocations/route";
 import { POST as REVERSE_PAYMENT } from "@/app/api/contractor-payments/[id]/reverse/route";
 import { GET as GET_LEDGER } from "@/app/api/contractors/[id]/ledger/route";
 import { GET as GET_OUTSTANDING } from "@/app/api/contractors/[id]/outstanding/route";
 import { db } from "@/lib/db";
+import { hashPassword, generateToken } from "@/lib/auth";
 import { seedUsers, buildRequest } from "../helpers";
 
 let tokens: Awaited<ReturnType<typeof seedUsers>>;
@@ -102,6 +104,21 @@ async function createDraftClaim(timesheetIds: string[]): Promise<{ id: string; c
   expect(res.status).toBe(201);
   const body = await res.json();
   return body.data;
+}
+
+/** Draft → submit → approve&post a claim on one fresh timesheet. Net = 1080 (retention 120). */
+async function createPostedClaim(date: string): Promise<{ id: string; claimNumber: string }> {
+  const claim = await createDraftClaim([await makeTimesheet(date)]);
+  await CLAIM_ACTION(
+    buildRequest(`/api/contractor-claims/${claim.id}`, { token: tokens.adminToken, method: "POST", body: { action: "submit" } }),
+    { params: Promise.resolve({ id: claim.id }) }
+  );
+  const res = await CLAIM_ACTION(
+    buildRequest(`/api/contractor-claims/${claim.id}`, { token: tokens.adminToken, method: "POST", body: { action: "approve" } }),
+    { params: Promise.resolve({ id: claim.id }) }
+  );
+  expect(res.status).toBe(200);
+  return claim;
 }
 
 describe("Claim creation and math", () => {
@@ -752,5 +769,234 @@ describe("Ledger, outstanding and claim reversal", () => {
     );
     expect(res.status).toBe(200);
     expect((await res.json()).data.status).toBe("VOID");
+  });
+});
+
+describe("Partial payment twice keeps outstanding correct", () => {
+  it("two partial allocations reduce outstanding step by step", async () => {
+    const claim = await createPostedClaim("2026-08-01"); // net 1080, no recovery outstanding
+    const pay = async (value: number) => {
+      const res = await POST_PAYMENT(
+        buildRequest("/api/contractor-payments", {
+          token: tokens.adminToken,
+          method: "POST",
+          body: { contractorId, amount: value, paymentDate: "2026-08-05", method: "BANK_TRANSFER" },
+        })
+      );
+      expect(res.status).toBe(201);
+      const payment = (await res.json()).data;
+      const alloc = await ALLOCATE(
+        buildRequest(`/api/contractor-payments/${payment.id}/allocations`, {
+          token: tokens.adminToken,
+          method: "POST",
+          body: { allocations: [{ claimId: claim.id, amount: value }] },
+        }),
+        { params: Promise.resolve({ id: payment.id }) }
+      );
+      expect(alloc.status).toBe(201);
+    };
+
+    const outstandingOf = async () => {
+      const res = await GET_OUTSTANDING(
+        buildRequest(`/api/contractors/${contractorId}/outstanding`, { token: tokens.adminToken }),
+        { params: Promise.resolve({ id: contractorId }) }
+      );
+      const body = (await res.json()).data;
+      return body.claims.find((c: { claimId: string }) => c.claimId === claim.id).outstanding;
+    };
+
+    expect(await outstandingOf()).toBe(1080);
+
+    await pay(300);
+    let row = await db.contractorClaim.findUnique({ where: { id: claim.id } });
+    expect(row?.paidAmount).toBe(300);
+    expect(row?.status).toBe("PARTIALLY_PAID");
+    expect(await outstandingOf()).toBe(780);
+
+    await pay(480);
+    row = await db.contractorClaim.findUnique({ where: { id: claim.id } });
+    expect(row?.paidAmount).toBe(780);
+    expect(await outstandingOf()).toBe(300);
+
+    // Closing the claim flips it to PAID.
+    await pay(300);
+    row = await db.contractorClaim.findUnique({ where: { id: claim.id } });
+    expect(row?.status).toBe("PAID");
+    expect(await outstandingOf()).toBe(0);
+  });
+});
+
+describe("Retention release", () => {
+  it("releases retention in tranches, capped at the remaining held amount", async () => {
+    const claim = await createPostedClaim("2026-08-15"); // retention 120 held
+    const release = (value: number) =>
+      CLAIM_ACTION(
+        buildRequest(`/api/contractor-claims/${claim.id}`, {
+          token: tokens.adminToken,
+          method: "POST",
+          body: { action: "releaseRetention", amount: value, reason: "Milestone accepted" },
+        }),
+        { params: Promise.resolve({ id: claim.id }) }
+      );
+
+    const first = await release(50);
+    expect(first.status).toBe(200);
+    const entry = await db.contractorLedgerEntry.findFirst({
+      where: { claimId: claim.id, type: "RETENTION_RELEASED" },
+    });
+    expect(entry?.amount).toBe(-50);
+
+    // Over-release is rejected: only 70 remains.
+    const over = await release(100);
+    expect(over.status).toBe(400);
+    expect((await over.json()).error).toContain("remains");
+
+    const rest = await release(70);
+    expect(rest.status).toBe(200);
+    const totalReleased = await db.retentionRelease.aggregate({
+      _sum: { amount: true },
+      where: { claimId: claim.id },
+    });
+    expect(totalReleased._sum.amount).toBe(120);
+  });
+});
+
+describe("CASH payments debit the wallet and reversals credit it back", () => {
+  let walletId: string;
+
+  beforeAll(async () => {
+    const wallet = await db.wallet.create({
+      data: { name: "Fin Test Cash", type: "CASH", currency: "AFN" },
+    });
+    walletId = wallet.id;
+    await db.walletTransaction.create({
+      data: { walletId, type: "FUNDING", amount: 5000, createdBy: tokens.admin.id },
+    });
+  });
+
+  it("records a CASH payment with a wallet deduction, then reversal credits back", async () => {
+    const claim = await createPostedClaim("2026-09-01"); // outstanding 1080
+
+    const payRes = await POST_PAYMENT(
+      buildRequest("/api/contractor-payments", {
+        token: tokens.adminToken,
+        method: "POST",
+        body: { contractorId, amount: 400, paymentDate: "2026-09-05", method: "CASH", walletId },
+      })
+    );
+    expect(payRes.status).toBe(201);
+    const payment = (await payRes.json()).data;
+    expect(payment.expenseId).toBeTruthy();
+
+    // Expense wired to the contractor + wallet debit written.
+    const expense = await db.expense.findUnique({ where: { id: payment.expenseId } });
+    expect(expense?.paidToContractorId).toBe(contractorId);
+    expect(expense?.walletId).toBe(walletId);
+    const debit = await db.walletTransaction.findFirst({
+      where: { walletId, expenseId: payment.expenseId, amount: -400 },
+    });
+    expect(debit?.type).toBe("EXPENSE");
+
+    const alloc = await ALLOCATE(
+      buildRequest(`/api/contractor-payments/${payment.id}/allocations`, {
+        token: tokens.adminToken,
+        method: "POST",
+        body: { allocations: [{ claimId: claim.id, amount: 400 }] },
+      }),
+      { params: Promise.resolve({ id: payment.id }) }
+    );
+    expect(alloc.status).toBe(201);
+
+    // Reverse: allocation unwound, wallet credited, ledger compensated.
+    const revRes = await REVERSE_PAYMENT(
+      buildRequest(`/api/contractor-payments/${payment.id}/reverse`, {
+        token: tokens.adminToken,
+        method: "POST",
+        body: { reason: "cash returned" },
+      }),
+      { params: Promise.resolve({ id: payment.id }) }
+    );
+    expect(revRes.status).toBe(200);
+
+    const credit = await db.walletTransaction.findFirst({
+      where: { walletId, expenseId: payment.expenseId, amount: 400 },
+    });
+    expect(credit?.type).toBe("REVERSAL");
+
+    const agg = await db.walletTransaction.aggregate({
+      _sum: { amount: true },
+      where: { walletId },
+    });
+    expect(agg._sum.amount).toBe(5000); // funding − debit + credit
+
+    const claimRow = await db.contractorClaim.findUnique({ where: { id: claim.id } });
+    expect(claimRow?.paidAmount).toBe(0);
+    expect(claimRow?.status).toBe("POSTED");
+  });
+
+  it("rejects a CASH payment larger than the wallet balance", async () => {
+    const res = await POST_PAYMENT(
+      buildRequest("/api/contractor-payments", {
+        token: tokens.adminToken,
+        method: "POST",
+        body: { contractorId, amount: 999999, paymentDate: "2026-09-10", method: "CASH", walletId },
+      })
+    );
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toContain("Insufficient balance");
+    // Nothing was double-posted: no payment row exists for that amount.
+    const count = await db.contractorPayment.count({
+      where: { contractorId, amount: 999999 },
+    });
+    expect(count).toBe(0);
+  });
+});
+
+describe("Out-of-scope access by ID returns 404", () => {
+  let watcherToken: string;
+
+  beforeAll(async () => {
+    const watcher = await db.user.upsert({
+      where: { email: "watcher@fin.test" },
+      update: {},
+      create: {
+        id: "u_watch_fin",
+        email: "watcher@fin.test",
+        name: "Watcher Fin",
+        password: await hashPassword("watcher-fin-pw"),
+        role: "WATCHER",
+      },
+    });
+    watcherToken = generateToken({ userId: watcher.id, email: watcher.email, role: watcher.role });
+  });
+
+  it("a watcher sees an empty claim list and 404s on direct IDs", async () => {
+    // The watcher holds view permissions but no content:contractors grant, so
+    // every record outside their own (empty) contractor scope is invisible.
+    const list = await GET_CLAIMS(
+      buildRequest(`/api/contractor-claims?contractorId=${contractorId}`, { token: watcherToken })
+    );
+    expect(list.status).toBe(200);
+    expect((await list.json()).data.data).toHaveLength(0);
+
+    const claim = await db.contractorClaim.findFirst({ where: { contractorId } });
+    const detail = await GET_CLAIM_DETAIL(
+      buildRequest(`/api/contractor-claims/${claim!.id}`, { token: watcherToken }),
+      { params: Promise.resolve({ id: claim!.id }) }
+    );
+    expect(detail.status).toBe(404);
+
+    const payment = await db.contractorPayment.findFirst({ where: { contractorId } });
+    const payDetail = await GET_PAYMENT_DETAIL(
+      buildRequest(`/api/contractor-payments/${payment!.id}`, { token: watcherToken }),
+      { params: Promise.resolve({ id: payment!.id }) }
+    );
+    expect(payDetail.status).toBe(404);
+
+    const ledger = await GET_LEDGER(
+      buildRequest(`/api/contractors/${contractorId}/ledger`, { token: watcherToken }),
+      { params: Promise.resolve({ id: contractorId }) }
+    );
+    expect(ledger.status).toBe(404);
   });
 });
