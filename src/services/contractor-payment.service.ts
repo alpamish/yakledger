@@ -14,6 +14,7 @@ import { round2 } from "@/lib/money";
 import { generateBusinessNumber, PAYMENT_NUMBER } from "@/lib/business-number";
 import { writeLedgerEntry } from "@/services/contractor-ledger.service";
 import { companyWalletService } from "@/services/company-wallet.service";
+import { checkPaymentAllowed } from "@/services/contractor-compliance.service";
 
 export const PAYMENT_METHODS = ["CASH", "BANK_TRANSFER", "CHEQUE"] as const;
 export type PaymentMethod = (typeof PAYMENT_METHODS)[number];
@@ -82,6 +83,19 @@ export async function recordPayment(input: RecordPaymentInput) {
   });
   if (!contractor) throw new PaymentError("Contractor not found", 404);
 
+  // Compliance gate (Phase 5) — runs BEFORE any money row is written, so a
+  // blocked payment never touches the wallet or ledger.
+  const compliance = await checkPaymentAllowed(
+    contractorId,
+    amount,
+    authorizedById,
+    paymentDate
+  );
+  if (!compliance.allowed) {
+    throw new PaymentError(compliance.reason ?? "Payment blocked by compliance rules", 403);
+  }
+  const auth = compliance.authorization;
+
   return db.$transaction(async (tx) => {
     const paymentNumber = await generateBusinessNumber(tx, PAYMENT_NUMBER);
 
@@ -137,6 +151,18 @@ export async function recordPayment(input: RecordPaymentInput) {
         walletId: method === "CASH" ? walletId : null,
         authorizedById,
         expenseId: expense.id,
+        paymentAuthorizationId: auth?.id ?? null,
+        authorizationSnapshot: auth
+          ? {
+              authorizationNumber: auth.authorizationNumber,
+              receiverName: auth.receiverName,
+              maxAmount: auth.maxAmount,
+              validFrom: auth.validFrom,
+              validTo: auth.validTo,
+              snapshotAt: new Date().toISOString(),
+              snapshottedBy: userId,
+            }
+          : null,
         status: "COMPLETED",
         idempotencyKey,
         notes,

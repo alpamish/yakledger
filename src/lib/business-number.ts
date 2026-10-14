@@ -36,6 +36,13 @@ export const ADVANCE_NUMBER: NumberSpec = {
   column: "advanceNumber",
 };
 
+export const AUTHORIZATION_NUMBER: NumberSpec = {
+  prefix: "AUTH",
+  sequenceName: "authorizationNumber",
+  modelKey: "paymentAuthorization",
+  column: "authorizationNumber",
+};
+
 export function formatBusinessNumber(prefix: string, seq: number): string {
   return `${prefix}-${String(seq).padStart(PAD, "0")}`;
 }

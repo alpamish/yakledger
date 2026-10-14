@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/select";
 import { LoadingSpinner } from "@/components/common/loading-spinner";
 import { contractorFinancialsApi } from "@/services/contractor-financials-api";
+import { contractorComplianceApi } from "@/services/contractor-compliance-api";
 import {
   PAYMENT_METHODS,
   PAYMENT_METHOD_LABELS,
@@ -35,6 +36,10 @@ import {
   type PaymentMethod,
   type PaymentStatus,
 } from "@/types/contractor-financials";
+import type {
+  ContractorComplianceStatus,
+  PaymentAuthorization,
+} from "@/types/contractor";
 import { format } from "date-fns";
 import { toast } from "sonner";
 
@@ -83,6 +88,56 @@ export function ContractorPaymentsTab({ contractorId, canCreate, canReverse }: P
   const [reverseReason, setReverseReason] = useState("");
   const [reverseBusy, setReverseBusy] = useState(false);
 
+  // Compliance (Phase 5): receiver + live authorizations + blocked verdict,
+  // loaded when the record dialog opens so the gate is mirrored client-side.
+  const [receiver, setReceiver] = useState("");
+  const [liveAuths, setLiveAuths] = useState<PaymentAuthorization[]>([]);
+  const [compliance, setCompliance] = useState<ContractorComplianceStatus | null>(null);
+
+  useEffect(() => {
+    if (!formOpen) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const [comp, auths] = await Promise.all([
+          contractorComplianceApi.getCompliance(contractorId),
+          contractorComplianceApi.listAuthorizations({
+            contractorId,
+            active: "true",
+            pageSize: "100",
+          }),
+        ]);
+        if (cancelled) return;
+        setCompliance(comp);
+        setLiveAuths(auths.data);
+      } catch {
+        // Non-fatal: the server gate still enforces on submit.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [formOpen, contractorId]);
+
+  // Client-side mirror of the authorization gate: pick the authorization
+  // covering the entered receiver (normalized) — used for the limit hint.
+  const matchedAuth = useMemo(() => {
+    const wanted = receiver.trim().toLowerCase();
+    if (!wanted) return null;
+    return (
+      liveAuths.find((a) => a.receiverName.trim().toLowerCase() === wanted) ?? null
+    );
+  }, [liveAuths, receiver]);
+
+  const overLimit =
+    matchedAuth?.maxAmount != null &&
+    !isNaN(parseFloat(amount)) &&
+    parseFloat(amount) > matchedAuth.maxAmount;
+
+  const blocked = compliance?.paymentsBlocked ?? false;
+  const needsAuthButNoMatch =
+    liveAuths.length > 0 && receiver.trim() !== "" && matchedAuth === null;
+
   const load = useCallback(async () => {
     try {
       setLoading(true);
@@ -123,6 +178,7 @@ export function ContractorPaymentsTab({ contractorId, canCreate, canReverse }: P
           amount: value,
           paymentDate,
           method,
+          authorizedById: receiver.trim() || null,
           notes: notes.trim() || null,
         },
         idemKey
@@ -131,6 +187,7 @@ export function ContractorPaymentsTab({ contractorId, canCreate, canReverse }: P
       setFormOpen(false);
       setAmount("");
       setNotes("");
+      setReceiver("");
       load();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to record payment");
@@ -297,6 +354,11 @@ export function ContractorPaymentsTab({ contractorId, canCreate, canReverse }: P
             <DialogTitle>Record Payment</DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
+            {compliance?.paymentsBlocked && (
+              <div className="rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200">
+                <strong>Payments blocked:</strong> {compliance.blockedReason}
+              </div>
+            )}
             <div>
               <Label>Amount</Label>
               <Input
@@ -316,6 +378,51 @@ export function ContractorPaymentsTab({ contractorId, canCreate, canReverse }: P
                 onChange={(e) => setPaymentDate(e.target.value)}
               />
             </div>
+            {liveAuths.length > 0 && (
+              <div>
+                <Label>Authorized receiver</Label>
+                <Select
+                  value={receiver}
+                  onValueChange={(v) => setReceiver(v)}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select the authorized receiver" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {liveAuths.map((a) => (
+                      <SelectItem key={a.id} value={a.receiverName}>
+                        {a.receiverName}
+                        {a.maxAmount != null ? ` — up to ${fmtMoney(a.maxAmount)} AFN` : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Active authorizations cover these receivers; a payment must match one of
+                  them.
+                </p>
+              </div>
+            )}
+            {liveAuths.length === 0 && (
+              <div>
+                <Label>Receiver (optional)</Label>
+                <Input
+                  value={receiver}
+                  onChange={(e) => setReceiver(e.target.value)}
+                  placeholder="Person receiving the payment"
+                />
+              </div>
+            )}
+            {needsAuthButNoMatch && (
+              <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
+                No authorization covers this receiver — the payment will be rejected.
+              </div>
+            )}
+            {matchedAuth?.maxAmount != null && overLimit && (
+              <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
+                Amount exceeds the authorized limit of {fmtMoney(matchedAuth.maxAmount)} AFN.
+              </div>
+            )}
             <div>
               <Label>Method</Label>
               <Select value={method} onValueChange={(v) => setMethod(v as PaymentMethod)}>
@@ -344,7 +451,16 @@ export function ContractorPaymentsTab({ contractorId, canCreate, canReverse }: P
             <Button variant="outline" onClick={() => setFormOpen(false)}>
               Cancel
             </Button>
-            <Button onClick={create} disabled={saving}>
+            <Button
+              onClick={create}
+              disabled={
+                saving ||
+                blocked ||
+                overLimit ||
+                needsAuthButNoMatch ||
+                (liveAuths.length > 0 && receiver.trim() === "")
+              }
+            >
               {saving ? "Recording…" : "Record Payment"}
             </Button>
           </DialogFooter>

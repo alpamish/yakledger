@@ -1,13 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { requirePermission } from "@/lib/permissions";
+import {
+  requirePermission,
+  requireAnyPermission,
+  checkUserPermission,
+} from "@/lib/permissions";
 import { buildAccessScope, withScope } from "@/lib/access-control";
 import { contractorBulkActionSchema } from "@/lib/validation/contractor";
-import { archiveOrDeleteContractor } from "@/services/contractor.service";
+import {
+  archiveOrDeleteContractor,
+  getContractorHistoryCounts,
+  totalHistory,
+} from "@/services/contractor.service";
 
 // POST /api/contractors/bulk-action - Bulk actions on contractors.
-// - activate/suspend require contractors:edit (status management, not deletion)
-// - delete requires contractors:delete and applies archive-or-delete semantics
+// - activate requires contractors:edit; suspend requires contractors:suspend
+//   (Phase 5: suspension is a compliance-relevant lifecycle state)
+// - delete requires contractors:delete OR contractors:archive and applies
+//   archive-or-delete semantics; archive-only callers never hard-delete
 // All IDs are scoped to the caller's access before any mutation.
 export async function POST(request: NextRequest) {
   try {
@@ -24,8 +34,16 @@ export async function POST(request: NextRequest) {
 
     const { ids, action } = parsed.data;
 
-    const permission = action === "delete" ? "contractors:delete" : "contractors:edit";
-    const result = await requirePermission(request, permission);
+    const result =
+      action === "delete"
+        ? await requireAnyPermission(request, [
+            "contractors:delete",
+            "contractors:archive",
+          ])
+        : await requirePermission(
+            request,
+            action === "suspend" ? "contractors:suspend" : "contractors:edit"
+          );
     if ("status" in result) return result;
     const user = result.user;
 
@@ -43,6 +61,21 @@ export async function POST(request: NextRequest) {
             where: scopedWhere,
             select: { id: true },
           });
+          // Archive-only callers may never hard-delete: every target must
+          // have history so the archive branch applies.
+          const canDelete = await checkUserPermission(
+            user.id,
+            user.role,
+            "contractors:delete"
+          );
+          if (!canDelete) {
+            for (const t of targets) {
+              const history = await getContractorHistoryCounts(tx, t.id);
+              if (totalHistory(history) === 0) {
+                throw new BulkDeleteForbiddenError();
+              }
+            }
+          }
           const targetIds = targets.map((t) => t.id);
           let deleted = 0;
           let archived = 0;
@@ -74,7 +107,25 @@ export async function POST(request: NextRequest) {
         const outcome = await db.$transaction(async (tx) => {
           const updated = await tx.contractor.updateMany({
             where: scopedWhere,
-            data: { status },
+            data: {
+              status,
+              // Keep the lifecycle audit trail coherent with the single-
+              // contractor lifecycle route. Bulk tools can't collect a
+              // per-contractor reason; suspend reasons are recorded there.
+              ...(action === "suspend"
+                ? {
+                    suspendedAt: new Date(),
+                    suspendedReason: null,
+                    statusChangedById: user.id,
+                  }
+                : {
+                    suspendedAt: null,
+                    suspendedReason: null,
+                    blacklistedAt: null,
+                    blacklistedReason: null,
+                    statusChangedById: user.id,
+                  }),
+            },
           });
           await tx.auditLog.create({
             data: {
@@ -97,10 +148,28 @@ export async function POST(request: NextRequest) {
       message: `Successfully ${action === "activate" ? "activated" : "suspended"} ${affected} contractor(s)`,
     });
   } catch (error) {
+    if (error instanceof BulkDeleteForbiddenError) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            "At least one selected contractor has no history and would be permanently deleted, which requires the contractors:delete permission",
+        },
+        { status: 403 }
+      );
+    }
     console.error("Bulk action error:", error);
     return NextResponse.json(
       { success: false, error: "Failed to perform bulk action" },
       { status: 500 }
     );
+  }
+}
+
+/** Thrown inside the transaction when an archive-only caller targets a clean contractor. */
+class BulkDeleteForbiddenError extends Error {
+  constructor() {
+    super("Hard delete requires contractors:delete");
+    this.name = "BulkDeleteForbiddenError";
   }
 }

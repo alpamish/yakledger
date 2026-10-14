@@ -124,10 +124,21 @@ describe("/api/contractors/bulk-action — permissions and scoping", () => {
     expect(res.status).toBe(403);
   });
 
-  it("suspend requires contractors:edit", async () => {
-    const res = await BULK_ACTION(
+  it("suspend requires contractors:suspend (USER cannot, MANAGER can)", async () => {
+    // Phase 5: bulk suspend moved from contractors:edit to contractors:suspend
+    // — suspension is a compliance-relevant lifecycle state.
+    const denied = await BULK_ACTION(
       buildRequest("/api/contractors/bulk-action", {
         token: tokens.userToken,
+        method: "POST",
+        body: { ids: [foreignContractorId], action: "suspend" },
+      })
+    );
+    expect(denied.status).toBe(403);
+
+    const res = await BULK_ACTION(
+      buildRequest("/api/contractors/bulk-action", {
+        token: tokens.managerToken,
         method: "POST",
         body: { ids: [foreignContractorId], action: "suspend" },
       })
@@ -135,8 +146,13 @@ describe("/api/contractors/bulk-action — permissions and scoping", () => {
     expect(res.status).toBe(200);
     const contractor = await db.contractor.findUnique({ where: { id: foreignContractorId } });
     expect(contractor?.status).toBe("SUSPENDED");
+    // Lifecycle audit trail stays coherent with the single-contractor route.
+    expect(contractor?.suspendedAt).not.toBeNull();
     // Restore for later tests.
-    await db.contractor.update({ where: { id: foreignContractorId }, data: { status: "ACTIVE" } });
+    await db.contractor.update({
+      where: { id: foreignContractorId },
+      data: { status: "ACTIVE", suspendedAt: null },
+    });
   });
 
   it("out-of-scope IDs are filtered out, not mutated", async () => {

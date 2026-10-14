@@ -36,6 +36,7 @@ import { ContractorClaimsTab } from '@/components/contractor/contractor-claims-t
 import { ContractorAdvancesTab } from '@/components/contractor/contractor-advances-tab';
 import { ContractorPaymentsTab } from '@/components/contractor/contractor-payments-tab';
 import { ContractorLedgerTab } from '@/components/contractor/contractor-ledger-tab';
+import { ContractorComplianceTab } from '@/components/contractor/contractor-compliance-tab';
 import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -91,6 +92,7 @@ import {
   ClipboardList,
   Banknote,
   Scale,
+  ShieldCheck,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
@@ -781,6 +783,9 @@ export function ContractorProfile({ contractorId }: { contractorId?: string }) {
           </TabsTrigger>
           <TabsTrigger value="financial" className="gap-1.5">
             <Calculator className="h-4 w-4" /> Financial Summary
+          </TabsTrigger>
+          <TabsTrigger value="compliance" className="gap-1.5">
+            <ShieldCheck className="h-4 w-4" /> Compliance
           </TabsTrigger>
         </TabsList>
 
@@ -1981,6 +1986,20 @@ export function ContractorProfile({ contractorId }: { contractorId?: string }) {
               </CardContent>
             </Card>
           )}
+        </TabsContent>
+
+        {/* ─── Compliance Tab (Phase 5) ─────────────────────────── */}
+        <TabsContent value="compliance">
+          <ContractorComplianceTab
+            contractorId={selectedContractor.id}
+            status={selectedContractor.status}
+            suspendedReason={selectedContractor.suspendedReason}
+            blacklistedReason={selectedContractor.blacklistedReason}
+            canEdit={hasPermission('contractors:edit')}
+            canAuthorize={hasPermission('contractors:authorize')}
+            canSuspend={hasPermission('contractors:suspend')}
+            onLifecycleChanged={() => fetchContractorProfile(selectedContractor.id)}
+          />
         </TabsContent>
       </Tabs>
 

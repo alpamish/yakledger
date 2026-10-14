@@ -289,6 +289,8 @@ export interface PaymentFormData {
   paymentDate: string;
   method: PaymentMethod;
   walletId?: string | null;
+  /** Receiver/authorizer free-text (Phase 5: matched against authorizations). */
+  authorizedById?: string | null;
   notes?: string | null;
 }
 

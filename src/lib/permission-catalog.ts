@@ -40,6 +40,9 @@ export const PERMISSIONS: PermissionDef[] = [
   { name: "contractors:create", label: "Create Contractors", module: "contractors" },
   { name: "contractors:edit", label: "Edit Contractors", module: "contractors" },
   { name: "contractors:delete", label: "Delete Contractors", module: "contractors" },
+  { name: "contractors:archive", label: "Archive Contractors", module: "contractors" },
+  { name: "contractors:suspend", label: "Suspend/Blacklist Contractors", module: "contractors" },
+  { name: "contractors:authorize", label: "Manage Authorizations & Verify Documents", module: "contractors" },
 
   { name: "contracts:view", label: "View Contracts", module: "contracts" },
   { name: "contracts:create", label: "Create Contracts", module: "contracts" },
@@ -146,7 +149,8 @@ export const ROLE_PERMISSIONS: Record<string, string[]> = {
     "employees:leave:view", "employees:leave:manage",
     "employees:payroll:view", "employees:payroll:manage",
     "employees:attendance:view", "employees:attendance:manage",
-    "contractors:view", "contractors:create", "contractors:edit",
+    "contractors:view", "contractors:create", "contractors:edit", "contractors:archive",
+    "contractors:suspend", "contractors:authorize",
     "contractors:claims:view", "contractors:claims:create", "contractors:claims:edit", "contractors:claims:approve",
     "contractors:payments:view", "contractors:payments:create", "contractors:payments:reverse",
     "contractors:advances:view", "contractors:advances:create", "contractors:advances:writeOff",
@@ -259,6 +263,10 @@ export const PERMISSION_DEPENDENCIES: Record<string, string[]> = {
   "contractors:claims:edit": ["contracts:view", "content:contractors"],
   "contractors:payments:create": ["contractors:view", "content:contractors", "wallets:view"],
   "contractors:advances:create": ["contractors:view", "content:contractors", "wallets:view"],
+  // Compliance (Phase 5): authorizations/documents act on an existing
+  // contractor reference; lifecycle actions are status management on one.
+  "contractors:authorize": ["contractors:view"],
+  "contractors:suspend": ["contractors:view"],
 };
 
 /** Expand a permission list through its dependency graph (transitively). */

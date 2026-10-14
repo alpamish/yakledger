@@ -94,7 +94,16 @@ enum ContractorStatus {
   ACTIVE
   INACTIVE
   SUSPENDED
+  BLACKLISTED
   ARCHIVED
+}
+
+enum ContractorDocumentType {
+  NATIONAL_ID
+  BUSINESS_LICENSE
+  TAX_CERTIFICATE
+  INSURANCE
+  OTHER
 }
 
 enum ContractStatus {
@@ -1045,6 +1054,12 @@ model Contractor {
   updatedAt           DateTime        @updatedAt
   idImageFront        String?
   idImageBack         String?
+  // Lifecycle / compliance (Phase 5): reasons recorded for accountability.
+  suspendedAt         DateTime?
+  suspendedReason     String?
+  blacklistedAt       DateTime?
+  blacklistedReason   String?
+  statusChangedById   String?
 
   creator             User            @relation(fields: [createdBy], references: [id], onDelete: Cascade)
 
@@ -1060,6 +1075,10 @@ model Contractor {
   advances            ContractorAdvance[]
   payments            ContractorPayment[]
   ledgerEntries       ContractorLedgerEntry[]
+  contacts            ContractorContact[]
+  bankAccounts        ContractorBankAccount[]
+  documents           ContractorDocument[]
+  paymentAuthorizations PaymentAuthorization[]
 
   @@index([phoneNumber])
   @@index([nationalId])
@@ -1303,6 +1322,11 @@ model ContractorPayment {
   authorizedById   String?
   // Link to the Expense row created for the cash-out (D4).
   expenseId        String?
+  // Compliance (Phase 5): the authorization that covered this payment and an
+  // immutable snapshot of its terms + the contractor's doc status at payment
+  // time. SetNull keeps history when an authorization is later revoked.
+  paymentAuthorizationId String?
+  authorizationSnapshot  Json?
   status           ContractorPaymentStatus @default(COMPLETED)
   idempotencyKey   String?   @unique
   notes            String?
@@ -1310,6 +1334,7 @@ model ContractorPayment {
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
   contractor       Contractor @relation(fields: [contractorId], references: [id], onDelete: Restrict)
+  authorization    PaymentAuthorization? @relation(fields: [paymentAuthorizationId], references: [id], onDelete: SetNull)
   allocations      PaymentAllocation[]
 
   @@index([contractorId])
@@ -1327,6 +1352,89 @@ model PaymentAllocation {
 
   @@index([paymentId])
   @@index([claimId])
+}
+
+// ── Authorization & compliance (Phase 5) ────────────────────────────────────
+
+model ContractorContact {
+  id           String    @id @default(cuid())
+  contractorId String
+  name         String
+  role         String?   // e.g. Site manager, Accountant, Owner
+  phone        String
+  email        String?
+  isPrimary    Boolean   @default(false)
+  notes        String?
+  createdBy    String
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  contractor   Contractor @relation(fields: [contractorId], references: [id], onDelete: Cascade)
+
+  @@index([contractorId])
+  @@index([phone])
+}
+
+model ContractorBankAccount {
+  id             String    @id @default(cuid())
+  contractorId   String
+  accountName    String
+  accountNumber  String
+  bankName       String
+  branch         String?
+  isVerified     Boolean   @default(false)
+  verifiedById   String?
+  verifiedAt     DateTime?
+  isDefault      Boolean   @default(false)
+  notes          String?
+  createdBy      String
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  contractor     Contractor @relation(fields: [contractorId], references: [id], onDelete: Cascade)
+
+  @@index([contractorId])
+  @@index([accountNumber])
+}
+
+model ContractorDocument {
+  id             String    @id @default(cuid())
+  contractorId   String
+  docType        ContractorDocumentType
+  title          String
+  documentNumber String?
+  issueDate      DateTime?
+  // Expired NATIONAL_ID / BUSINESS_LICENSE docs block payments (Phase 5).
+  expiryDate     DateTime?
+  fileUrl        String?
+  notes          String?
+  createdBy      String
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  contractor     Contractor @relation(fields: [contractorId], references: [id], onDelete: Cascade)
+
+  @@index([contractorId])
+  @@index([docType])
+}
+
+model PaymentAuthorization {
+  id                  String    @id @default(cuid())
+  authorizationNumber String    @unique
+  contractorId        String
+  // Free-text receiver (matches how payments record authorizedById today).
+  receiverName        String
+  validFrom           DateTime
+  validTo             DateTime?
+  maxAmount           Float?
+  revokedAt           DateTime?
+  revokedById         String?
+  notes               String?
+  createdBy           String
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+  contractor          Contractor @relation(fields: [contractorId], references: [id], onDelete: Restrict)
+  payments            ContractorPayment[]
+
+  @@index([contractorId])
+  @@index([validFrom, validTo])
 }
 
 model ContractorLedgerEntry {

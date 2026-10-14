@@ -24,7 +24,17 @@ export const CONTRACTOR_STATUS_VALUES = [
   "ACTIVE",
   "INACTIVE",
   "SUSPENDED",
+  "BLACKLISTED",
   "ARCHIVED",
+] as const;
+
+// Must match the PG `ContractorDocumentType` enum.
+export const CONTRACTOR_DOCUMENT_TYPES = [
+  "NATIONAL_ID",
+  "BUSINESS_LICENSE",
+  "TAX_CERTIFICATE",
+  "INSURANCE",
+  "OTHER",
 ] as const;
 
 export const FUEL_TYPE_VALUES = [

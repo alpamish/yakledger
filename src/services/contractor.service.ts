@@ -9,6 +9,9 @@ type DbClient = Prisma.TransactionClient | typeof db;
 // Deleting a contractor cascade-deletes timesheets, fuel usages, and machinery
 // (and unlinks expenses/fuel transactions), so any non-zero count means the
 // contractor must be archived instead of hard-deleted.
+// Phase 4/5 financial rows (contracts, claims, advances, payments, ledger
+// entries) are Restrict-onDelete — hard-deleting over them would throw — so
+// they count as history too (plan §2.5: archive when ANY history exists).
 const HISTORY_COUNT_SELECT = {
   timesheets: true,
   fuelUsages: true,
@@ -16,6 +19,11 @@ const HISTORY_COUNT_SELECT = {
   fuelTransactions: true,
   expensesPaidTo: true,
   expensesPaidBy: true,
+  contracts: true,
+  claims: true,
+  advances: true,
+  payments: true,
+  ledgerEntries: true,
 } as const;
 
 export interface ContractorHistoryCounts {
@@ -25,6 +33,11 @@ export interface ContractorHistoryCounts {
   fuelTransactions: number;
   expensesPaidTo: number;
   expensesPaidBy: number;
+  contracts: number;
+  claims: number;
+  advances: number;
+  payments: number;
+  ledgerEntries: number;
 }
 
 export function totalHistory(counts: ContractorHistoryCounts): number {
@@ -34,7 +47,12 @@ export function totalHistory(counts: ContractorHistoryCounts): number {
     counts.machinery +
     counts.fuelTransactions +
     counts.expensesPaidTo +
-    counts.expensesPaidBy
+    counts.expensesPaidBy +
+    counts.contracts +
+    counts.claims +
+    counts.advances +
+    counts.payments +
+    counts.ledgerEntries
   );
 }
 
@@ -53,6 +71,11 @@ export async function getContractorHistoryCounts(
     fuelTransactions: 0,
     expensesPaidTo: 0,
     expensesPaidBy: 0,
+    contracts: 0,
+    claims: 0,
+    advances: 0,
+    payments: 0,
+    ledgerEntries: 0,
   };
 }
 

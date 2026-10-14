@@ -17,6 +17,7 @@ export const CONTRACTOR_STATUSES = [
   "ACTIVE",
   "INACTIVE",
   "SUSPENDED",
+  "BLACKLISTED",
   "ARCHIVED",
 ] as const;
 
@@ -54,6 +55,12 @@ export interface Contractor {
   idImageBack?: string | null;
   contractorType: ContractorType;
   status: ContractorStatus;
+  // Lifecycle / compliance (Phase 5)
+  suspendedAt?: string | null;
+  suspendedReason?: string | null;
+  blacklistedAt?: string | null;
+  blacklistedReason?: string | null;
+  statusChangedById?: string | null;
   notes?: string | null;
   createdBy: string;
   createdAt: string;
@@ -80,6 +87,110 @@ export interface Contractor {
   machineryRates?: MachineryRate[];
   totalExpensesPaid?: number;
   monthlyExpenses?: { month: string; amount: number }[];
+}
+
+// ── Authorization & compliance (Phase 5) ───────────────────────────────────
+
+export const CONTRACTOR_DOCUMENT_TYPES = [
+  "NATIONAL_ID",
+  "BUSINESS_LICENSE",
+  "TAX_CERTIFICATE",
+  "INSURANCE",
+  "OTHER",
+] as const;
+export type ContractorDocumentType = (typeof CONTRACTOR_DOCUMENT_TYPES)[number];
+
+export const CONTRACTOR_DOCUMENT_TYPE_LABELS: Record<ContractorDocumentType, string> = {
+  NATIONAL_ID: "National ID",
+  BUSINESS_LICENSE: "Business License",
+  TAX_CERTIFICATE: "Tax Certificate",
+  INSURANCE: "Insurance",
+  OTHER: "Other",
+};
+
+/** Document types whose expiry BLOCKS payments (when a row exists). */
+export const PAYMENT_BLOCKING_DOC_TYPES: ContractorDocumentType[] = [
+  "NATIONAL_ID",
+  "BUSINESS_LICENSE",
+];
+
+export interface ContractorContact {
+  id: string;
+  contractorId: string;
+  name: string;
+  role?: string | null;
+  phone: string;
+  email?: string | null;
+  isPrimary: boolean;
+  notes?: string | null;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ContractorBankAccount {
+  id: string;
+  contractorId: string;
+  accountName: string;
+  accountNumber: string;
+  bankName: string;
+  branch?: string | null;
+  isVerified: boolean;
+  verifiedById?: string | null;
+  verifiedAt?: string | null;
+  isDefault: boolean;
+  notes?: string | null;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ContractorDocument {
+  id: string;
+  contractorId: string;
+  docType: ContractorDocumentType;
+  title: string;
+  documentNumber?: string | null;
+  issueDate?: string | null;
+  expiryDate?: string | null;
+  fileUrl?: string | null;
+  notes?: string | null;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PaymentAuthorization {
+  id: string;
+  authorizationNumber: string;
+  contractorId: string;
+  receiverName: string;
+  validFrom: string;
+  validTo?: string | null;
+  maxAmount?: number | null;
+  revokedAt?: string | null;
+  revokedById?: string | null;
+  notes?: string | null;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+  contractor?: Pick<Contractor, "id" | "contractorName" | "status">;
+}
+
+/** Aggregated compliance state for one contractor (GET compliance route). */
+export interface ContractorComplianceStatus {
+  contractorId: string;
+  contractorName: string;
+  status: ContractorStatus;
+  /** Expired blocking docs (NATIONAL_ID / BUSINESS_LICENSE rows only). */
+  expiredBlockingDocs: ContractorDocument[];
+  /** Blocking docs expiring within the warning window (default 30 days). */
+  expiringBlockingDocs: (ContractorDocument & { daysUntilExpiry: number })[];
+  unverifiedBankAccounts: number;
+  activeAuthorizations: number;
+  /** True when payments are currently blocked (status or expired docs). */
+  paymentsBlocked: boolean;
+  blockedReason: string | null;
 }
 
 export interface Timesheet {
@@ -712,6 +823,7 @@ export const CONTRACTOR_STATUS_LABELS: Record<ContractorStatus, string> = {
   ACTIVE: "Active",
   INACTIVE: "Inactive",
   SUSPENDED: "Suspended",
+  BLACKLISTED: "Blacklisted",
   ARCHIVED: "Archived",
 };
 
@@ -768,6 +880,7 @@ export const CONTRACTOR_STATUS_COLORS: Record<ContractorStatus, string> = {
   ACTIVE: "#10b981",
   INACTIVE: "#f59e0b",
   SUSPENDED: "#ef4444",
+  BLACKLISTED: "#7c2d12",
   ARCHIVED: "#64748b",
 };
 

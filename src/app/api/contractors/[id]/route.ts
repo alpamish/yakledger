@@ -1,10 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { requirePermission } from "@/lib/permissions";
+import { requirePermission, requireAnyPermission, checkUserPermission } from "@/lib/permissions";
 import { Prisma } from "@prisma/client";
 import { buildAccessScope, buildListScope, buildAggregateScope, withScope } from "@/lib/access-control";
 import { updateContractorSchema } from "@/lib/validation/contractor";
-import { archiveOrDeleteContractor } from "@/services/contractor.service";
+import {
+  archiveOrDeleteContractor,
+  getContractorHistoryCounts,
+  totalHistory,
+} from "@/services/contractor.service";
 
 // GET /api/contractors/[id] - Get single contractor with full profile
 export async function GET(
@@ -236,12 +240,17 @@ export async function PUT(
 // DELETE /api/contractors/[id] - Archive-or-delete a contractor.
 // Contractors with operational/financial history are archived (history is
 // never cascade-deleted); only clean contractors are hard-deleted.
+// Phase 5: archiving needs contractors:archive; hard-deleting additionally
+// needs contractors:delete (archive-only callers get a 403 on clean targets).
 export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const result = await requirePermission(request, "contractors:delete");
+    const result = await requireAnyPermission(request, [
+      "contractors:delete",
+      "contractors:archive",
+    ]);
     if ("status" in result) return result;
     const user = result.user;
 
@@ -258,6 +267,27 @@ export async function DELETE(
         { success: false, error: "Contractor not found" },
         { status: 404 }
       );
+    }
+
+    // Archive-only callers may never hard-delete: require the contractor to
+    // have history so the archive branch (not the delete branch) applies.
+    const canDelete = await checkUserPermission(
+      user.id,
+      user.role,
+      "contractors:delete"
+    );
+    if (!canDelete) {
+      const history = await getContractorHistoryCounts(db, id);
+      if (totalHistory(history) === 0) {
+        return NextResponse.json(
+          {
+            success: false,
+            error:
+              "This contractor has no history and would be permanently deleted, which requires the contractors:delete permission",
+          },
+          { status: 403 }
+        );
+      }
     }
 
     const outcome = await db.$transaction(async (tx) => {
