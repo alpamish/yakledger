@@ -288,6 +288,31 @@ describe("Document expiry blocks payments", () => {
     // The expired insurance still shows as context but never blocks.
     expect(body.data.unverifiedBankAccounts).toBe(0);
   });
+
+  it("warns when a blocking document expires within 30 days, without blocking payment", async () => {
+    const soon = new Date(Date.now() + 15 * 86400_000).toISOString().slice(0, 10);
+    const res2 = await addDoc("BUSINESS_LICENSE", "Renewing license", soon);
+    expect(res2.status).toBe(201);
+
+    const res = await GET_COMPLIANCE(
+      buildRequest(`/api/contractors/${contractorB}/compliance`, {
+        token: tokens.adminToken,
+      }),
+      p(contractorB)
+    );
+    expect(res.status).toBe(200);
+    const data = (await res.json()).data;
+    // Warning only: nothing expired, payments stay allowed.
+    expect(data.paymentsBlocked).toBe(false);
+    expect(data.expiredBlockingDocs).toHaveLength(0);
+    expect(data.expiringBlockingDocs).toHaveLength(1);
+    expect(data.expiringBlockingDocs[0].docType).toBe("BUSINESS_LICENSE");
+    expect(data.expiringBlockingDocs[0].daysUntilExpiry).toBe(15);
+
+    // A warning must not block a compliant payment.
+    const payRes = await pay(tokens.adminToken, contractorB, 704);
+    expect(payRes.status).toBe(201);
+  });
 });
 
 describe("Lifecycle actions", () => {

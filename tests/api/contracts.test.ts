@@ -45,7 +45,9 @@ beforeAll(async () => {
   machineryId = machinery!.id;
 });
 
-async function createContract(overrides: Record<string, unknown> = {}): Promise<{ id: string; contractNumber: string }> {
+async function createContract(
+  overrides: Record<string, unknown> = {}
+): Promise<{ id: string; contractNumber: string; contractorId: string; projectName?: string | null }> {
   const res = await POST_CONTRACT(
     buildRequest("/api/contracts", {
       token: tokens.adminToken,
@@ -72,6 +74,22 @@ describe("POST /api/contracts — creation", () => {
   it("creates a contract with a sequential CON- number", async () => {
     const contract = await createContract();
     expect(contract.contractNumber).toMatch(/^CON-\d{5}$/);
+  });
+
+  it("issues strictly increasing unique numbers across a contractor's projects", async () => {
+    const first = await createContract({ title: "Bridge works", projectName: "Bridge Project" });
+    const second = await createContract({ title: "Canal works", projectName: "Canal Project" });
+
+    // Same contractor, several contracts across multiple projects (§9 gate).
+    expect(first.contractorId).toBe(second.contractorId);
+    expect(first.projectName).toBe("Bridge Project");
+    expect(second.projectName).toBe("Canal Project");
+
+    const seq = (c: { contractNumber: string }) => Number(c.contractNumber.replace("CON-", ""));
+    expect(first.contractNumber).toMatch(/^CON-\d{5}$/);
+    expect(second.contractNumber).toMatch(/^CON-\d{5}$/);
+    expect(second.contractNumber).not.toBe(first.contractNumber);
+    expect(seq(second)).toBeGreaterThan(seq(first));
   });
 
   it("rejects an end date before the start date", async () => {

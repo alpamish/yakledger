@@ -443,3 +443,68 @@ describe("Access control", () => {
     expect(body.rows[0].contractorId).toBe(contractorId);
   });
 });
+
+describe("Unapproved work never becomes payable", () => {
+  it("excludes draft and submitted claims from aging, outstanding, reports, and the ledger", async () => {
+    // A DRAFT claim: created, never acted on.
+    const draftRes = await POST_CLAIM(
+      buildRequest("/api/contractor-claims", {
+        token: tokens.adminToken,
+        method: "POST",
+        body: { contractId, timesheetIds: [await makeTimesheet("2026-02-10")], title: "Draft claim" },
+      })
+    );
+    expect(draftRes.status).toBe(201);
+    const draft = (await draftRes.json()).data;
+
+    // A SUBMITTED claim: awaiting approval — still not payable.
+    const subRes = await POST_CLAIM(
+      buildRequest("/api/contractor-claims", {
+        token: tokens.adminToken,
+        method: "POST",
+        body: { contractId, timesheetIds: [await makeTimesheet("2026-02-20")], title: "Submitted claim" },
+      })
+    );
+    expect(subRes.status).toBe(201);
+    const sub = (await subRes.json()).data;
+    const submit = await CLAIM_ACTION(
+      buildRequest(`/api/contractor-claims/${sub.id}`, {
+        token: tokens.adminToken,
+        method: "POST",
+        body: { action: "submit" },
+      }),
+      { params: Promise.resolve({ id: sub.id }) }
+    );
+    expect(submit.status).toBe(200);
+
+    // Payable aging and the per-contractor outstanding figure are unchanged:
+    // only POSTED claims (680 + 810) are cash-payable.
+    const aging = await GET_AGING(
+      buildRequest("/api/contractors/reports/payable-aging", { token: tokens.adminToken })
+    );
+    expect(aging.status).toBe(200);
+    expect((await aging.json()).data.grandTotal).toBe(1490);
+
+    const outstanding = await GET_OUTSTANDING(
+      buildRequest(`/api/contractors/${contractorId}/outstanding`, { token: tokens.adminToken }),
+      { params: Promise.resolve({ id: contractorId }) }
+    );
+    expect(outstanding.status).toBe(200);
+    expect((await outstanding.json()).data.totalOutstanding).toBe(1490);
+
+    // Claims & payments report counts stay at the two posted claims.
+    const cp = await GET_CLAIMS_PAYMENTS(
+      buildRequest("/api/contractors/reports/claims-payments", { token: tokens.adminToken })
+    );
+    const cpBody = (await cp.json()).data;
+    expect(cpBody.totals.claimCount).toBe(2);
+    expect(cpBody.totals.netAmount).toBe(2060);
+    expect(cpBody.totals.outstanding).toBe(1490);
+
+    // Neither unapproved claim posted anything to the ledger.
+    const entries = await db.contractorLedgerEntry.count({
+      where: { claimId: { in: [draft.id, sub.id] } },
+    });
+    expect(entries).toBe(0);
+  });
+});

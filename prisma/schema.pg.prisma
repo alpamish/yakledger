@@ -1883,6 +1883,7 @@ model AppSettings {
   email             String?
   website           String?
   taxId             String?
+  allowSignup       Boolean   @default(false)
   lastSyncTimestamp DateTime?
   updatedAt         DateTime  @updatedAt
 }
