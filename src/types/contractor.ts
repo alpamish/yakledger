@@ -326,6 +326,97 @@ export interface ClaimsPaymentsReport {
   totals: Omit<ClaimsPaymentsReportRow, "contractorId" | "contractorName">;
 }
 
+// ── Machinery & project ops reports (Phase 6, Batch B) ─────────────────────
+// Read-only aggregates over MachineryDailyLog / DowntimeRecord / FuelUsage and
+// contract-vs-claim-vs-payment figures. Computed server-side; components render.
+
+export interface UtilizationReportRow {
+  machineryId: string;
+  machineryName: string;
+  machineryType: string;
+  plateNumber: string | null;
+  assignedContractorName: string | null;
+  loggedDays: number;
+  normalHours: number;
+  overtimeHours: number;
+  /** normalHours + overtimeHours (the producing hours). */
+  workedHours: number;
+  idleHours: number;
+  breakdownHours: number;
+  /** From DowntimeRecord windows, clipped to the report range. */
+  downtimeHours: number;
+  chargeableDowntimeHours: number;
+  /** worked / (worked + idle + downtime) as a whole-number percent, or null when no denominator. */
+  utilizationPercent: number | null;
+}
+
+export interface UtilizationReport {
+  from: string | null;
+  to: string | null;
+  rows: UtilizationReportRow[];
+  totals: Omit<
+    UtilizationReportRow,
+    "machineryId" | "machineryName" | "machineryType" | "plateNumber" | "assignedContractorName" | "utilizationPercent"
+  > & { utilizationPercent: number | null };
+}
+
+export interface DowntimeReasonSummary {
+  reason: string;
+  recordCount: number;
+  hours: number;
+  chargeableHours: number;
+}
+
+export interface DowntimeReportRow {
+  machineryId: string;
+  machineryName: string;
+  machineryType: string;
+  assignedContractorName: string | null;
+  recordCount: number;
+  /** Open records (no end) are clamped to the report range end (or now). */
+  totalHours: number;
+  chargeableHours: number;
+  byReason: DowntimeReasonSummary[];
+}
+
+export interface DowntimeReport {
+  from: string | null;
+  to: string | null;
+  rows: DowntimeReportRow[];
+  totalHours: number;
+  chargeableHours: number;
+  byReason: DowntimeReasonSummary[];
+}
+
+export interface ProjectCostReportRow {
+  contractId: string;
+  contractTitle: string;
+  /** Free-text project grouping; null contracts are grouped under "—". */
+  projectName: string | null;
+  contractorId: string;
+  contractorName: string;
+  contractValue: number;
+  claimCount: number;
+  /** Sum of posted-claim netAmount in the window. */
+  approvedNet: number;
+  retentionHeld: number;
+  advanceRecovered: number;
+  /** Sum of claim.paidAmount (allocations) on posted claims in the window. */
+  paidAmount: number;
+  /** approvedNet − advanceRecovered − paidAmount. */
+  outstanding: number;
+}
+
+export interface ProjectCostReport {
+  from: string | null;
+  to: string | null;
+  rows: ProjectCostReportRow[];
+  totals: Omit<
+    ProjectCostReportRow,
+    "contractId" | "contractTitle" | "projectName" | "contractorId" | "contractorName"
+  > & { claimCount: number };
+}
+
 export interface Timesheet {
   id: string;
   contractorId: string;

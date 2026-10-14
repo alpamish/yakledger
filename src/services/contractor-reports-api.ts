@@ -6,9 +6,12 @@ import type {
   AdvanceRecoveryReport,
   ClaimsPaymentsReport,
   DeductionsReport,
+  DowntimeReport,
   PayableAgingReport,
+  ProjectCostReport,
   RetentionReport,
   StatementReport,
+  UtilizationReport,
 } from "@/types/contractor";
 import { getToken, ApiError } from "./api";
 
@@ -71,4 +74,14 @@ export const contractorReportsApi = {
 
   getClaimsPayments: (w: ReportWindow = {}): Promise<ClaimsPaymentsReport> =>
     request<ClaimsPaymentsReport>(`/contractors/reports/claims-payments${windowQuery(w)}`),
+
+  // ── Machinery & project ops (Batch B) ────────────────────────────────────
+  getUtilization: (w: ReportWindow = {}): Promise<UtilizationReport> =>
+    request<UtilizationReport>(`/contractor-ops-reports/utilization${windowQuery(w)}`),
+
+  getDowntime: (w: ReportWindow = {}): Promise<DowntimeReport> =>
+    request<DowntimeReport>(`/contractor-ops-reports/downtime${windowQuery(w)}`),
+
+  getProjectCost: (w: ReportWindow = {}): Promise<ProjectCostReport> =>
+    request<ProjectCostReport>(`/contractor-ops-reports/project-cost${windowQuery(w)}`),
 };

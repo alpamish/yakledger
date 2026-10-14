@@ -8,7 +8,7 @@ import type { Category } from '@/types/expense';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { LoadingSpinner } from '@/components/common/loading-spinner';
 import { EmptyState } from '@/components/common/empty-state';
-import { BarChart3, User, Truck, Fuel, Calculator, ClipboardList } from 'lucide-react';
+import { BarChart3, User, Truck, Fuel, Calculator, ClipboardList, Gauge } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { format } from 'date-fns';
 import { settingsApi } from '@/services/settings-api';
@@ -16,6 +16,7 @@ import { settingsApi } from '@/services/settings-api';
 import ExpenseReportsTab from './expense-reports-tab';
 import { ContractorReportsTab } from './contractor-reports-tab';
 import { ContractorFinanceReportsTab } from './contractor-finance-reports-tab';
+import { ContractorOpsReportsTab } from './contractor-ops-reports-tab';
 import { EmployeeReportsTab } from './employee-reports-tab';
 import MachineryReportsTab from './machinery-reports-tab';
 import FuelReportsTab from './fuel-reports-tab';
@@ -152,6 +153,12 @@ export function ReportsPage() {
               Contractor Finance
             </TabsTrigger>
           )}
+          {canView('machinery') && hasPermission('reports:view') && (
+            <TabsTrigger value="contractorOps" className="gap-1.5">
+              <Gauge className="h-4 w-4" />
+              Contractor Ops
+            </TabsTrigger>
+          )}
           {canView('employees') && (
             <TabsTrigger value="employees" className="gap-1.5">
               <User className="h-4 w-4" />
@@ -204,6 +211,15 @@ export function ReportsPage() {
         {canView('contractors') && hasPermission('reports:view') && (
           <TabsContent value="contractorFinance" className="space-y-6 mt-6">
             <ContractorFinanceReportsTab
+              companyName={companyName}
+              hasPermission={hasPermission}
+            />
+          </TabsContent>
+        )}
+
+        {canView('machinery') && hasPermission('reports:view') && (
+          <TabsContent value="contractorOps" className="space-y-6 mt-6">
+            <ContractorOpsReportsTab
               companyName={companyName}
               hasPermission={hasPermission}
             />
