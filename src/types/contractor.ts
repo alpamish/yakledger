@@ -191,6 +191,14 @@ export interface Machinery {
   workHoursPerDay: number;
   contractStartDate?: string | null;
   contractEndDate?: string | null;
+  // Ownership & commercial terms (Phase 3)
+  ownershipType: MachineryOwnershipType;
+  rentalRate?: number | null;
+  rentalRateType?: "DAILY" | "MONTHLY" | null;
+  rentalStartDate?: string | null;
+  rentalEndDate?: string | null;
+  // Meter jump (closing - opening) above this flags daily logs; null = never flag.
+  meterJumpThreshold?: number | null;
   createdBy: string;
   createdAt: string;
   updatedAt: string;
@@ -200,6 +208,92 @@ export interface Machinery {
     timesheets?: number;
     fuelUsages?: number;
   };
+}
+
+// Transfer history: one row per assignment of a machine to a contractor.
+export interface MachineryAssignment {
+  id: string;
+  machineryId: string;
+  contractorId: string;
+  contractId?: string | null;
+  projectName?: string | null;
+  startDate: string;
+  endDate?: string | null;
+  transferredBy: string;
+  notes?: string | null;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+  contractor?: Pick<
+    Contractor,
+    "id" | "contractorName" | "contractorNumber" | "contractorType"
+  >;
+  contract?: { id: string; contractNumber: string; title: string } | null;
+}
+
+// One operating record per machine per day.
+export interface MachineryDailyLog {
+  id: string;
+  date: string;
+  machineryId: string;
+  contractId?: string | null;
+  openingMeter: number;
+  closingMeter: number;
+  normalHours: number;
+  overtimeHours: number;
+  idleHours: number;
+  breakdownHours: number;
+  weather?: string | null;
+  delayReason?: string | null;
+  operator?: string | null;
+  flagged: boolean;
+  flagReason?: string | null;
+  loggedBy: string;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+  contract?: { id: string; contractNumber: string; title: string } | null;
+}
+
+export interface DowntimeRecord {
+  id: string;
+  machineryId: string;
+  start: string;
+  end?: string | null;
+  reason: string;
+  chargeable: boolean;
+  notes?: string | null;
+  loggedBy: string;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+  durationHours?: number | null;
+}
+
+export interface FuelVarianceRow {
+  machineryId: string;
+  machineryName: string;
+  date: string;
+  workedHours: number | null;
+  consumptionRate: number;
+  expectedLiters: number | null;
+  actualLiters: number;
+  variance: number | null;
+  loggedDays: number;
+  expectedDays: number;
+}
+
+export interface FuelVarianceSummary {
+  machineryId: string;
+  machineryName: string;
+  consumptionRate: number;
+  actualLiters: number;
+  expectedLiters: number;
+  variance: number;
+  totalDays: number;
+  loggedDays: number;
+  expectedDays: number;
+  coveragePercent: number;
 }
 
 export interface MachineryRate {
@@ -429,6 +523,13 @@ export interface MachineryFormData {
   workHoursPerDay?: number;
   contractStartDate?: string;
   contractEndDate?: string;
+  // Ownership & commercial terms (Phase 3)
+  ownershipType?: MachineryOwnershipType;
+  rentalRate?: number | null;
+  rentalRateType?: "DAILY" | "MONTHLY" | null;
+  rentalStartDate?: string | null;
+  rentalEndDate?: string | null;
+  meterJumpThreshold?: number | null;
   driverIdImageFront?: string | null;
   driverIdImageBack?: string | null;
 }
@@ -626,6 +727,28 @@ export const MACHINERY_STATUS_LABELS: Record<MachineryStatus, string> = {
   OPERATIONAL: "Operational",
   UNDER_MAINTENANCE: "Under Maintenance",
   OUT_OF_SERVICE: "Out of Service",
+};
+
+export const MACHINERY_OWNERSHIP_TYPES = [
+  "COMPANY",
+  "CONTRACTOR_OWNED",
+  "RENTED",
+  "LEASED",
+] as const;
+export type MachineryOwnershipType = (typeof MACHINERY_OWNERSHIP_TYPES)[number];
+
+export const MACHINERY_OWNERSHIP_LABELS: Record<MachineryOwnershipType, string> = {
+  COMPANY: "Company Owned",
+  CONTRACTOR_OWNED: "Contractor Owned",
+  RENTED: "Rented",
+  LEASED: "Leased",
+};
+
+export const MACHINERY_OWNERSHIP_COLORS: Record<MachineryOwnershipType, string> = {
+  COMPANY: "#3b82f6",
+  CONTRACTOR_OWNED: "#8b5cf6",
+  RENTED: "#f59e0b",
+  LEASED: "#06b4d4",
 };
 
 export const CONTRACTOR_TYPE_COLORS: Record<ContractorType, string> = {

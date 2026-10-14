@@ -24,13 +24,28 @@ import {
 import {
   MACHINERY_STATUS_LABELS,
   FUEL_TYPE_LABELS,
+  MACHINERY_OWNERSHIP_LABELS,
 } from '@/types/contractor';
-import type { Machinery, MachineryStatus, FuelType } from '@/types/contractor';
+import type {
+  Machinery,
+  MachineryStatus,
+  FuelType,
+  MachineryOwnershipType,
+} from '@/types/contractor';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { AssignmentsTab } from '@/components/machinery/assignments-tab';
+import { DailyLogsTab } from '@/components/machinery/daily-logs-tab';
+import { DowntimeTab } from '@/components/machinery/downtime-tab';
+import { FuelVarianceTab } from '@/components/machinery/fuel-variance-tab';
 
 interface MachineryDetailModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   machinery: Machinery | null;
+  canCreate?: boolean;
+  canEdit?: boolean;
+  /** Called when a sub-tab mutates the machine (e.g. a transfer). */
+  onChanged?: () => void;
 }
 
 function formatDate(value?: string | null): string {
@@ -55,7 +70,14 @@ function InfoItem({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
-export function MachineryDetailModal({ open, onOpenChange, machinery }: MachineryDetailModalProps) {
+export function MachineryDetailModal({
+  open,
+  onOpenChange,
+  machinery,
+  canCreate = false,
+  canEdit = false,
+  onChanged,
+}: MachineryDetailModalProps) {
   const [preview, setPreview] = useState<{ src: string; alt: string } | null>(null);
 
   if (!machinery) return null;
@@ -104,7 +126,16 @@ export function MachineryDetailModal({ open, onOpenChange, machinery }: Machiner
           </DialogHeader>
 
           <ScrollArea className="flex-1 min-h-0 overflow-scroll">
-            <div className="space-y-6 pr-4">
+            <Tabs defaultValue="details" className="pr-4">
+              <TabsList className="mb-4 flex-wrap h-auto">
+                <TabsTrigger value="details">Details</TabsTrigger>
+                <TabsTrigger value="assignments">Assignments</TabsTrigger>
+                <TabsTrigger value="logs">Daily Logs</TabsTrigger>
+                <TabsTrigger value="downtime">Downtime</TabsTrigger>
+                <TabsTrigger value="fuel">Fuel Variance</TabsTrigger>
+              </TabsList>
+
+              <TabsContent value="details" className="space-y-6 mt-0">
               {/* Machinery Info */}
               <div className="space-y-3">
                 <span className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wider text-muted-foreground">
@@ -133,6 +164,36 @@ export function MachineryDetailModal({ open, onOpenChange, machinery }: Machiner
                       <Calendar className="size-3.5 text-muted-foreground" />
                       {formatDate(machinery.contractEndDate)}
                     </span>
+                  </InfoItem>
+                  <InfoItem label="Ownership">
+                    {MACHINERY_OWNERSHIP_LABELS[machinery.ownershipType as MachineryOwnershipType] ??
+                      machinery.ownershipType ??
+                      '—'}
+                  </InfoItem>
+                  {(machinery.ownershipType === 'RENTED' ||
+                    machinery.ownershipType === 'LEASED') && (
+                    <>
+                      <InfoItem label="Rental Rate">
+                        {machinery.rentalRate != null
+                          ? `${machinery.rentalRate.toLocaleString()} Afs${
+                              machinery.rentalRateType === 'MONTHLY'
+                                ? ' / month'
+                                : machinery.rentalRateType === 'DAILY'
+                                  ? ' / day'
+                                  : ''
+                            }`
+                          : '—'}
+                      </InfoItem>
+                      <InfoItem label="Rental Period">
+                        {formatDate(machinery.rentalStartDate)} →{' '}
+                        {machinery.rentalEndDate ? formatDate(machinery.rentalEndDate) : 'present'}
+                      </InfoItem>
+                    </>
+                  )}
+                  <InfoItem label="Meter Flag Threshold">
+                    {machinery.meterJumpThreshold != null && machinery.meterJumpThreshold > 0
+                      ? `${machinery.meterJumpThreshold} / day`
+                      : 'Disabled'}
                   </InfoItem>
                   <InfoItem label="Hours / Day">{machinery.workHoursPerDay}</InfoItem>
                   <InfoItem label="Days / Month">{machinery.contractDaysPerMonth}</InfoItem>
@@ -234,7 +295,21 @@ export function MachineryDetailModal({ open, onOpenChange, machinery }: Machiner
                   </div>
                 )}
               </div>
-            </div>
+              </TabsContent>
+
+              <TabsContent value="assignments" className="mt-0">
+                <AssignmentsTab machinery={machinery} canEdit={canEdit} onChanged={onChanged} />
+              </TabsContent>
+              <TabsContent value="logs" className="mt-0">
+                <DailyLogsTab machinery={machinery} canCreate={canCreate} canEdit={canEdit} />
+              </TabsContent>
+              <TabsContent value="downtime" className="mt-0">
+                <DowntimeTab machinery={machinery} canCreate={canCreate} canEdit={canEdit} />
+              </TabsContent>
+              <TabsContent value="fuel" className="mt-0">
+                <FuelVarianceTab machinery={machinery} />
+              </TabsContent>
+            </Tabs>
           </ScrollArea>
 
           <DialogFooter>

@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { requireAnyPermission, requirePermission } from "@/lib/permissions";
 import { Prisma } from "@prisma/client";
 import { buildAccessScope, withScope } from "@/lib/access-control";
+import { createInitialAssignment } from "@/services/machinery-assignment.service";
 
 const FUEL_TYPE_VALUES = [
   "DIESEL", "GASOLINE", "LPG", "CNG", "OTHER",
@@ -33,6 +34,14 @@ const createMachinerySchema = z.object({
   workHoursPerDay: z.number().int().min(1).max(24).default(9),
   contractStartDate: z.string().optional().nullable(),
   contractEndDate: z.string().optional().nullable(),
+  ownershipType: z
+    .enum(["COMPANY", "CONTRACTOR_OWNED", "RENTED", "LEASED"])
+    .default("COMPANY"),
+  rentalRate: z.number().min(0).optional().nullable(),
+  rentalRateType: z.enum(["DAILY", "MONTHLY"]).optional().nullable(),
+  rentalStartDate: z.string().optional().nullable(),
+  rentalEndDate: z.string().optional().nullable(),
+  meterJumpThreshold: z.number().min(0).optional().nullable(),
 }).superRefine((data, ctx) => {
   if (data.hourlyRate <= 0 && data.dailyRate <= 0 && data.monthlyRate <= 0) {
     ctx.addIssue({
@@ -183,6 +192,12 @@ export async function POST(request: NextRequest) {
           workHoursPerDay: data.workHoursPerDay,
           contractStartDate: data.contractStartDate ? new Date(data.contractStartDate) : null,
           contractEndDate: data.contractEndDate ? new Date(data.contractEndDate) : null,
+          ownershipType: data.ownershipType,
+          rentalRate: data.rentalRate ?? null,
+          rentalRateType: data.rentalRateType ?? null,
+          rentalStartDate: data.rentalStartDate ? new Date(data.rentalStartDate) : null,
+          rentalEndDate: data.rentalEndDate ? new Date(data.rentalEndDate) : null,
+          meterJumpThreshold: data.meterJumpThreshold ?? null,
           createdBy: user.id,
           machineryRates: {
             create: {
@@ -217,6 +232,18 @@ export async function POST(request: NextRequest) {
           userId: user.id,
         },
       });
+
+      // Phase 3: every machine gets an initial assignment row so the
+      // transfer history is complete from day one.
+      await createInitialAssignment(
+        tx,
+        {
+          id: created.id,
+          assignedContractorId: created.assignedContractorId,
+          contractStartDate: created.contractStartDate,
+        },
+        { userId: user.id, userName: user.name }
+      );
 
       return created;
     });

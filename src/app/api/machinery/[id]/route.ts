@@ -3,6 +3,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/permissions";
 import { buildAccessScope, withScope } from "@/lib/access-control";
+import { applyTransfer, AssignmentError } from "@/services/machinery-assignment.service";
 
 const FUEL_TYPE_VALUES = [
   "DIESEL", "GASOLINE", "LPG", "CNG", "OTHER",
@@ -34,6 +35,12 @@ const updateMachinerySchema = z.object({
   workHoursPerDay: z.number().int().min(1).max(24).optional(),
   contractStartDate: z.string().optional().nullable(),
   contractEndDate: z.string().optional().nullable(),
+  ownershipType: z.enum(["COMPANY", "CONTRACTOR_OWNED", "RENTED", "LEASED"]).optional(),
+  rentalRate: z.number().min(0).optional().nullable(),
+  rentalRateType: z.enum(["DAILY", "MONTHLY"]).optional().nullable(),
+  rentalStartDate: z.string().optional().nullable(),
+  rentalEndDate: z.string().optional().nullable(),
+  meterJumpThreshold: z.number().min(0).optional().nullable(),
 });
 
 // GET /api/machinery/[id] - Get single machinery by ID
@@ -108,7 +115,13 @@ export async function PUT(
     const updateData: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(data)) {
       if (value !== undefined) {
-        if ((key === "contractStartDate" || key === "contractEndDate") && value) {
+        if (
+          (key === "contractStartDate" ||
+            key === "contractEndDate" ||
+            key === "rentalStartDate" ||
+            key === "rentalEndDate") &&
+          value
+        ) {
           updateData[key] = new Date(value as string);
         } else {
           updateData[key] = value;
@@ -118,7 +131,14 @@ export async function PUT(
 
     const machinery = await db.machinery.findFirst({
       where: withScope({ id }, await buildAccessScope(user, "machinery")),
-      select: { id: true, machineryName: true, machineryType: true },
+      select: {
+        id: true,
+        machineryName: true,
+        machineryType: true,
+        assignedContractorId: true,
+        contractStartDate: true,
+        createdAt: true,
+      },
     });
 
     if (!machinery) {
@@ -196,6 +216,21 @@ export async function PUT(
         },
       });
 
+      // Phase 3: changing the assigned contractor is a transfer — record it
+      // in the assignment history (backfilling the initial row for machines
+      // that predate assignment tracking) so pointer and history stay in sync.
+      if (
+        typeof updateData.assignedContractorId === "string" &&
+        updateData.assignedContractorId !== machinery.assignedContractorId
+      ) {
+        await applyTransfer(
+          tx,
+          machinery,
+          { contractorId: updateData.assignedContractorId, startDate: new Date() },
+          { userId: user.id, userName: user.name }
+        );
+      }
+
       return updated;
     });
 
@@ -205,6 +240,12 @@ export async function PUT(
       message: "Machinery updated successfully",
     });
   } catch (error) {
+    if (error instanceof AssignmentError) {
+      return NextResponse.json(
+        { success: false, error: error.message },
+        { status: error.status }
+      );
+    }
     console.error("Update machinery error:", error);
     return NextResponse.json(
       { success: false, error: "Failed to update machinery" },

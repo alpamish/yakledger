@@ -220,6 +220,13 @@ enum MachineryStatus {
   OUT_OF_SERVICE
 }
 
+enum MachineryOwnershipType {
+  COMPANY
+  CONTRACTOR_OWNED
+  RENTED
+  LEASED
+}
+
 enum AssetCategory {
   VEHICLE
   FUEL
@@ -1046,6 +1053,7 @@ model Contractor {
   timesheets          Timesheet[]
   fuelUsages          FuelUsage[]
   machinery           Machinery[]
+  machineryAssignments MachineryAssignment[]
   fuelTransactions    FuelTransaction[]
   contracts           ContractorContract[]
   claims              ContractorClaim[]
@@ -1094,6 +1102,8 @@ model ContractorContract {
   variations            ContractVariation[]
   timesheets            Timesheet[]
   claims                ContractorClaim[]
+  machineryAssignments  MachineryAssignment[]
+  machineryDailyLogs    MachineryDailyLog[]
 
   @@index([contractorId])
   @@index([status])
@@ -1467,6 +1477,15 @@ model Machinery {
   workHoursPerDay       Int             @default(9)
   contractStartDate     DateTime?
   contractEndDate       DateTime?
+  // Ownership & commercial terms (Phase 3)
+  ownershipType         MachineryOwnershipType @default(COMPANY)
+  rentalRate            Float?
+  rentalRateType        String?         // DAILY | MONTHLY
+  rentalStartDate       DateTime?
+  rentalEndDate         DateTime?
+  // Daily-log meter jump (closing - opening) above this value flags the
+  // record for review; null = never flag.
+  meterJumpThreshold    Float?
   createdBy             String
   createdAt             DateTime        @default(now())
   updatedAt             DateTime        @updatedAt
@@ -1476,6 +1495,9 @@ model Machinery {
   timesheets            Timesheet[]
   fuelUsages            FuelUsage[]
   fuelTransactions      FuelTransaction[]
+  assignments           MachineryAssignment[]
+  dailyLogs             MachineryDailyLog[]
+  downtimes             DowntimeRecord[]
   creator               User            @relation(fields: [createdBy], references: [id], onDelete: Cascade)
 
   @@index([assignedContractorId])
@@ -1503,6 +1525,85 @@ model MachineryRate {
   timesheets            Timesheet[]
 
   @@index([machineryId])
+}
+
+// Transfer history: one row per assignment of a machine to a contractor.
+// Machinery.assignedContractorId is a denormalized pointer to the active
+// assignment, maintained by machinery-assignment.service in the same
+// transaction as the assignment change.
+model MachineryAssignment {
+  id            String             @id @default(cuid())
+  machineryId   String
+  contractorId  String
+  contractId    String?
+  projectName   String?
+  startDate     DateTime
+  endDate       DateTime?
+  // Free-text name of the person who handed the machine over (may differ
+  // from the acting user account recorded in createdBy).
+  transferredBy String
+  notes         String?
+  createdBy     String
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+  machinery     Machinery          @relation(fields: [machineryId], references: [id], onDelete: Cascade)
+  contractor    Contractor         @relation(fields: [contractorId], references: [id], onDelete: Cascade)
+  contract      ContractorContract? @relation(fields: [contractId], references: [id], onDelete: SetNull)
+
+  @@index([machineryId, startDate])
+  @@index([contractorId])
+  @@index([contractId])
+}
+
+// One operating record per machine per day (unique on machineryId+date).
+// closingMeter must exceed openingMeter; a day's meter jump above
+// Machinery.meterJumpThreshold flags the row for review.
+model MachineryDailyLog {
+  id             String            @id @default(cuid())
+  date           DateTime
+  machineryId    String
+  contractId     String?
+  openingMeter   Float
+  closingMeter   Float
+  normalHours    Float             @default(0)
+  overtimeHours  Float             @default(0)
+  idleHours      Float             @default(0)
+  breakdownHours Float             @default(0)
+  weather        String?
+  delayReason    String?
+  operator       String?
+  flagged        Boolean           @default(false)
+  flagReason     String?
+  // Display name of the person who recorded the log (defaults to the acting user).
+  loggedBy       String
+  createdBy      String
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  machinery      Machinery         @relation(fields: [machineryId], references: [id], onDelete: Cascade)
+  contract       ContractorContract? @relation(fields: [contractId], references: [id], onDelete: SetNull)
+
+  @@unique([machineryId, date])
+  @@index([machineryId, date])
+  @@index([contractId])
+  @@index([flagged])
+}
+
+model DowntimeRecord {
+  id          String    @id @default(cuid())
+  machineryId String
+  start       DateTime
+  end         DateTime?
+  reason      String
+  chargeable  Boolean   @default(false)
+  notes       String?
+  // Display name of the person who recorded the record.
+  loggedBy    String
+  createdBy   String
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  machinery   Machinery @relation(fields: [machineryId], references: [id], onDelete: Cascade)
+
+  @@index([machineryId, start])
 }
 
 model EmployeeCashAccount {

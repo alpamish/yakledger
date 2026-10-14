@@ -12,7 +12,7 @@ import { MachinerySummary } from '@/components/machinery/machinery-summary';
 import { MachineryTimesheetTemplate } from '@/components/machinery/machinery-timesheet-template';
 import { TimesheetFormDialog } from '@/components/machinery/timesheet-form-dialog';
 import { ConfirmDialog } from '@/components/common/confirm-dialog';
-import { contractorsApi } from '@/services/contractor-api';
+import { contractorsApi, machineryApi } from '@/services/contractor-api';
 import type { Machinery, Contractor } from '@/types/contractor';
 import {
   Plus,
@@ -84,6 +84,18 @@ export function MachineryPage() {
     if (!canView('machinery')) return;
     setDetailMachinery(m);
   }, [canView]);
+
+  // Refresh the open detail modal after a sub-tab mutation (e.g. a transfer
+  // repoints assignedContractorId server-side).
+  const handleDetailChanged = useCallback(async () => {
+    if (!detailMachinery) return;
+    try {
+      const res = await machineryApi.getById(detailMachinery.id);
+      if (res.data) setDetailMachinery(res.data);
+    } catch {
+      /* keep the stale copy; the tabs already refreshed themselves */
+    }
+  }, [detailMachinery]);
 
   const handleDeleteConfirm = useCallback(async () => {
     if (deleteConfirm.machinery) {
@@ -240,6 +252,9 @@ export function MachineryPage() {
         open={!!detailMachinery}
         onOpenChange={(open) => { if (!open) setDetailMachinery(null); }}
         machinery={detailMachinery}
+        canCreate={canCreate('machinery')}
+        canEdit={canEdit('machinery')}
+        onChanged={handleDetailChanged}
       />
 
       {/* Delete Confirmation */}

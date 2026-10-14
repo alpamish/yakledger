@@ -48,6 +48,8 @@ import {
   FUEL_TYPES,
   MACHINERY_STATUS_LABELS,
   FUEL_TYPE_LABELS,
+  MACHINERY_OWNERSHIP_TYPES,
+  MACHINERY_OWNERSHIP_LABELS,
 } from '@/types/contractor';
 import type { MachineryFormData, MachineryStatus, FuelType, MachineryRate, MachineryRateFormData, Machinery } from '@/types/contractor';
 import { useMachineryStore } from '@/hooks/use-machinery-store';
@@ -77,6 +79,12 @@ const formSchema = z.object({
   workHoursPerDay: z.coerce.number().int().min(1, 'Min 1').max(24, 'Max 24').default(9),
   contractStartDate: z.string().optional().nullable(),
   contractEndDate: z.string().optional().nullable(),
+  ownershipType: z.enum(MACHINERY_OWNERSHIP_TYPES, { message: 'Ownership type is required' }),
+  rentalRate: z.string().optional().nullable(),
+  rentalRateType: z.string().optional().nullable(),
+  rentalStartDate: z.string().optional().nullable(),
+  rentalEndDate: z.string().optional().nullable(),
+  meterJumpThreshold: z.string().optional().nullable(),
 }).superRefine((data, ctx) => {
   if (data.hourlyRate <= 0 && data.dailyRate <= 0 && data.monthlyRate <= 0) {
     ctx.addIssue({
@@ -147,6 +155,12 @@ export function MachineryForm() {
       workHoursPerDay: 9,
       contractStartDate: '',
       contractEndDate: '',
+      ownershipType: 'COMPANY' as const,
+      rentalRate: '',
+      rentalRateType: '',
+      rentalStartDate: '',
+      rentalEndDate: '',
+      meterJumpThreshold: '',
     },
   });
 
@@ -178,6 +192,16 @@ export function MachineryForm() {
           workHoursPerDay: editingMachinery.workHoursPerDay ?? 9,
           contractStartDate: editingMachinery.contractStartDate ?? '',
           contractEndDate: editingMachinery.contractEndDate ?? '',
+          ownershipType: editingMachinery.ownershipType ?? 'COMPANY',
+          rentalRate:
+            editingMachinery.rentalRate != null ? String(editingMachinery.rentalRate) : '',
+          rentalRateType: editingMachinery.rentalRateType ?? '',
+          rentalStartDate: editingMachinery.rentalStartDate?.slice(0, 10) ?? '',
+          rentalEndDate: editingMachinery.rentalEndDate?.slice(0, 10) ?? '',
+          meterJumpThreshold:
+            editingMachinery.meterJumpThreshold != null
+              ? String(editingMachinery.meterJumpThreshold)
+              : '',
         });
       } else {
         form.reset({
@@ -200,6 +224,12 @@ export function MachineryForm() {
           workHoursPerDay: 9,
           contractStartDate: '',
           contractEndDate: '',
+          ownershipType: 'COMPANY' as const,
+          rentalRate: '',
+          rentalRateType: '',
+          rentalStartDate: '',
+          rentalEndDate: '',
+          meterJumpThreshold: '',
         });
       }
     }
@@ -248,6 +278,15 @@ export function MachineryForm() {
         driverNationalId: values.driverNationalId || undefined,
         contractStartDate: values.contractStartDate || undefined,
         contractEndDate: values.contractEndDate || undefined,
+        ownershipType: values.ownershipType,
+        rentalRate: values.rentalRate ? Number(values.rentalRate) : null,
+        rentalRateType:
+          values.rentalRateType === 'DAILY' || values.rentalRateType === 'MONTHLY'
+            ? values.rentalRateType
+            : null,
+        rentalStartDate: values.rentalStartDate || null,
+        rentalEndDate: values.rentalEndDate || null,
+        meterJumpThreshold: values.meterJumpThreshold ? Number(values.meterJumpThreshold) : null,
       };
 
       if (isEditing && editingMachinery) {
@@ -793,9 +832,92 @@ export function MachineryForm() {
               </CardContent>
             </Card>
 
+            {/* Ownership & Rental */}
+            <div className="border-t pt-4 mt-4">
+              <h3 className="text-sm font-semibold text-muted-foreground mb-3">Ownership &amp; Rental</h3>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <FormField control={form.control} name="ownershipType" render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Ownership</FormLabel>
+                  <FormControl>
+                    <Select onValueChange={field.onChange} value={field.value}>
+                      <FormControl><SelectTrigger><SelectValue placeholder="Select ownership" /></SelectTrigger></FormControl>
+                      <SelectContent>
+                        {MACHINERY_OWNERSHIP_TYPES.map((o) => (
+                          <SelectItem key={o} value={o}>{MACHINERY_OWNERSHIP_LABELS[o]}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )} />
+              <FormField control={form.control} name="rentalRate" render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Rental / Lease Rate</FormLabel>
+                  <FormControl>
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">Afs</span>
+                      <Input type="number" step="0.01" min="0" placeholder="0.00" className="pl-7" {...field} value={field.value ?? ''} />
+                    </div>
+                  </FormControl>
+                  <p className="text-xs text-muted-foreground">Applies when ownership is rented or leased.</p>
+                  <FormMessage />
+                </FormItem>
+              )} />
+              <FormField control={form.control} name="rentalRateType" render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Rental Rate Period</FormLabel>
+                  <FormControl>
+                    <Select
+                      value={field.value || 'NONE'}
+                      onValueChange={(v) => field.onChange(v === 'NONE' ? '' : v)}
+                    >
+                      <FormControl><SelectTrigger><SelectValue placeholder="Select period" /></SelectTrigger></FormControl>
+                      <SelectContent>
+                        <SelectItem value="NONE">Not set</SelectItem>
+                        <SelectItem value="DAILY">Per Day</SelectItem>
+                        <SelectItem value="MONTHLY">Per Month</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )} />
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <FormField control={form.control} name="rentalStartDate" render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Rental Start</FormLabel>
+                  <FormControl><Input type="date" {...field} value={field.value ?? ''} /></FormControl>
+                  <FormMessage />
+                </FormItem>
+              )} />
+              <FormField control={form.control} name="rentalEndDate" render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Rental End</FormLabel>
+                  <FormControl><Input type="date" {...field} value={field.value ?? ''} /></FormControl>
+                  <FormMessage />
+                </FormItem>
+              )} />
+              <FormField control={form.control} name="meterJumpThreshold" render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Meter Jump Threshold</FormLabel>
+                  <FormControl><Input type="number" step="0.1" min="0" placeholder="e.g. 24" {...field} value={field.value ?? ''} /></FormControl>
+                  <p className="text-xs text-muted-foreground">
+                    Daily meter jumps above this flag logs for review. Empty = never flag.
+                  </p>
+                  <FormMessage />
+                </FormItem>
+              )} />
+            </div>
+
             {/* Rates & Contract */}
             <div className="border-t pt-4 mt-4">
-              <h3 className="text-sm font-semibold text-muted-foreground mb-3">Rates & Contract</h3>
+              <h3 className="text-sm font-semibold text-muted-foreground mb-3">Rates &amp; Contract</h3>
               <p className="text-xs text-muted-foreground mb-3">
                 At least one rate (hourly, daily, or monthly) is required. A default rate tier
                 ('Default') is created automatically from these rates.
