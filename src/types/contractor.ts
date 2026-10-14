@@ -193,6 +193,139 @@ export interface ContractorComplianceStatus {
   blockedReason: string | null;
 }
 
+// ── Reporting (Phase 6) ─────────────────────────────────────────────────────
+// Read-only aggregates. Every figure is computed server-side through the shared
+// ledger/claim/advance services (never float-math in a component), so reports,
+// the profile, PDFs, and the ledger always reconcile.
+
+/** One line of a contractor statement (a ledger entry, in statement order). */
+export interface StatementLine {
+  id: string;
+  occurredAt: string;
+  /** CLAIM_POSTED | CLAIM_REVERSAL | RETENTION_HELD | RETENTION_RELEASED | ADVANCE_DISBURSED | ADVANCE_RECOVERY | PAYMENT | PAYMENT_REVERSAL | WRITE_OFF */
+  type: string;
+  reference?: string | null;
+  /** Signed: positive increases what the company owes the contractor. */
+  amount: number;
+  balanceAfter: number;
+  claimId?: string | null;
+  paymentId?: string | null;
+  advanceId?: string | null;
+}
+
+/** Totals per ledger entry type inside the statement window. */
+export type StatementTypeTotals = Partial<Record<string, number>>;
+
+export interface StatementReport {
+  contractorId: string;
+  contractorName: string;
+  from: string | null;
+  to: string | null;
+  /** Sum of all entries strictly before `from` (0 when no `from`). */
+  openingBalance: number;
+  /** openingBalance + sum(in-period amounts). */
+  closingBalance: number;
+  /** Live balance from the ledger (independent of the window). */
+  currentBalance: number;
+  lines: StatementLine[];
+  totalsByType: StatementTypeTotals;
+  totalInPeriod: number;
+}
+
+export interface PayableAgingRow {
+  contractorId: string;
+  contractorName: string;
+  buckets: Record<"current" | "0-30" | "31-60" | "61-90" | "90+", number>;
+  total: number;
+  claimCount: number;
+}
+
+export interface PayableAgingReport {
+  asOf: string;
+  rows: PayableAgingRow[];
+  totals: Record<"current" | "0-30" | "31-60" | "61-90" | "90+", number>;
+  grandTotal: number;
+}
+
+export interface RetentionReportRow {
+  contractorId: string;
+  contractorName: string;
+  held: number;
+  released: number;
+  /** held - released: retention still withheld. */
+  balance: number;
+  claimCount: number;
+}
+
+export interface RetentionReport {
+  from: string | null;
+  to: string | null;
+  rows: RetentionReportRow[];
+  totalHeld: number;
+  totalReleased: number;
+  totalBalance: number;
+}
+
+export interface AdvanceRecoveryReportRow {
+  contractorId: string;
+  contractorName: string;
+  disbursed: number;
+  recovered: number;
+  writtenOff: number;
+  outstanding: number;
+}
+
+export interface AdvanceRecoveryReport {
+  from: string | null;
+  to: string | null;
+  rows: AdvanceRecoveryReportRow[];
+  totalDisbursed: number;
+  totalRecovered: number;
+  totalWrittenOff: number;
+  totalOutstanding: number;
+}
+
+export interface DeductionsReportRow {
+  contractorId: string;
+  contractorName: string;
+  /** Deduction type (FUEL | PENALTY | MATERIALS | ...) → total amount. */
+  byType: Record<string, number>;
+  total: number;
+  deductionCount: number;
+}
+
+export interface DeductionsReport {
+  from: string | null;
+  to: string | null;
+  rows: DeductionsReportRow[];
+  totalsByType: Record<string, number>;
+  grandTotal: number;
+}
+
+export interface ClaimsPaymentsReportRow {
+  contractorId: string;
+  contractorName: string;
+  // Claims side
+  claimCount: number;
+  grossAmount: number;
+  retentionAmount: number;
+  deductionsTotal: number;
+  netAmount: number;
+  paidAmount: number;
+  outstanding: number;
+  // Payments side
+  paymentCount: number;
+  paymentsTotal: number;
+  reversedTotal: number;
+}
+
+export interface ClaimsPaymentsReport {
+  from: string | null;
+  to: string | null;
+  rows: ClaimsPaymentsReportRow[];
+  totals: Omit<ClaimsPaymentsReportRow, "contractorId" | "contractorName">;
+}
+
 export interface Timesheet {
   id: string;
   contractorId: string;
