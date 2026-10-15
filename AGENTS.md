@@ -37,5 +37,16 @@ Single-page ERP app ("Yakledger"): Next.js 16 App Router + React 19 + Prisma + T
 - Employee cash account balance = advances + salaryPayments + adjustments − returns − deductions − earnedGross + transfersIn − transfersOut (positive means employee owes the company). `Wallet.balance` = sum of `WalletTransaction.amount` (positive adds).
 - `recalculateBalance` / `companyWalletService.apply` are the recompute paths. Ledger entries and their effect (balance write, wallet debit/credit) must happen in the same `db.$transaction`.
 
+## Contractor module (construction contracting, Phases 1–6)
+- Claim lifecycle: DRAFT → SUBMITTED → (VERIFIED / FINANCE_REVIEW optional) → approve posts the ledger **exactly once** (`postedAt` guard → 409, verified under concurrent double-approve). Approved/posted financial rows are never edited or deleted in place — reverse instead.
+- Ledger signs: positive increases what the company owes the contractor. `RETENTION_HELD` is positive, `RETENTION_RELEASED` negative (cash out), `ADVANCE_DISBURSED` negative; `ADVANCE_RECOVERY` entries have **amount 0** — recovery only redirects cash via `claim.advanceRecoveryTotal` (FIFO, applied at approval). Claim outstanding = `netAmount − advanceRecoveryTotal − paidAmount`.
+- Retention is snapshotted on the claim (`retentionPercent` / `retentionAmount`) at claim time and released in tranches, capped at the held amount.
+- Scoping: every contractor-scoped route uses `buildAccessScope(user, "contractor")`; an out-of-scope ID must 404 (bulk actions filter IDs instead of erroring).
+- Compliance gate (`contractor-compliance.service.ts`): suspended/blacklisted/archived status or **expired** blocking docs (NATIONAL_ID, BUSINESS_LICENSE) block payments with 403; docs expiring within 30 days only warn via `/api/contractors/[id]/compliance`. Payments carry idempotency keys; receiver/limit are enforced when authorizations exist.
+- Reports (server-aggregated only — no money math in components): finance under `/api/contractors/reports/*` (statement [en + Dari/RTL PDF], payable-aging, retention, advance-recovery, deductions, claims-payments, contract-summary), ops under `/api/contractor-ops-reports/*` (utilization, downtime, project-cost) plus `/api/machinery/fuel-variance`. UI tabs: `src/components/reports/contractor-finance-reports-tab.tsx` and `contractor-ops-reports-tab.tsx`.
+- Contract numbers `CON-#####` (and contractor numbers) come from the `Sequence` table (`src/lib/contract-number.ts`) — never reused. Approved contract variations increment `contractorContract.value`, so revised budget = base + approved variations.
+- `tests/lib/schema-parity.test.ts` enforces lockstep of the two Prisma schemas — run `bun run db:generate` after any schema edit.
+- Demo/pilot data: `bunx tsx scripts/seed-contractor-pilot.ts` (idempotent, honours DATABASE_URL).
+
 ## Workflow
 - Commit only files related to the task. The working tree frequently carries unrelated in-progress changes (approvals page, settings page, backup utilities, fonts, `.gitignore`, `package.json`/`bun.lock`, `next-env.d.ts`) that must remain untouched and unstaged.

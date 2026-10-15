@@ -132,3 +132,14 @@ npm run test:types     # → tsc on tests/
 npx tsx scripts/db-integrity-check.ts   # → read-only custom.db verification
 ```
 Nothing in `tests/` or `scripts/db-integrity-check.ts` touched production data — the integration tests run on an isolated, wiped-per-file SQLite DB (`prisma/db/test-vitest.db`, gitignored).
+
+---
+
+## Update — 2026-10-15 (after the contractor program)
+
+The 2026-08-06 report above is preserved as written; current status of its items:
+
+- **Test suite**: now **66 files / 625 tests** (was 7 files / 60) — contractor Phases 1–6 (contracts, claims/ledger, machinery ops, compliance, reporting), approvals, backup/restore, and more.
+- **Schema parity is automated**: `tests/lib/schema-parity.test.ts` enforces `prisma/schema.prisma` ↔ `prisma/schema.pg.prisma` lockstep (64 models on both sides; PG enums ↔ SQLite `String`). It immediately caught and fixed a real drift (`AppSettings.allowSignup` existed only in the SQLite schema). The "21 tables" figure in Finding 6 is stale — both schemas now declare 64 models — and **Neon has not been pushed since the contractor phases** (`db:push:pg` is pending network access; run it before using the PG client).
+- **Findings 2–5** (wallet balance drift, epoch `expenseDate` rows, negative fuel stock, `getShamsiMonthDays`): not re-verified in this update; still owned by the operator (see recommendations §5 above).
+- **Lint (Finding 1)**: still disabled-by-convention per `AGENTS.md`; not a meaningful gate.
