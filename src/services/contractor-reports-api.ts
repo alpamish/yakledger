@@ -5,6 +5,7 @@
 import type {
   AdvanceRecoveryReport,
   ClaimsPaymentsReport,
+  ContractSummaryReport,
   DeductionsReport,
   DowntimeReport,
   PayableAgingReport,
@@ -74,6 +75,9 @@ export const contractorReportsApi = {
 
   getClaimsPayments: (w: ReportWindow = {}): Promise<ClaimsPaymentsReport> =>
     request<ClaimsPaymentsReport>(`/contractors/reports/claims-payments${windowQuery(w)}`),
+
+  getContractSummary: (w: ReportWindow = {}): Promise<ContractSummaryReport> =>
+    request<ContractSummaryReport>(`/contractors/reports/contract-summary${windowQuery(w)}`),
 
   // ── Machinery & project ops (Batch B) ────────────────────────────────────
   getUtilization: (w: ReportWindow = {}): Promise<UtilizationReport> =>

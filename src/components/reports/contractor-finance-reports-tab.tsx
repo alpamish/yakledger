@@ -1,14 +1,15 @@
 'use client';
 
 // Contractor Finance Reports tab (Phase 6, Batch A): statement, payable
-// aging, retention, advance recovery, deductions, and claims & payments.
+// aging, retention, advance recovery, deductions, claims & payments, and
+// contract summary (budget vs approved vs variations vs paid).
 // Every figure is fetched from the server-aggregated /api/contractors/reports/*
 // routes (reports:view + contractor scope) and rendered as-is — no money math
 // happens in this component.
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
-import { FileText, Clock, Lock, Wallet, Receipt, ClipboardList, Play, Eye, Loader2 } from 'lucide-react';
+import { FileText, Clock, Lock, Wallet, Receipt, ClipboardList, FolderKanban, Play, Eye, Loader2 } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -27,6 +28,7 @@ import type {
   AdvanceRecoveryReport,
   ClaimsPaymentsReport,
   Contractor,
+  ContractSummaryReport,
   DeductionsReport,
   PayableAgingReport,
   RetentionReport,
@@ -65,6 +67,7 @@ import RetentionReportPdfDocument from '@/components/pdf/retention-report-pdf-do
 import AdvanceRecoveryReportPdfDocument from '@/components/pdf/advance-recovery-report-pdf-document';
 import DeductionsReportPdfDocument from '@/components/pdf/deductions-report-pdf-document';
 import ClaimsPaymentsReportPdfDocument from '@/components/pdf/claims-payments-report-pdf-document';
+import ContractSummaryPdfDocument from '@/components/pdf/contractor-contract-summary-pdf-document';
 
 export function ContractorFinanceReportsTab({
   companyName,
@@ -73,7 +76,7 @@ export function ContractorFinanceReportsTab({
   companyName: string;
   hasPermission: (action: string) => boolean;
 }) {
-  type ReportKey = 'statement' | 'aging' | 'retention' | 'advances' | 'deductions' | 'claims';
+  type ReportKey = 'statement' | 'aging' | 'retention' | 'advances' | 'deductions' | 'claims' | 'summary';
 
   const [active, setActive] = useState<ReportKey>('statement');
   const [from, setFrom] = useState('');
@@ -91,6 +94,7 @@ export function ContractorFinanceReportsTab({
   const [advances, setAdvances] = useState<AdvanceRecoveryReport | null>(null);
   const [deductions, setDeductions] = useState<DeductionsReport | null>(null);
   const [claims, setClaims] = useState<ClaimsPaymentsReport | null>(null);
+  const [contractSummary, setContractSummary] = useState<ContractSummaryReport | null>(null);
 
   const [preview, setPreview] = useState<{ el: React.ReactElement; filename: string } | null>(null);
 
@@ -133,6 +137,9 @@ export function ContractorFinanceReportsTab({
             break;
           case 'claims':
             setClaims(await contractorReportsApi.getClaimsPayments(w));
+            break;
+          case 'summary':
+            setContractSummary(await contractorReportsApi.getContractSummary(w));
             break;
         }
       } catch (err) {
@@ -206,6 +213,9 @@ export function ContractorFinanceReportsTab({
           </TabsTrigger>
           <TabsTrigger value="claims" className="gap-1.5">
             <ClipboardList className="h-4 w-4" /> Claims & Payments
+          </TabsTrigger>
+          <TabsTrigger value="summary" className="gap-1.5">
+            <FolderKanban className="h-4 w-4" /> Contract Summary
           </TabsTrigger>
         </TabsList>
 
@@ -747,6 +757,95 @@ export function ContractorFinanceReportsTab({
                               <td className={`${td} text-right`}>{claims.totals.paymentCount}</td>
                               <td className={`${td} text-right`}>{formatCurrency(claims.totals.paymentsTotal)}</td>
                               <td className={`${td} text-right`}>{formatCurrency(claims.totals.reversedTotal)}</td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </CardContent>
+                </Card>
+              </>
+            )}
+        </TabsContent>
+
+        {/* ── Contract summary ─────────────────────────────────────── */}
+        <TabsContent value="summary" className="space-y-4 mt-4">
+          {!contractSummary
+            ? runHint('Click “Run report” to compare budget, variations, approved work, and paid.')
+            : (
+              <>
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                  <Stat label="Budget (base)" value={formatCurrency(contractSummary.totals.baseValue)} />
+                  <Stat label="Approved variations" value={formatCurrency(contractSummary.totals.variationsTotal)} />
+                  <Stat label="Budget (revised)" value={formatCurrency(contractSummary.totals.revisedValue)} />
+                  <Stat label="Approved work (net)" value={formatCurrency(contractSummary.totals.approvedNet)} />
+                  <Stat label="Paid" value={formatCurrency(contractSummary.totals.paidAmount)} />
+                  <Stat label="Outstanding" value={formatCurrency(contractSummary.totals.outstanding)} danger={contractSummary.totals.outstanding > 0} />
+                </div>
+                <Card>
+                  <CardContent>
+                    <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                      <p className="text-sm font-medium">
+                        Contracts — budget vs approved work
+                        {contractSummary.from || contractSummary.to
+                          ? ' (claims in window; budget point-in-time)'
+                          : ''}
+                      </p>
+                      {pdfButton(
+                        'Preview PDF',
+                        <ContractSummaryPdfDocument report={contractSummary} companyName={companyName} />,
+                        `contract-summary-${stamp()}.pdf`
+                      )}
+                    </div>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b">
+                            <th className={`${th} text-left`}>Contract</th>
+                            <th className={`${th} text-left`}>Project</th>
+                            <th className={`${th} text-right`}>Budget</th>
+                            <th className={`${th} text-right`}>Variations</th>
+                            <th className={`${th} text-right`}>Approved</th>
+                            <th className={`${th} text-right`}>Retention</th>
+                            <th className={`${th} text-right`}>Paid</th>
+                            <th className={`${th} text-right`}>Outstanding</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {contractSummary.rows.length === 0 && (
+                            <tr>
+                              <td className={`${td} text-muted-foreground`} colSpan={8}>
+                                No contracts for the selected scope.
+                              </td>
+                            </tr>
+                          )}
+                          {contractSummary.rows.map((r) => (
+                            <tr key={r.contractId} className="border-b last:border-0 hover:bg-muted/50">
+                              <td className={`${td} font-medium`}>{r.contractNumber}</td>
+                              <td className={td}>{r.projectName ?? r.title ?? '—'}</td>
+                              <td className={`${td} text-right`}>{formatCurrency(r.revisedValue)}</td>
+                              <td className={`${td} text-right ${r.variationsTotal !== 0 ? 'text-blue-600' : ''}`}>
+                                {r.variationsTotal !== 0 ? formatCurrency(r.variationsTotal) : '—'}
+                              </td>
+                              <td className={`${td} text-right`}>{formatCurrency(r.approvedNet)}</td>
+                              <td className={`${td} text-right`}>{formatCurrency(r.retentionBalance)}</td>
+                              <td className={`${td} text-right`}>{formatCurrency(r.paidAmount)}</td>
+                              <td className={`${td} text-right font-medium ${r.outstanding > 0 ? 'text-red-600' : ''}`}>
+                                {formatCurrency(r.outstanding)}
+                              </td>
+                            </tr>
+                          ))}
+                          {contractSummary.rows.length > 0 && (
+                            <tr className="border-t-2 font-bold">
+                              <td className={td} colSpan={2}>
+                                Total
+                              </td>
+                              <td className={`${td} text-right`}>{formatCurrency(contractSummary.totals.revisedValue)}</td>
+                              <td className={`${td} text-right`}>{formatCurrency(contractSummary.totals.variationsTotal)}</td>
+                              <td className={`${td} text-right`}>{formatCurrency(contractSummary.totals.approvedNet)}</td>
+                              <td className={`${td} text-right`}>{formatCurrency(contractSummary.totals.retentionBalance)}</td>
+                              <td className={`${td} text-right`}>{formatCurrency(contractSummary.totals.paidAmount)}</td>
+                              <td className={`${td} text-right`}>{formatCurrency(contractSummary.totals.outstanding)}</td>
                             </tr>
                           )}
                         </tbody>

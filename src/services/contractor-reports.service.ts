@@ -18,6 +18,8 @@ import type {
   AdvanceRecoveryReportRow,
   ClaimsPaymentsReport,
   ClaimsPaymentsReportRow,
+  ContractSummaryReport,
+  ContractSummaryRow,
   DeductionsReport,
   DeductionsReportRow,
   PayableAgingReport,
@@ -554,4 +556,169 @@ export async function getClaimsPaymentsReport(
   }
 
   return { from, to, rows, totals };
+}
+
+// ── Contract summary (budget vs approved work vs variations vs paid) ───────
+//
+// Budget and approved variations are point-in-time facts of the contract, so
+// they ignore the window: `revisedValue` (current contract.value) always
+// equals `baseValue` + `variationsTotal`. Approved work / retention / paid /
+// outstanding are windowed exactly like the other Batch A reports, so this
+// report's `outstanding` totals reconcile with payable aging and claims &
+// payments (release gate §9).
+export async function getContractSummaryReport(
+  contractorWhere: ContractorWhere,
+  opts: { from?: string; to?: string } = {}
+): Promise<ContractSummaryReport> {
+  const { from, to, fromDate, toDate } = windowOf(opts.from, opts.to);
+
+  const [contracts, variations, claims, releases] = await Promise.all([
+    db.contractorContract.findMany({
+      where: { contractor: contractorWhere },
+      select: {
+        id: true,
+        contractNumber: true,
+        title: true,
+        projectName: true,
+        status: true,
+        value: true,
+        contractorId: true,
+        contractor: { select: { contractorName: true } },
+      },
+      orderBy: { contractNumber: "asc" },
+    }),
+    db.contractVariation.findMany({
+      where: { contract: { contractor: contractorWhere }, status: "APPROVED" },
+      select: { contractId: true, valueChange: true },
+    }),
+    db.contractorClaim.findMany({
+      where: {
+        contract: { contractor: contractorWhere },
+        status: { in: ["POSTED", "PARTIALLY_PAID", "PAID"] },
+        postedAt: { not: null },
+        ...(fromDate || toDate
+          ? {
+              periodEnd: {
+                ...(fromDate ? { gte: fromDate } : {}),
+                ...(toDate ? { lte: toDate } : {}),
+              },
+            }
+          : {}),
+      },
+      select: {
+        contractId: true,
+        grossAmount: true,
+        deductionsTotal: true,
+        retentionAmount: true,
+        netAmount: true,
+        advanceRecoveryTotal: true,
+        paidAmount: true,
+      },
+    }),
+    db.retentionRelease.findMany({
+      where: {
+        claim: { contract: { contractor: contractorWhere } },
+        ...(fromDate || toDate
+          ? {
+              date: {
+                ...(fromDate ? { gte: fromDate } : {}),
+                ...(toDate ? { lte: toDate } : {}),
+              },
+            }
+          : {}),
+      },
+      select: { amount: true, claim: { select: { contractId: true } } },
+    }),
+  ]);
+
+  const byContract = new Map<string, ContractSummaryRow>();
+  for (const c of contracts) {
+    byContract.set(c.id, {
+      contractId: c.id,
+      contractNumber: c.contractNumber,
+      title: c.title,
+      projectName: c.projectName,
+      status: c.status,
+      contractorId: c.contractorId,
+      contractorName: c.contractor?.contractorName ?? "Unknown",
+      baseValue: round2(c.value),
+      variationCount: 0,
+      variationsTotal: 0,
+      revisedValue: round2(c.value),
+      claimCount: 0,
+      approvedGross: 0,
+      deductionsTotal: 0,
+      approvedNet: 0,
+      retentionHeld: 0,
+      retentionReleased: 0,
+      retentionBalance: 0,
+      advanceRecovered: 0,
+      paidAmount: 0,
+      outstanding: 0,
+    });
+  }
+
+  // Approved variations adjust the budget: current value already includes
+  // them (the approval route increments contract.value), so back out the
+  // original budget. Guards against a variation whose contract is out of scope.
+  for (const v of variations) {
+    const row = byContract.get(v.contractId);
+    if (!row) continue;
+    row.variationCount += 1;
+    row.variationsTotal = round2(row.variationsTotal + v.valueChange);
+  }
+  for (const row of byContract.values()) {
+    row.baseValue = round2(row.revisedValue - row.variationsTotal);
+  }
+
+  for (const claim of claims) {
+    const row = byContract.get(claim.contractId);
+    if (!row) continue; // claim on a contract deleted out of scope
+    row.claimCount += 1;
+    row.approvedGross = round2(row.approvedGross + claim.grossAmount);
+    row.deductionsTotal = round2(row.deductionsTotal + claim.deductionsTotal);
+    row.approvedNet = round2(row.approvedNet + claim.netAmount);
+    row.retentionHeld = round2(row.retentionHeld + claim.retentionAmount);
+    row.advanceRecovered = round2(row.advanceRecovered + claim.advanceRecoveryTotal);
+    row.paidAmount = round2(row.paidAmount + claim.paidAmount);
+    row.outstanding = round2(row.outstanding + (claim.netAmount - claim.advanceRecoveryTotal - claim.paidAmount));
+  }
+
+  for (const rel of releases) {
+    const row = byContract.get(rel.claim.contractId);
+    if (!row) continue;
+    row.retentionReleased = round2(row.retentionReleased + rel.amount);
+  }
+  for (const row of byContract.values()) {
+    row.retentionBalance = round2(row.retentionHeld - row.retentionReleased);
+  }
+
+  const rows: ContractSummaryRow[] = [...byContract.values()].sort((a, b) =>
+    a.contractNumber.localeCompare(b.contractNumber)
+  );
+
+  const sum = (k: keyof Omit<ContractSummaryRow, "contractId" | "contractNumber" | "title" | "projectName" | "status" | "contractorId" | "contractorName">) =>
+    round2(rows.reduce((s, r) => s + (r[k] as number), 0));
+
+  return {
+    from,
+    to,
+    rows,
+    totals: {
+      baseValue: sum("baseValue"),
+      variationCount: rows.reduce((s, r) => s + r.variationCount, 0),
+      variationsTotal: sum("variationsTotal"),
+      revisedValue: sum("revisedValue"),
+      claimCount: rows.reduce((s, r) => s + r.claimCount, 0),
+      approvedGross: sum("approvedGross"),
+      deductionsTotal: sum("deductionsTotal"),
+      approvedNet: sum("approvedNet"),
+      retentionHeld: sum("retentionHeld"),
+      retentionReleased: sum("retentionReleased"),
+      retentionBalance: sum("retentionBalance"),
+      advanceRecovered: sum("advanceRecovered"),
+      paidAmount: sum("paidAmount"),
+      outstanding: sum("outstanding"),
+    },
+  };
 }

@@ -4,6 +4,7 @@ import { GET as GET_RETENTION } from "@/app/api/contractors/reports/retention/ro
 import { GET as GET_ADVANCE_RECOVERY } from "@/app/api/contractors/reports/advance-recovery/route";
 import { GET as GET_DEDUCTIONS } from "@/app/api/contractors/reports/deductions/route";
 import { GET as GET_CLAIMS_PAYMENTS } from "@/app/api/contractors/reports/claims-payments/route";
+import { GET as GET_CONTRACT_SUMMARY } from "@/app/api/contractors/reports/contract-summary/route";
 import { GET as GET_OUTSTANDING } from "@/app/api/contractors/[id]/outstanding/route";
 import { POST as POST_CONTRACTOR } from "@/app/api/contractors/route";
 import { POST as POST_CONTRACT } from "@/app/api/contracts/route";
@@ -11,6 +12,8 @@ import { POST as POST_RATE } from "@/app/api/contracts/[id]/rates/route";
 import { POST as POST_TIMESHEET } from "@/app/api/timesheets/route";
 import { POST as POST_CLAIM } from "@/app/api/contractor-claims/route";
 import { POST as CLAIM_ACTION } from "@/app/api/contractor-claims/[id]/route";
+import { POST as POST_VARIATION } from "@/app/api/contracts/[id]/variations/route";
+import { POST as DECIDE_VARIATION } from "@/app/api/contracts/[id]/variations/[variationId]/route";
 import { POST as ADD_DEDUCTION } from "@/app/api/contractor-claims/[id]/deductions/route";
 import { POST as POST_ADVANCE } from "@/app/api/contractor-advances/route";
 import { POST as POST_PAYMENT } from "@/app/api/contractor-payments/route";
@@ -121,6 +124,7 @@ beforeAll(async () => {
       body: {
         contractorId,
         title: "Reports test contract",
+        projectName: "Reports Project",
         contractType: "MACHINERY_HIRE",
         value: 500000,
         startDate: "2026-01-01",
@@ -402,6 +406,101 @@ describe("Claims & payments report", () => {
   });
 });
 
+describe("Contract summary report", () => {
+  it("compares budget, approved variations, approved work, and paid per contract", async () => {
+    // One APPROVED variation (+25000 → value 525000) and one PENDING variation
+    // (+50000) that must never touch the budget.
+    const mkVar = async (valueChange: number, description: string) => {
+      const res = await POST_VARIATION(
+        buildRequest(`/api/contracts/${contractId}/variations`, {
+          token: tokens.adminToken,
+          method: "POST",
+          body: { description, valueChange, effectiveFrom: "2026-06-01" },
+        }),
+        { params: Promise.resolve({ id: contractId }) }
+      );
+      expect(res.status).toBe(201);
+      return (await res.json()).data as { id: string };
+    };
+
+    const approvedVar = await mkVar(25000, "Scope extension");
+    await mkVar(50000, "Future scope, stays pending");
+
+    const decide = await DECIDE_VARIATION(
+      buildRequest(`/api/contracts/${contractId}/variations/${approvedVar.id}`, {
+        token: tokens.adminToken,
+        method: "POST",
+        body: { action: "approve" },
+      }),
+      { params: Promise.resolve({ id: contractId, variationId: approvedVar.id }) }
+    );
+    expect(decide.status).toBe(200);
+
+    const res = await GET_CONTRACT_SUMMARY(
+      buildRequest("/api/contractors/reports/contract-summary", { token: tokens.adminToken })
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()).data;
+
+    expect(body.rows).toHaveLength(1);
+    const row = body.rows[0];
+    expect(row.contractId).toBe(contractId);
+    expect(row.projectName).toBe("Reports Project");
+
+    // Budget: 500000 base + 25000 approved = 525000 revised; pending 50000 ignored.
+    expect(row.baseValue).toBe(500000);
+    expect(row.variationCount).toBe(1);
+    expect(row.variationsTotal).toBe(25000);
+    expect(row.revisedValue).toBe(525000);
+    expect(row.baseValue + row.variationsTotal).toBe(row.revisedValue);
+
+    // Approved work (both posted claims, unwindowed).
+    expect(row.claimCount).toBe(2);
+    expect(row.approvedGross).toBe(2400);
+    expect(row.deductionsTotal).toBe(100);
+    expect(row.approvedNet).toBe(2060);
+    expect(row.retentionHeld).toBe(240);
+    expect(row.retentionReleased).toBe(50);
+    expect(row.retentionBalance).toBe(190);
+    expect(row.advanceRecovered).toBe(270);
+    expect(row.paidAmount).toBe(300);
+    expect(row.outstanding).toBe(1490);
+
+    expect(body.totals.revisedValue).toBe(525000);
+    expect(body.totals.outstanding).toBe(1490);
+
+    // §9 identity: the same outstanding across three finance reports.
+    const aging = await GET_AGING(
+      buildRequest("/api/contractors/reports/payable-aging", { token: tokens.adminToken })
+    );
+    const claimsReport = await GET_CLAIMS_PAYMENTS(
+      buildRequest("/api/contractors/reports/claims-payments", { token: tokens.adminToken })
+    );
+    expect((await aging.json()).data.grandTotal).toBe(body.totals.outstanding);
+    expect((await claimsReport.json()).data.totals.outstanding).toBe(body.totals.outstanding);
+  });
+
+  it("windows approved work but keeps the budget point-in-time", async () => {
+    const res = await GET_CONTRACT_SUMMARY(
+      buildRequest("/api/contractors/reports/contract-summary?from=2026-07-01&to=2026-07-31", {
+        token: tokens.adminToken,
+      })
+    );
+    expect(res.status).toBe(200);
+    const row = (await res.json()).data.rows[0];
+
+    // No claims in July → no approved work…
+    expect(row.claimCount).toBe(0);
+    expect(row.approvedNet).toBe(0);
+    expect(row.paidAmount).toBe(0);
+    expect(row.outstanding).toBe(0);
+    // …but the budget story is point-in-time and unchanged.
+    expect(row.revisedValue).toBe(525000);
+    expect(row.variationsTotal).toBe(25000);
+    expect(row.baseValue).toBe(500000);
+  });
+});
+
 describe("Access control", () => {
   it("rejects unauthenticated requests", async () => {
     const aging = await GET_AGING(buildRequest("/api/contractors/reports/payable-aging"));
@@ -409,6 +508,9 @@ describe("Access control", () => {
 
     const statement = await GET_STATEMENT(buildRequest("/api/contractors/reports/statement?contractorId=x"));
     expect(statement.status).toBe(401);
+
+    const summary = await GET_CONTRACT_SUMMARY(buildRequest("/api/contractors/reports/contract-summary"));
+    expect(summary.status).toBe(401);
   });
 
   it("scopes a restricted WATCHER out of the admin's contractor", async () => {
@@ -424,6 +526,12 @@ describe("Access control", () => {
       buildRequest("/api/contractors/reports/claims-payments", { token: watcherToken })
     );
     expect((await claims.json()).data.rows).toHaveLength(0);
+
+    const summary = await GET_CONTRACT_SUMMARY(
+      buildRequest("/api/contractors/reports/contract-summary", { token: watcherToken })
+    );
+    expect(summary.status).toBe(200);
+    expect((await summary.json()).data.rows).toHaveLength(0);
 
     const statement = await GET_STATEMENT(
       buildRequest(`/api/contractors/reports/statement?contractorId=${contractorId}`, { token: watcherToken })

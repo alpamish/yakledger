@@ -326,6 +326,48 @@ export interface ClaimsPaymentsReport {
   totals: Omit<ClaimsPaymentsReportRow, "contractorId" | "contractorName">;
 }
 
+// ── Contract summary (Phase 6: budget vs approved work vs variations vs paid)
+
+export interface ContractSummaryRow {
+  contractId: string;
+  contractNumber: string;
+  title: string;
+  projectName: string | null;
+  status: string;
+  contractorId: string;
+  contractorName: string;
+  /** Original budget: current value minus every approved value change. */
+  baseValue: number;
+  variationCount: number;
+  /** Sum of APPROVED variation value changes (PENDING/REJECTED never count). */
+  variationsTotal: number;
+  /** Current contract.value = baseValue + variationsTotal. Point-in-time, not windowed. */
+  revisedValue: number;
+  // Approved work in the window (posted claims, by periodEnd).
+  claimCount: number;
+  approvedGross: number;
+  deductionsTotal: number;
+  approvedNet: number;
+  retentionHeld: number;
+  /** Released by date in the window (windowed independently, like the retention report). */
+  retentionReleased: number;
+  retentionBalance: number;
+  advanceRecovered: number;
+  paidAmount: number;
+  /** approvedNet − advanceRecovered − paidAmount (the claim engine's formula). */
+  outstanding: number;
+}
+
+export interface ContractSummaryReport {
+  from: string | null;
+  to: string | null;
+  rows: ContractSummaryRow[];
+  totals: Omit<
+    ContractSummaryRow,
+    "contractId" | "contractNumber" | "title" | "projectName" | "status" | "contractorId" | "contractorName"
+  >;
+}
+
 // ── Machinery & project ops reports (Phase 6, Batch B) ─────────────────────
 // Read-only aggregates over MachineryDailyLog / DowntimeRecord / FuelUsage and
 // contract-vs-claim-vs-payment figures. Computed server-side; components render.

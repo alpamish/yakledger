@@ -359,6 +359,43 @@ describe("Claim workflow + approvals integration (D3)", () => {
     expect(res.status).toBe(409);
   });
 
+  it("a concurrent double-approve still posts the liability exactly once", async () => {
+    const claim = await createDraftClaim([await makeTimesheet("2026-04-20")]);
+    const submit = await CLAIM_ACTION(
+      buildRequest(`/api/contractor-claims/${claim.id}`, {
+        token: tokens.adminToken,
+        method: "POST",
+        body: { action: "submit" },
+      }),
+      { params: Promise.resolve({ id: claim.id }) }
+    );
+    expect(submit.status).toBe(200);
+
+    // Two approvals race each other; the postedAt guard inside the posting
+    // transaction must let exactly one through (§9: posted exactly once).
+    const approve = () =>
+      POST_APPROVAL_ACTION(
+        buildRequest(`/api/approvals/contractorClaim/${claim.id}`, {
+          token: tokens.adminToken,
+          method: "POST",
+          body: { action: "approve" },
+        }),
+        { params: Promise.resolve({ entity: "contractorClaim", id: claim.id }) }
+      );
+    const [a, b] = await Promise.all([approve(), approve()]);
+    const statuses = [a.status, b.status].sort((x, y) => x - y);
+    expect(statuses).toEqual([200, 409]);
+
+    const row = await db.contractorClaim.findUnique({ where: { id: claim.id } });
+    expect(row?.status).toBe("POSTED");
+    expect(row?.postedAt).toBeTruthy();
+
+    // Exactly one liability posting — no double-counted claim, retention, or balance.
+    const entries = await db.contractorLedgerEntry.findMany({ where: { claimId: claim.id } });
+    expect(entries.filter((e) => e.type === "CLAIM_POSTED")).toHaveLength(1);
+    expect(entries.filter((e) => e.type === "RETENTION_HELD")).toHaveLength(1);
+  });
+
   it("editing a posted claim is blocked", async () => {
     const res = await CLAIM_PUT(
       buildRequest(`/api/contractor-claims/${claimId}`, {
