@@ -15,6 +15,10 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { getToken } from "@/services/api";
 import { settingsApi } from "@/services/settings";
+import {
+  buildPayrollQuery,
+  type PayrollListParams,
+} from "@/services/payroll-api";
 import { usePermissions } from "@/hooks/use-permissions";
 import { formatMinor, fromMinor } from "@/lib/money";
 import { toast } from "sonner";
@@ -23,7 +27,8 @@ import PayrollPDFDocument from "@/components/pdf/payroll-pdf-document";
 import PayrollSummaryPDFDocument from "@/components/pdf/payroll-summary-pdf-document";
 
 interface ExportDropdownProps {
-  status?: string;
+  /** Active list filters; the export mirrors what is on screen. */
+  filters?: PayrollListParams;
 }
 
 function buildExcel(rows: any[]) {
@@ -91,11 +96,12 @@ function buildExcel(rows: any[]) {
   return wb;
 }
 
-export function PayrollExportDropdown({ status }: ExportDropdownProps) {
+export function PayrollExportDropdown({ filters }: ExportDropdownProps) {
   const [busy, setBusy] = useState<string | null>(null);
   const [companyName, setCompanyName] = useState("YakhshiLedger");
   const { hasPermission } = usePermissions();
   const canPdf = hasPermission("reports:generatePdf");
+  const status = filters?.status;
 
   useEffect(() => {
     settingsApi
@@ -107,21 +113,21 @@ export function PayrollExportDropdown({ status }: ExportDropdownProps) {
   }, []);
 
   const fetchJson = useCallback(async () => {
-    const qs = status ? `?format=json&status=${encodeURIComponent(status)}` : "?format=json";
-    const res = await fetch(`/api/payroll/export${qs}`, {
+    const qs = buildPayrollQuery(filters ?? {});
+    const res = await fetch(`/api/payroll/export?format=json${qs ? `&${qs}` : ""}`, {
       headers: { Authorization: `Bearer ${getToken()}` },
     });
     if (!res.ok) throw new Error("Failed to load payroll data");
     const json = await res.json();
     if (!json.success) throw new Error(json.error || "Failed to load payroll data");
     return json.data ?? [];
-  }, [status]);
+  }, [filters]);
 
   const handleCsv = useCallback(async () => {
     setBusy("csv");
     try {
-      const qs = status ? `?status=${encodeURIComponent(status)}` : "";
-      const res = await fetch(`/api/payroll/export${qs}`, {
+      const qs = buildPayrollQuery(filters ?? {});
+      const res = await fetch(`/api/payroll/export${qs ? `?${qs}` : ""}`, {
         headers: { Authorization: `Bearer ${getToken()}` },
       });
       if (!res.ok) throw new Error("Export failed");
@@ -138,7 +144,7 @@ export function PayrollExportDropdown({ status }: ExportDropdownProps) {
     } finally {
       setBusy(null);
     }
-  }, [status]);
+  }, [filters]);
 
   const handleExcel = useCallback(async () => {
     setBusy("excel");

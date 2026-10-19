@@ -33,7 +33,9 @@ import {
 import { payrollApi } from "@/services/payroll-api";
 import { walletApi } from "@/services/wallet-api";
 import { PAYROLL_TYPE_LABELS } from "@/lib/payroll-status";
-import { formatMinor } from "@/lib/money";
+import { formatMajor, formatMinor } from "@/lib/money";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 
 interface Wallet {
@@ -49,6 +51,7 @@ const generateFormSchema = z.object({
   allowances: z.number().min(0, "Must be non-negative"),
   bonuses: z.number().min(0, "Must be non-negative"),
   deductions: z.number().min(0, "Must be non-negative"),
+  deductExpenses: z.boolean(),
   walletId: z.string(),
   workDays: z.number().int().min(1).max(31).optional(),
   type: z.enum(["STANDARD", "FINAL_SETTLEMENT"]),
@@ -90,6 +93,7 @@ export function PayrollGenerateDialog({
       allowances: 0,
       bonuses: 0,
       deductions: 0,
+      deductExpenses: false,
       walletId: "",
       workDays: undefined,
       type: "STANDARD",
@@ -105,6 +109,7 @@ export function PayrollGenerateDialog({
         allowances: 0,
         bonuses: 0,
         deductions: 0,
+        deductExpenses: false,
         walletId: "",
         workDays: undefined,
         type: "STANDARD",
@@ -115,6 +120,47 @@ export function PayrollGenerateDialog({
         .catch(() => setWallets([]));
     }
   }, [open, form]);
+
+  // Work Days defaults to the number of days in the chosen period (capped at
+  // 30, matching the server's own auto-calc, since salary pro-rates over 30).
+  // It stays editable; a manual value is kept until the period changes again.
+  const periodStart = form.watch("periodStart");
+  const periodEnd = form.watch("periodEnd");
+  useEffect(() => {
+    if (!periodStart || !periodEnd) return;
+    const start = new Date(periodStart);
+    const end = new Date(periodEnd);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return;
+    if (end < start) return;
+    const days = Math.round((end.getTime() - start.getTime()) / 86400000) + 1;
+    form.setValue("workDays", Math.min(30, Math.max(1, days)));
+  }, [periodStart, periodEnd, form]);
+
+  // For a single-employee scope, show what the employee paid out of pocket
+  // during the period so the user knows what the toggle would deduct.
+  const singleEmployeeId = employeeIds?.length === 1 ? employeeIds[0] : undefined;
+  const [periodExpenses, setPeriodExpenses] = useState<{
+    totalMinor: number;
+    count: number;
+  } | null>(null);
+  useEffect(() => {
+    if (!open || !singleEmployeeId || !periodStart || !periodEnd) {
+      setPeriodExpenses(null);
+      return;
+    }
+    let cancelled = false;
+    payrollApi
+      .periodExpenses(singleEmployeeId, periodStart, periodEnd)
+      .then((res) => {
+        if (!cancelled) setPeriodExpenses(res.data ?? null);
+      })
+      .catch(() => {
+        if (!cancelled) setPeriodExpenses(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, singleEmployeeId, periodStart, periodEnd]);
 
   async function submit(values: GenerateFormValues) {
     if (values.periodEnd < values.periodStart) {
@@ -130,6 +176,7 @@ export function PayrollGenerateDialog({
         ...(values.allowances ? { allowancesMinor: values.allowances } : {}),
         ...(values.bonuses ? { bonusesMinor: values.bonuses } : {}),
         ...(values.deductions ? { deductionsMinor: values.deductions } : {}),
+        deductExpenses: values.deductExpenses,
         ...(values.walletId ? { walletId: values.walletId } : {}),
         ...(values.workDays ? { workDays: values.workDays } : {}),
         type: values.type,
@@ -208,7 +255,12 @@ export function PayrollGenerateDialog({
                   <FormItem>
                     <FormLabel>Allowances (AFN)</FormLabel>
                     <FormControl>
-                      <Input type="number" min={0} {...field} />
+                      <Input
+                        type="number"
+                        min={0}
+                        {...field}
+                        onChange={(e) => field.onChange(parseFloat(e.target.value) || 0)}
+                      />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -221,7 +273,12 @@ export function PayrollGenerateDialog({
                   <FormItem>
                     <FormLabel>Bonuses (AFN)</FormLabel>
                     <FormControl>
-                      <Input type="number" min={0} {...field} />
+                      <Input
+                        type="number"
+                        min={0}
+                        {...field}
+                        onChange={(e) => field.onChange(parseFloat(e.target.value) || 0)}
+                      />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -234,13 +291,46 @@ export function PayrollGenerateDialog({
                   <FormItem>
                     <FormLabel>Deductions (AFN)</FormLabel>
                     <FormControl>
-                      <Input type="number" min={0} {...field} />
+                      <Input
+                        type="number"
+                        min={0}
+                        {...field}
+                        onChange={(e) => field.onChange(parseFloat(e.target.value) || 0)}
+                      />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
                 )}
               />
             </div>
+            <FormField
+              control={form.control}
+              name="deductExpenses"
+              render={({ field }) => (
+                <div className="flex items-start gap-2 rounded-md border p-3">
+                  <Checkbox
+                    id="deduct-expenses"
+                    checked={field.value}
+                    onCheckedChange={(v) => field.onChange(v === true)}
+                    className="mt-0.5"
+                  />
+                  <div className="grid gap-1">
+                    <Label htmlFor="deduct-expenses" className="cursor-pointer leading-snug">
+                      Include employee-paid expenses for this period
+                    </Label>
+                    <p className="text-xs text-muted-foreground">
+                      {singleEmployeeId
+                        ? periodExpenses && periodExpenses.count > 0
+                          ? `This employee paid ${formatMinor(periodExpenses.totalMinor)} across ${periodExpenses.count} approved expense(s) during this period. When included, it is netted against their outstanding balance (capped at what they owe).`
+                          : "No outstanding employee-paid expenses for this period."
+                        : "For each employee, approved expenses paid during this period are netted against their outstanding balance (capped at what they owe). Totals vary per employee."}{" "}
+                      {!field.value &&
+                        "Leave unchecked to reimburse expenses outside payroll."}
+                    </p>
+                  </div>
+                </div>
+              )}
+            />
             <FormField
               control={form.control}
               name="type"
@@ -288,7 +378,8 @@ export function PayrollGenerateDialog({
                     />
                   </FormControl>
                   <p className="text-xs text-muted-foreground">
-                    Leave empty to auto-calculate from employee hire date. Salary will be pro-rated.
+                    Defaults to the number of days in the period (capped at 30). Clear it to
+                    auto-calculate from the employee hire date. Salary is pro-rated over 30 days.
                   </p>
                   <FormMessage />
                 </FormItem>
@@ -314,7 +405,7 @@ export function PayrollGenerateDialog({
                       ) : (
                         wallets.map((w) => (
                           <SelectItem key={w.id} value={w.id}>
-                            {w.name} — {formatMinor(w.balance, w.currency)}
+                            {w.name} — {formatMajor(w.balance, w.currency)}
                           </SelectItem>
                         ))
                       )}

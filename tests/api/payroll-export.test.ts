@@ -73,6 +73,30 @@ describe("GET /api/payroll/export", () => {
     expect(json.data[0].status).toBe("APPROVED");
   });
 
+  it("respects department and type filters in JSON mode", async () => {
+    const emp = await db.employee.findUnique({
+      where: { id: tokens.employee.id },
+      select: { department: true },
+    });
+    const byDept = await GET(
+      buildRequest(
+        `/api/payroll/export?format=json&department=${encodeURIComponent(emp!.department)}`,
+        { token: tokens.adminToken }
+      )
+    );
+    const deptJson = await byDept.json();
+    expect(deptJson.data).toHaveLength(2);
+
+    // Both seeded payrolls are STANDARD type.
+    const byType = await GET(
+      buildRequest("/api/payroll/export?format=json&type=FINAL_SETTLEMENT", {
+        token: tokens.adminToken,
+      })
+    );
+    const typeJson = await byType.json();
+    expect(typeJson.data).toHaveLength(0);
+  });
+
   it("returns CSV by default", async () => {
     const res = await GET(
       buildRequest("/api/payroll/export", { token: tokens.adminToken })

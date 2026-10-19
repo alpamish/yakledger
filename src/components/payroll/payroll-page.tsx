@@ -1,10 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   useReactTable,
   getCoreRowModel,
-  getSortedRowModel,
   flexRender,
   type ColumnDef,
   type SortingState,
@@ -37,13 +36,19 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { EmptyState } from "@/components/common/empty-state";
+import { ConfirmDialog } from "@/components/common/confirm-dialog";
 import { PayrollActions } from "@/components/payroll/payroll-actions";
 import { PayrollGenerateDialog } from "@/components/payroll/payroll-generate-dialog";
 import { PayrollAdjustmentDialog } from "@/components/payroll/payroll-adjustment-dialog";
 import { PayrollExportDropdown } from "@/components/payroll/payroll-export-dropdown";
+import {
+  PayrollFiltersBar,
+  DEFAULT_PAYROLL_FILTERS,
+  type PayrollFilters,
+} from "@/components/payroll/payroll-filters";
 import { payrollApi, type PayrollListParams, type UpdatePayrollLineBody } from "@/services/payroll-api";
 import { walletApi } from "@/services/wallet-api";
-import { formatMinor } from "@/lib/money";
+import { formatMinor, toMinor } from "@/lib/money";
 import { PAYROLL_TYPE_LABELS, isPayrollEditable } from "@/lib/payroll-status";
 import { usePermissions } from "@/hooks/use-permissions";
 import { useDebounce } from "@/hooks/use-debounce";
@@ -54,12 +59,12 @@ import {
   ChevronLeft,
   ChevronRight,
   Plus,
-  Search,
   ArrowUpDown,
   ArrowUp,
   ArrowDown,
   Loader2,
   SlidersHorizontal,
+  RefreshCw,
 } from "lucide-react";
 
 interface PayrollLine {
@@ -118,6 +123,12 @@ interface PayrollSummary {
   totalGrossMinor: number;
   totalAlreadyReceivedMinor: number;
   totalNetPayableMinor: number;
+  /** Amount actually payable to employees (floored per payroll at 0). */
+  totalPayableMinor: number;
+  /** Everything recorded as paid against the filtered set. */
+  totalPaidMinor: number;
+  /** Unpaid salary on approved / partially paid payrolls. */
+  totalOutstandingMinor: number;
   totalRemainingDebtMinor: number;
   totalExpensesMinor: number;
   paidLines: number;
@@ -134,6 +145,80 @@ interface PayrollListResponse {
 }
 
 const PAGE_SIZES = [10, 25, 50, 100];
+
+// Which column headers drive a server-side sort. Money columns are not
+// server-sortable (Prisma cannot order by a related line field), so they stay
+// unsorted rather than pretending to sort just the current page.
+const SORT_COLUMN_MAP: Record<string, string> = {
+  period: "period",
+  employee: "employee",
+  payment: "status",
+};
+
+const COLUMN_OPTIONS: { id: string; label: string }[] = [
+  { id: "period", label: "Period" },
+  { id: "employee", label: "Employee" },
+  { id: "overtime", label: "OT Hours" },
+  { id: "gross", label: "Gross" },
+  { id: "expenses", label: "Expenses" },
+  { id: "allowances", label: "Allowances" },
+  { id: "bonuses", label: "Bonuses" },
+  { id: "deductions", label: "Deductions" },
+  { id: "received", label: "Already Received" },
+  { id: "prevDebt", label: "Prev Debt" },
+  { id: "loanDeduction", label: "Loan Repayment" },
+  { id: "netPayable", label: "Net Payable" },
+  { id: "remainingDebt", label: "Remaining Debt" },
+  { id: "payment", label: "Payment" },
+  { id: "wallet", label: "Wallet" },
+  { id: "approvedBy", label: "By" },
+];
+
+interface PayrollView {
+  filters: PayrollFilters;
+  page: number;
+  pageSize: number;
+  sorting: SortingState;
+  columnVisibility: Record<string, boolean>;
+}
+
+const VIEW_KEY = "payroll.view.v1";
+const DEFAULT_VIEW: PayrollView = {
+  filters: DEFAULT_PAYROLL_FILTERS,
+  page: 1,
+  pageSize: 10,
+  sorting: [{ id: "period", desc: true }],
+  columnVisibility: {},
+};
+
+function loadStoredView(): PayrollView {
+  if (typeof window === "undefined") return DEFAULT_VIEW;
+  try {
+    const raw = sessionStorage.getItem(VIEW_KEY);
+    if (!raw) return DEFAULT_VIEW;
+    const parsed = JSON.parse(raw);
+    return {
+      ...DEFAULT_VIEW,
+      page: typeof parsed?.page === "number" ? parsed.page : DEFAULT_VIEW.page,
+      pageSize:
+        typeof parsed?.pageSize === "number" ? parsed.pageSize : DEFAULT_VIEW.pageSize,
+      filters: { ...DEFAULT_PAYROLL_FILTERS, ...(parsed?.filters ?? {}) },
+      sorting:
+        Array.isArray(parsed?.sorting) && parsed.sorting.length
+          ? parsed.sorting
+          : DEFAULT_VIEW.sorting,
+      columnVisibility: parsed?.columnVisibility ?? {},
+    };
+  } catch {
+    return DEFAULT_VIEW;
+  }
+}
+
+function parseMinor(value: string): number | undefined {
+  if (!value.trim()) return undefined;
+  const n = Number(value);
+  return Number.isFinite(n) ? toMinor(n) : undefined;
+}
 
 function fmtDate(d?: string | null) {
   if (!d) return "—";
@@ -180,34 +265,72 @@ export function PayrollPage() {
 
   const [data, setData] = useState<PayrollListResponse | null>(null);
   const [loading, setLoading] = useState(true);
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(10);
-  const [status, setStatus] = useState<string>("");
-  const [searchInput, setSearchInput] = useState("");
+  const [view, setView] = useState<PayrollView>(() => loadStoredView());
   const [generateOpen, setGenerateOpen] = useState(false);
   const [adjustmentOpen, setAdjustmentOpen] = useState(false);
-  const [sortingState, setSortingState] = useState<SortingState>([]);
+  const [reconcileOpen, setReconcileOpen] = useState(false);
+  const [reconciling, setReconciling] = useState(false);
   const [editMode, setEditMode] = useState(false);
   const [savingLineId, setSavingLineId] = useState<string | null>(null);
   const [wallets, setWallets] = useState<{ id: string; name: string; balance: number; currency?: string }[]>([]);
 
-  const debouncedSearch = useDebounce(searchInput, 300);
+  const { filters, page, pageSize, sorting, columnVisibility } = view;
 
+  const patchView = useCallback(
+    (patch: Partial<PayrollView>) => setView((v) => ({ ...v, ...patch })),
+    []
+  );
+  const patchFilters = useCallback(
+    (patch: Partial<PayrollFilters>) =>
+      setView((v) => ({ ...v, filters: { ...v.filters, ...patch }, page: 1 })),
+    []
+  );
+  const resetFilters = useCallback(
+    () => setView((v) => ({ ...v, filters: DEFAULT_PAYROLL_FILTERS, page: 1 })),
+    []
+  );
+
+  const debouncedSearch = useDebounce(filters.search, 300);
+
+  // Wallet list powers both the wallet filter and the inline wallet editor.
   useEffect(() => {
-    if (editMode) {
-      walletApi.list().then((res) => setWallets(res.data ?? [])).catch(() => setWallets([]));
+    if (!canView) return;
+    walletApi
+      .list()
+      .then((res) => setWallets(res.data ?? []))
+      .catch(() => setWallets([]));
+  }, [canView]);
+
+  // Remember the whole view (filters, page, sorting, columns) for this tab.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      sessionStorage.setItem(VIEW_KEY, JSON.stringify(view));
+    } catch {
+      // Storage unavailable (private mode) — filters just won't persist.
     }
-  }, [editMode]);
+  }, [view]);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
+      const sortId = sorting[0]?.id;
       const params: PayrollListParams = {
         page,
         pageSize,
+        search: debouncedSearch || undefined,
+        status: filters.status || undefined,
+        paymentState: filters.paymentState || undefined,
+        periodStart: filters.dateFrom || undefined,
+        periodEnd: filters.dateTo || undefined,
+        department: filters.department || undefined,
+        walletId: filters.walletId || undefined,
+        type: filters.type || undefined,
+        minNetMinor: parseMinor(filters.minNet),
+        maxNetMinor: parseMinor(filters.maxNet),
+        sort: sortId ? SORT_COLUMN_MAP[sortId] ?? "period" : "period",
+        dir: sorting[0]?.desc === false ? "asc" : "desc",
       };
-      if (status) params.status = status;
-      if (debouncedSearch) params.search = debouncedSearch;
       const res = await payrollApi.list(params);
       if (res.success) setData(res.data);
     } catch (e: any) {
@@ -215,7 +338,21 @@ export function PayrollPage() {
     } finally {
       setLoading(false);
     }
-  }, [status, page, pageSize, debouncedSearch]);
+  }, [
+    page,
+    pageSize,
+    debouncedSearch,
+    filters.status,
+    filters.paymentState,
+    filters.dateFrom,
+    filters.dateTo,
+    filters.department,
+    filters.walletId,
+    filters.type,
+    filters.minNet,
+    filters.maxNet,
+    sorting,
+  ]);
 
   useEffect(() => {
     if (canView) load();
@@ -223,10 +360,57 @@ export function PayrollPage() {
 
   useLiveRefresh(load, 30_000, { fetchOnMount: false });
 
+  // Payrolls whose salary was recorded as an approved SALARY expense (rather
+  // than through the Record Payment flow) can be marked settled from that
+  // evidence. No new transactions are created by this action.
+  const handleReconcile = async () => {
+    setReconciling(true);
+    try {
+      const res = await payrollApi.reconcilePayments();
+      if (res.success && res.data) {
+        const { updated, paid, partiallyPaid } = res.data;
+        if (updated > 0) {
+          toast.success(
+            `Reconciled ${updated} payroll${updated === 1 ? "" : "s"}: ` +
+              `${paid} paid, ${partiallyPaid} partially paid`
+          );
+        } else {
+          toast.success("All payrolls already match their linked salary expenses");
+        }
+        setReconcileOpen(false);
+        await load();
+      } else {
+        toast.error(res.error ?? "Failed to reconcile payroll payments");
+      }
+    } catch (e: any) {
+      toast.error(e?.message || "Failed to reconcile payroll payments");
+    } finally {
+      setReconciling(false);
+    }
+  };
+
   const rows: PayrollRecord[] = data?.data ?? [];
   const total = data?.total ?? 0;
   const totalPages = data?.totalPages ?? 1;
   const summary = data?.summary ?? ({} as PayrollSummary);
+
+  const exportFilters = useMemo<PayrollListParams>(
+    () => ({
+      status: filters.status || undefined,
+      paymentState: filters.paymentState || undefined,
+      search: debouncedSearch || undefined,
+      periodStart: filters.dateFrom || undefined,
+      periodEnd: filters.dateTo || undefined,
+      department: filters.department || undefined,
+      walletId: filters.walletId || undefined,
+      type: filters.type || undefined,
+      minNetMinor: parseMinor(filters.minNet),
+      maxNetMinor: parseMinor(filters.maxNet),
+      sort: sorting[0] ? SORT_COLUMN_MAP[sorting[0].id] ?? "period" : "period",
+      dir: sorting[0]?.desc === false ? "asc" : "desc",
+    }),
+    [filters, debouncedSearch, sorting]
+  );
 
   const pageNumbers = useMemo(() => {
     const pages: number[] = [];
@@ -313,7 +497,8 @@ export function PayrollPage() {
       {
         id: "overtime",
         accessorFn: (row) => row.lines?.[0]?.overtimeHours ?? 0,
-        header: ({ column }) => <SortableHeader column={column}>OT Hours</SortableHeader>,
+        header: () => <span className="font-medium text-muted-foreground">OT Hours</span>,
+        enableSorting: false,
         cell: ({ row }) => {
           const line = row.original.lines?.[0];
           const isEditable = isPayrollEditable(row.original.status);
@@ -347,7 +532,8 @@ export function PayrollPage() {
       {
         id: "gross",
         accessorFn: (row) => row.lines?.[0]?.grossPayMinor ?? 0,
-        header: ({ column }) => <SortableHeader column={column}>Gross</SortableHeader>,
+        header: () => <span className="font-medium text-muted-foreground">Gross</span>,
+        enableSorting: false,
         cell: ({ row }) => {
           const line = row.original.lines?.[0];
           const deducted = line?.adjustmentsDeductedMinor ?? 0;
@@ -375,7 +561,8 @@ export function PayrollPage() {
       {
         id: "expenses",
         accessorFn: (row) => row.lines?.[0]?.expensesPaidMinor ?? 0,
-        header: ({ column }) => <SortableHeader column={column}>Expenses</SortableHeader>,
+        header: () => <span className="font-medium text-muted-foreground">Expenses</span>,
+        enableSorting: false,
         cell: ({ row }) => {
           const line = row.original.lines?.[0];
           return (
@@ -388,7 +575,8 @@ export function PayrollPage() {
       {
         id: "allowances",
         accessorFn: (row) => row.lines?.[0]?.allowancesMinor ?? 0,
-        header: ({ column }) => <SortableHeader column={column}>Allowances</SortableHeader>,
+        header: () => <span className="font-medium text-muted-foreground">Allowances</span>,
+        enableSorting: false,
         cell: ({ row }) => {
           const line = row.original.lines?.[0];
           const isEditable = isPayrollEditable(row.original.status);
@@ -419,7 +607,8 @@ export function PayrollPage() {
       {
         id: "bonuses",
         accessorFn: (row) => row.lines?.[0]?.bonusesMinor ?? 0,
-        header: ({ column }) => <SortableHeader column={column}>Bonuses</SortableHeader>,
+        header: () => <span className="font-medium text-muted-foreground">Bonuses</span>,
+        enableSorting: false,
         cell: ({ row }) => {
           const line = row.original.lines?.[0];
           const isEditable = isPayrollEditable(row.original.status);
@@ -450,7 +639,8 @@ export function PayrollPage() {
       {
         id: "deductions",
         accessorFn: (row) => row.lines?.[0]?.deductionsMinor ?? 0,
-        header: ({ column }) => <SortableHeader column={column}>Deductions</SortableHeader>,
+        header: () => <span className="font-medium text-muted-foreground">Deductions</span>,
+        enableSorting: false,
         cell: ({ row }) => {
           const line = row.original.lines?.[0];
           const isEditable = isPayrollEditable(row.original.status);
@@ -481,7 +671,8 @@ export function PayrollPage() {
       {
         id: "received",
         accessorFn: (row) => row.lines?.[0]?.amountAlreadyReceivedMinor ?? 0,
-        header: ({ column }) => <SortableHeader column={column}>Already Received</SortableHeader>,
+        header: () => <span className="font-medium text-muted-foreground">Already Received</span>,
+        enableSorting: false,
         cell: ({ row }) => {
           const line = row.original.lines?.[0];
           return (
@@ -494,7 +685,8 @@ export function PayrollPage() {
       {
         id: "prevDebt",
         accessorFn: (row) => row.lines?.[0]?.previousDebtMinor ?? 0,
-        header: ({ column }) => <SortableHeader column={column}>Prev Debt</SortableHeader>,
+        header: () => <span className="font-medium text-muted-foreground">Prev Debt</span>,
+        enableSorting: false,
         cell: ({ row }) => {
           const line = row.original.lines?.[0];
           const prevDebt = line?.previousDebtMinor ?? 0;
@@ -523,7 +715,8 @@ export function PayrollPage() {
       {
         id: "loanDeduction",
         accessorFn: (row) => row.lines?.[0]?.loanDeductionMinor ?? 0,
-        header: ({ column }) => <SortableHeader column={column}>Loan Repayment</SortableHeader>,
+        header: () => <span className="font-medium text-muted-foreground">Loan Repayment</span>,
+        enableSorting: false,
         cell: ({ row }) => {
           const line = row.original.lines?.[0];
           const isEditable = isPayrollEditable(row.original.status);
@@ -559,7 +752,8 @@ export function PayrollPage() {
       {
         id: "netPayable",
         accessorFn: (row) => row.lines?.[0]?.netPayableMinor ?? 0,
-        header: ({ column }) => <SortableHeader column={column}>Net Payable</SortableHeader>,
+        header: () => <span className="font-medium text-muted-foreground">Net Payable</span>,
+        enableSorting: false,
         cell: ({ row }) => {
           const line = row.original.lines?.[0];
           const isEditable = isPayrollEditable(row.original.status);
@@ -593,7 +787,8 @@ export function PayrollPage() {
       {
         id: "remainingDebt",
         accessorFn: (row) => row.lines?.[0]?.remainingEmployeeDebtMinor ?? 0,
-        header: ({ column }) => <SortableHeader column={column}>Remaining Debt</SortableHeader>,
+        header: () => <span className="font-medium text-muted-foreground">Remaining Debt</span>,
+        enableSorting: false,
         cell: ({ row }) => {
           const line = row.original.lines?.[0];
           const remaining = line?.remainingEmployeeDebtMinor ?? 0;
@@ -627,20 +822,25 @@ export function PayrollPage() {
       },
       {
         id: "payment",
-        accessorFn: (row) => row.lines?.[0]?.paymentStatus ?? row.status,
-        header: () => <span className="font-medium text-muted-foreground">Payment</span>,
+        accessorFn: (row) => row.status,
+        header: ({ column }) => <SortableHeader column={column}>Payment</SortableHeader>,
         cell: ({ row }) => {
           const line = row.original.lines?.[0];
           const status = row.original.status;
+          const netPayMinor = Math.max(line?.netPayMinor ?? 0, 0);
           const paidMinor = row.original.totalPaidMinor ?? 0;
-          if (status === "PAID" || line?.paymentStatus === "PAID") {
+          // Authoritative: derived from recorded payments, not the line marker.
+          const fullyPaid =
+            status === "PAID" || (netPayMinor > 0 && paidMinor >= netPayMinor);
+          const partiallyPaid = !fullyPaid && paidMinor > 0;
+          if (fullyPaid) {
             return (
               <Badge variant="default">
                 {`Paid${line?.paymentMethod ? ` (${line.paymentMethod})` : ""}`}
               </Badge>
             );
           }
-          if (status === "PARTIALLY_PAID" || line?.paymentStatus === "PARTIALLY_PAID") {
+          if (partiallyPaid) {
             return (
               <Badge variant="secondary">
                 {`Partially paid ${formatMinor(paidMinor)}`}
@@ -653,12 +853,12 @@ export function PayrollPage() {
             </Badge>
           );
         },
-        enableSorting: false,
       },
       {
         id: "wallet",
         accessorFn: (row) => row.wallet?.name ?? "",
         header: () => <span className="font-medium text-muted-foreground">Wallet</span>,
+        enableSorting: false,
         cell: ({ row }) => {
           const isEditable = isPayrollEditable(row.original.status);
           if (editMode && isEditable) {
@@ -685,18 +885,17 @@ export function PayrollPage() {
             </span>
           );
         },
-        enableSorting: false,
       },
       {
         id: "approvedBy",
         accessorFn: (row) => row.approvedBy?.name ?? row.createdBy?.name ?? "",
         header: () => <span className="font-medium text-muted-foreground">By</span>,
+        enableSorting: false,
         cell: ({ row }) => (
           <span className="text-muted-foreground text-sm">
             {row.original.approvedBy?.name ?? row.original.createdBy?.name ?? "—"}
           </span>
         ),
-        enableSorting: false,
       },
       ...(canManage
         ? [
@@ -726,11 +925,19 @@ export function PayrollPage() {
   const table = useReactTable({
     data: rows,
     columns,
-    state: { sorting: sortingState },
-    onSortingChange: setSortingState,
+    state: { sorting, columnVisibility },
+    onSortingChange: (updater) => {
+      const next = typeof updater === "function" ? updater(sorting) : updater;
+      patchView({ sorting: next, page: 1 });
+    },
+    onColumnVisibilityChange: (updater) => {
+      const next =
+        typeof updater === "function" ? updater(columnVisibility) : updater;
+      patchView({ columnVisibility: next });
+    },
     getCoreRowModel: getCoreRowModel(),
-    getSortedRowModel: getSortedRowModel(),
     manualPagination: true,
+    manualSorting: true,
   });
 
   if (!canView) return null;
@@ -738,13 +945,34 @@ export function PayrollPage() {
   const startIndex = total === 0 ? 0 : (page - 1) * pageSize + 1;
   const endIndex = Math.min(page * pageSize, total);
 
-  const summaryCards = [
+  const summaryCards: {
+    label: string;
+    value: string;
+    highlight?: boolean;
+    debt?: boolean;
+  }[] = [
+    { label: "Total Payable", value: formatMinor(summary.totalPayableMinor ?? 0) },
+    { label: "Paid", value: formatMinor(summary.totalPaidMinor ?? 0) },
+    {
+      label: "Remaining to Pay",
+      value: formatMinor(summary.totalOutstandingMinor ?? 0),
+      highlight: true,
+    },
     { label: "Total Gross", value: formatMinor(summary.totalGrossMinor) },
     { label: "Expenses", value: formatMinor(summary.totalExpensesMinor ?? 0) },
     { label: "Already Received", value: formatMinor(summary.totalAlreadyReceivedMinor) },
-    { label: "Net Payable", value: formatMinor(summary.totalNetPayableMinor), highlight: true },
-    { label: "Remaining Debt", value: formatMinor(summary.totalRemainingDebtMinor) },
   ];
+
+  // Only surface employee debt when someone actually owes the company (an
+  // advance larger than their salary); otherwise it just reads as a misleading
+  // 0.00 next to the salary figures.
+  if ((summary.totalRemainingDebtMinor ?? 0) > 0) {
+    summaryCards.push({
+      label: "Employee owes (advances)",
+      value: formatMinor(summary.totalRemainingDebtMinor),
+      debt: true,
+    });
+  }
 
   // Skeleton loading for initial load
   if (loading && rows.length === 0) {
@@ -832,68 +1060,82 @@ export function PayrollPage() {
               Adjustment
             </Button>
           )}
-          <PayrollExportDropdown status={status || undefined} />
+          {canManage && (
+            <Button
+              variant="outline"
+              onClick={() => setReconcileOpen(true)}
+              disabled={reconciling}
+              title="Mark payrolls paid / partially paid from their linked salary expenses (no new transactions)"
+            >
+              {reconciling ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <RefreshCw className="mr-2 h-4 w-4" />
+              )}
+              Sync Payments
+            </Button>
+          )}
+          <PayrollExportDropdown filters={exportFilters} />
         </div>
       </div>
 
-      {/* Summary cards */}
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-        {summaryCards.map((c) => (
-          <Card
-            key={c.label}
-            className={
-              c.highlight
-                ? "border-emerald-600/30 bg-emerald-50/50 dark:bg-emerald-950/20"
-                : ""
-            }
-          >
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">
-                {c.label}
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold font-mono tracking-tight">
-                {c.value}
-              </div>
-              <div className="mt-1 text-xs text-muted-foreground">
-                {summary.paidLines ?? 0} paid · {summary.unpaidLines ?? 0} unpaid
-              </div>
-            </CardContent>
-          </Card>
-        ))}
+      {/* Summary cards — totals across every record matching the filters */}
+      <div className="space-y-2">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+          <span className="font-medium">Filtered totals</span>
+          <span className="text-muted-foreground">
+            · {total} record{total === 1 ? "" : "s"} · {summary.paidLines ?? 0} paid ·{" "}
+            {summary.unpaidLines ?? 0} unpaid
+          </span>
+        </div>
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {summaryCards.map((c) => (
+            <Card
+              key={c.label}
+              className={
+                c.highlight
+                  ? "border-emerald-600/30 bg-emerald-50/50 dark:bg-emerald-950/20"
+                  : c.debt
+                    ? "border-amber-500/30 bg-amber-50/50 dark:bg-amber-950/20"
+                    : ""
+              }
+            >
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium text-muted-foreground">
+                  {c.label}
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold font-mono tracking-tight">
+                  {c.value}
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
       </div>
 
       {/* Search & Filter Bar + Table */}
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between gap-4">
+        <CardHeader className="space-y-3">
           <CardTitle>Payroll Records</CardTitle>
-          <div className="flex items-center gap-3">
-            <div className="relative">
-              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Search employee..."
-                value={searchInput}
-                onChange={(e) => {
-                  setSearchInput(e.target.value);
-                  setPage(1);
-                }}
-                className="h-8 w-56 pl-8"
-              />
-            </div>
-            <select
-              value={status}
-              onChange={(e) => {
-                setPage(1);
-                setStatus(e.target.value);
-              }}
-              className="h-8 rounded-md border bg-transparent px-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
-            >
-              <option value="">All statuses</option>
-              <option value="DRAFT">DRAFT</option>
-              <option value="APPROVED">APPROVED</option>
-            </select>
-          </div>
+          <PayrollFiltersBar
+            filters={filters}
+            onChange={patchFilters}
+            onReset={resetFilters}
+            wallets={wallets}
+            columnOptions={COLUMN_OPTIONS}
+            columnVisibility={columnVisibility}
+            onToggleColumn={(id) =>
+              patchView({
+                columnVisibility: {
+                  ...columnVisibility,
+                  [id]: columnVisibility[id] === false ? true : false,
+                },
+              })
+            }
+            onShowAllColumns={() => patchView({ columnVisibility: {} })}
+          />
         </CardHeader>
         <CardContent>
           {rows.length === 0 ? (
@@ -901,9 +1143,9 @@ export function PayrollPage() {
               icon={Wallet}
               title="No payroll records"
               description={
-                searchInput || status
-                  ? "Try adjusting your search or filters."
-                  : "Generate a payroll draft to get started."
+                total === 0 && !loading
+                  ? "Try adjusting your search or filters, or generate a payroll draft to get started."
+                  : "Loading payroll records…"
               }
             />
           ) : (
@@ -983,8 +1225,7 @@ export function PayrollPage() {
               <select
                 value={pageSize}
                 onChange={(e) => {
-                  setPageSize(Number(e.target.value));
-                  setPage(1);
+                  patchView({ pageSize: Number(e.target.value), page: 1 });
                 }}
                 className="h-8 rounded-md border bg-transparent px-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
               >
@@ -1000,7 +1241,7 @@ export function PayrollPage() {
                 variant="outline"
                 size="icon"
                 className="h-8 w-8"
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                onClick={() => patchView({ page: Math.max(1, page - 1) })}
                 disabled={page <= 1}
               >
                 <ChevronLeft className="h-4 w-4" />
@@ -1019,7 +1260,7 @@ export function PayrollPage() {
                     className={`h-8 w-8 ${
                       pg === page ? "bg-emerald-600 hover:bg-emerald-700 text-white" : ""
                     }`}
-                    onClick={() => setPage(pg)}
+                    onClick={() => patchView({ page: pg })}
                   >
                     {pg}
                   </Button>
@@ -1029,7 +1270,7 @@ export function PayrollPage() {
                 variant="outline"
                 size="icon"
                 className="h-8 w-8"
-                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                onClick={() => patchView({ page: Math.min(totalPages, page + 1) })}
                 disabled={page >= totalPages}
               >
                 <ChevronRight className="h-4 w-4" />
@@ -1045,7 +1286,7 @@ export function PayrollPage() {
         onOpenChange={setGenerateOpen}
         scopeLabel="all active employees"
         onGenerated={() => {
-          setPage(1);
+          patchView({ page: 1 });
           load();
         }}
       />
@@ -1054,6 +1295,15 @@ export function PayrollPage() {
         open={adjustmentOpen}
         onOpenChange={setAdjustmentOpen}
         onCreated={() => load()}
+      />
+
+      <ConfirmDialog
+        open={reconcileOpen}
+        onOpenChange={setReconcileOpen}
+        title="Sync payments from expenses"
+        description="Payrolls marked Approved or Partially Paid will be updated to Paid / Partially Paid based on their approved SALARY expenses. No payment, cash, expense or accounting transactions are created."
+        confirmText={reconciling ? "Syncing..." : "Sync payments"}
+        onConfirm={handleReconcile}
       />
     </div>
   );

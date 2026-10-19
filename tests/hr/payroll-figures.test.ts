@@ -167,11 +167,14 @@ describe("computePayrollFigures edge cases", () => {
       toMinor(25000)
     );
 
-    // received = 5000 advance, priorEarned = 0; expenses are not netted in.
+    // received = 5000 advance, priorEarned = 0; expenses are not netted in
+    // (no deductExpenses opt-in).
     expect(fig.previousDebtMinor).toBe(toMinor(5000));
     expect(fig.netPayableMinor).toBe(toMinor(20000));
-    // Period total still reported for display.
-    expect(fig.periodExpensesMinor).toBe(toMinor(5000));
+    // Period total still reported for display — only expenses that actually
+    // hit the employee's balance count (deductFromWallet: false means the
+    // cost was borne by a company wallet, not the employee).
+    expect(fig.periodExpensesMinor).toBe(toMinor(3000));
   });
 
   it("only reports expenses inside the period", async () => {

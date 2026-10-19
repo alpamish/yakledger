@@ -33,7 +33,20 @@ export function formatMinor(
   minor: number | null | undefined,
   currency = "AFN"
 ): string {
-  const value = fromMinor(minor);
+  return formatMajor(fromMinor(minor), currency);
+}
+
+/**
+ * Format a major-unit amount (Float fields such as `Wallet.balance` and
+ * `WalletTransaction.amount`, where 1 AFN = 1 unit). Use this for any value
+ * that is already in major units — passing one to `formatMinor` would divide
+ * it by 100 and display it 100× too small.
+ */
+export function formatMajor(
+  amount: number | null | undefined,
+  currency = "AFN"
+): string {
+  const value = amount ?? 0;
   try {
     return new Intl.NumberFormat("en-US", {
       style: "currency",

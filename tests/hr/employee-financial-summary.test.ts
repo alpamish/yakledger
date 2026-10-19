@@ -1,6 +1,11 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { db } from "@/lib/db";
-import { getEmployeeFinancialSummary } from "@/services/hr.service";
+import {
+  getEmployeeFinancialSummary,
+  generatePayroll,
+  approvePayroll,
+  recordPayrollPayment,
+} from "@/services/hr.service";
 import { toMinor } from "@/lib/money";
 
 async function makeUser(role: string, email: string) {
@@ -178,5 +183,42 @@ describe("Employee financial summary", () => {
     expect(s.totalOvertimeHours).toBe(2);
     // hourly = (25000/30)/9 = 92.59; pay = 2 * 92.59 * 1.25 = 231.48
     expect(s.overtimePay).toBeCloseTo(231.48, 1);
+  });
+
+  it("reports payroll aggregates: approved, paid, outstanding and draft", async () => {
+    // Approving a payroll expects the account the balance recompute writes to.
+    await db.employeeCashAccount.create({ data: { employeeId: emp.id } });
+
+    // June: generated, approved, then paid 10,000 of 25,000.
+    const june = await generatePayroll({
+      employeeId: emp.id,
+      periodStart: new Date("2026-06-01"),
+      periodEnd: new Date("2026-06-30"),
+      createdById: user.id,
+    });
+    const approved = await approvePayroll(june.payroll.id, user.id);
+    expect(approved.lines[0].netPayMinor).toBe(toMinor(25000));
+    await recordPayrollPayment(approved.id, user.id, {
+      paymentMethod: "CASH",
+      amountMinor: toMinor(10000),
+    });
+
+    // July: still a draft (informational only).
+    await generatePayroll({
+      employeeId: emp.id,
+      periodStart: new Date("2026-07-01"),
+      periodEnd: new Date("2026-07-31"),
+      createdById: user.id,
+    });
+
+    const s = await getEmployeeFinancialSummary(emp.id);
+
+    // Formal payroll record, distinct from the attendance estimate above:
+    expect(s.payrollEarned).toBe(25000); // approved gross (June only)
+    expect(s.payrollPaid).toBe(10000); // cash settled through payroll
+    expect(s.payrollOutstanding).toBe(15000); // approved net - paid
+    expect(s.draftPayroll).toBe(25000); // July pending, never in totals
+    // payrollEarned = 25,000 (June only) proves the July draft is not counted
+    // as approved earnings.
   });
 });

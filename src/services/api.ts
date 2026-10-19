@@ -20,6 +20,9 @@ import type {
   AttendanceRecord,
   AttendanceSummary,
   AttendanceFilters,
+  AttendanceBulkEntry,
+  AttendanceBulkResult,
+  AttendanceDayResponse,
 } from "@/types/employee";
 import type {
   ApprovalsResponse,
@@ -347,8 +350,15 @@ export const expensesApi = {
 // ─── Employees API ────────────────────────────────────────────────────────────
 
 export const employeesApi = {
-  list: async (): Promise<ApiResponse<EmployeeListItem[]>> => {
-    return request<ApiResponse<EmployeeListItem[]>>("/employees/list");
+  list: async (params?: {
+    status?: string;
+    lite?: boolean;
+  }): Promise<ApiResponse<EmployeeListItem[]>> => {
+    const searchParams = new URLSearchParams();
+    if (params?.status) searchParams.set("status", params.status);
+    if (params?.lite) searchParams.set("lite", "1");
+    const qs = searchParams.toString();
+    return request<ApiResponse<EmployeeListItem[]>>(`/employees/list${qs ? `?${qs}` : ""}`);
   },
 };
 
@@ -455,14 +465,36 @@ export const attendanceApi = {
     return request<ApiResponse<{ data: AttendanceRecord[]; total: number }>>(`/attendance${qs ? `?${qs}` : ""}`);
   },
 
-  create: async (data: { employeeId: string; date: string; status: string; notes?: string; overtimeHours?: number; checkInTime?: string; checkOutTime?: string }): Promise<ApiResponse<AttendanceRecord>> => {
+  create: async (data: {
+    employeeId: string;
+    date: string;
+    status: string;
+    notes?: string | null;
+    overtimeHours?: number | null;
+    checkInTime?: string | null;
+    checkOutTime?: string | null;
+  }): Promise<ApiResponse<AttendanceRecord>> => {
     return mutate<ApiResponse<AttendanceRecord>>("/attendance", {
       method: "POST",
       body: JSON.stringify(data),
     }, "/attendance");
   },
 
-  update: async (id: string, data: { status?: string; notes?: string; overtimeHours?: number }): Promise<ApiResponse<AttendanceRecord>> => {
+  getDay: async (date: string): Promise<ApiResponse<AttendanceDayResponse>> => {
+    const searchParams = new URLSearchParams({ date });
+    return request<ApiResponse<AttendanceDayResponse>>(`/attendance/day?${searchParams.toString()}`);
+  },
+
+  update: async (
+    id: string,
+    data: {
+      status?: string;
+      notes?: string | null;
+      overtimeHours?: number | null;
+      checkInTime?: string | null;
+      checkOutTime?: string | null;
+    }
+  ): Promise<ApiResponse<AttendanceRecord>> => {
     return mutate<ApiResponse<AttendanceRecord>>(`/attendance/${id}`, {
       method: "PUT",
       body: JSON.stringify(data),
@@ -482,8 +514,8 @@ export const attendanceApi = {
     return request<ApiResponse<AttendanceSummary>>(`/attendance/summary?${searchParams.toString()}`);
   },
 
-  bulkCreate: async (data: { employeeId: string; date: string; status: string; notes?: string }[]): Promise<ApiResponse<{ count: number }>> => {
-    return mutate<ApiResponse<{ count: number }>>("/attendance/bulk", {
+  bulkCreate: async (data: AttendanceBulkEntry[]): Promise<ApiResponse<AttendanceBulkResult>> => {
+    return mutate<ApiResponse<AttendanceBulkResult>>("/attendance/bulk", {
       method: "POST",
       body: JSON.stringify({ records: data }),
     }, "/attendance");

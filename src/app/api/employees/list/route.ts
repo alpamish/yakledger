@@ -11,10 +11,29 @@ export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const statusParam = searchParams.get("status");
+    const lite = searchParams.get("lite") === "1";
 
     const where: Record<string, string> = {};
     if (statusParam && statusParam !== "ALL") {
       where.status = statusParam;
+    }
+
+    // Picker/roster payload: names only, no salary, ID or contract fields.
+    if (lite) {
+      const liteEmployees = await db.employee.findMany({
+        where: Object.keys(where).length > 0 ? where : undefined,
+        select: {
+          id: true,
+          fullName: true,
+          jobTitle: true,
+          department: true,
+          status: true,
+          workStartTime: true,
+          workEndTime: true,
+        },
+        orderBy: { fullName: "asc" },
+      });
+      return NextResponse.json({ success: true, data: liteEmployees });
     }
 
     const canViewSalary = await checkUserPermission(

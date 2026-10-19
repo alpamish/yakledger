@@ -2,6 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { requirePermission } from "@/lib/permissions";
 import { buildAccessScope } from "@/lib/access-control";
 import { db } from "@/lib/db";
+import {
+  parsePayrollQuery,
+  buildPayrollWhere,
+  buildPayrollOrderBy,
+} from "@/lib/payroll-filters";
 
 export async function GET(request: NextRequest) {
   const result = await requirePermission(request, "employees:payroll:view");
@@ -9,22 +14,19 @@ export async function GET(request: NextRequest) {
   const user = result.user;
 
   const { searchParams } = new URL(request.url);
-  const status = searchParams.get("status") || undefined;
-  const periodStart = searchParams.get("periodStart") || undefined;
-  const periodEnd = searchParams.get("periodEnd") || undefined;
+  const q = parsePayrollQuery(searchParams);
   const format = searchParams.get("format") || "csv";
 
   try {
     const scope = await buildAccessScope(user, "employee");
-    const scopedEmployeeIds = await db.employee
-      .findMany({ where: scope, select: { id: true } })
-      .then((rows) => rows.map((r) => r.id));
+    const employeeIds =
+      Object.keys(scope).length > 0
+        ? await db.employee
+            .findMany({ where: scope, select: { id: true } })
+            .then((rows) => rows.map((r) => r.id))
+        : undefined;
 
-    const where: Record<string, unknown> = {};
-    if (status) where.status = status;
-    if (periodStart) where.periodStart = { gte: new Date(periodStart) };
-    if (periodEnd) where.periodEnd = { lte: new Date(periodEnd) };
-    if (Object.keys(scope).length > 0) where.employeeId = { in: scopedEmployeeIds };
+    const where = buildPayrollWhere(q, { employeeIds });
 
     const rows = await db.payroll.findMany({
       where,
@@ -37,7 +39,7 @@ export async function GET(request: NextRequest) {
         approvedBy: { select: { id: true, name: true } },
         createdBy: { select: { id: true, name: true } },
       },
-      orderBy: { periodStart: "desc" },
+      orderBy: buildPayrollOrderBy(q),
     });
 
     if (format === "json") {

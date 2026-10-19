@@ -24,7 +24,7 @@ import { toast } from 'sonner';
 import { walletApi } from '@/services/wallet-api';
 import { reimbursementApi } from '@/services/reimbursement-api';
 import { PAYMENT_METHODS, PAYMENT_METHOD_LABELS, type Expense } from '@/types/expense';
-import { formatMinor } from '@/lib/money';
+import { formatMinor, formatMajor } from '@/lib/money';
 
 const REIMBURSABLE_METHODS = PAYMENT_METHODS.filter((m) =>
   ['CASH', 'BANK_TRANSFER', 'COMPANY_WALLET'].includes(m)
@@ -146,7 +146,7 @@ export function ReimburseDialog({
                   ) : (
                     wallets.map((w) => (
                       <SelectItem key={w.id} value={w.id}>
-                        {w.name} — {formatMinor(w.balance, w.currency)}
+                        {w.name} — {formatMajor(w.balance, w.currency)}
                       </SelectItem>
                     ))
                   )}

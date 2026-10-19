@@ -589,21 +589,21 @@ function ContractsTab({
       toast.error("Contract number and start date are required");
       return;
     }
-    if (!file) {
-      toast.error("Please upload the contract file");
-      return;
-    }
     setSaving(true);
     try {
-      const fd = new FormData();
-      fd.append("file", file);
-      const up = await fetch(`/api/employees/${employeeId}/contracts/upload`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${getToken()}` },
-        body: fd,
-      });
-      const upBody = await up.json();
-      if (!upBody.success) throw new Error(upBody.error || "Upload failed");
+      let fileUrl: string | null = null;
+      if (file) {
+        const fd = new FormData();
+        fd.append("file", file);
+        const up = await fetch(`/api/employees/${employeeId}/contracts/upload`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${getToken()}` },
+          body: fd,
+        });
+        const upBody = await up.json();
+        if (!upBody.success) throw new Error(upBody.error || "Upload failed");
+        fileUrl = upBody.data.fileUrl;
+      }
 
       await employeesApi.createContract(employeeId, {
         contractNumber: form.contractNumber,
@@ -614,7 +614,7 @@ function ContractsTab({
         department: form.department,
         salaryMinor: form.salaryMinor ? parseFloat(form.salaryMinor) : 0,
         status: form.status || "ACTIVE",
-        fileUrl: upBody.data.fileUrl,
+        fileUrl,
         notes: form.notes,
       });
       toast.success("Contract created");
@@ -764,7 +764,7 @@ function ContractsTab({
               </Select>
             </div>
             <div className="col-span-2">
-              <Label>Contract File *</Label>
+              <Label>Contract File</Label>
               <Input
                 key={fileKey}
                 type="file"
@@ -1272,6 +1272,14 @@ function PayrollTab({
               {rows.map((p) => {
                 const line = p.lines?.[0];
                 const prevDebt = line?.previousDebtMinor ?? 0;
+                // Payment state comes from the authoritative payroll figures,
+                // not the line-level marker, which can go stale.
+                const netPayMinor = Math.max(line?.netPayMinor ?? 0, 0);
+                const paidMinor = p.totalPaidMinor ?? 0;
+                const fullyPaid =
+                  p.status === "PAID" ||
+                  (netPayMinor > 0 && paidMinor >= netPayMinor);
+                const partiallyPaid = paidMinor > 0 && !fullyPaid;
                 return (
                   <TableRow key={p.id}>
                     <TableCell>
@@ -1295,11 +1303,22 @@ function PayrollTab({
                         : formatMinor(line.remainingEmployeeDebtMinor)}
                     </TableCell>
                     <TableCell>
-                      <Badge variant={p.status === "APPROVED" ? "default" : "secondary"}>
-                        {line?.paymentStatus === "PAID"
-                          ? `Paid${line.paymentMethod ? ` (${line.paymentMethod})` : ""}`
-                          : p.status}
-                      </Badge>
+                      {fullyPaid ? (
+                        <Badge variant="default">
+                          Paid
+                          {line?.paymentMethod ? ` (${line.paymentMethod})` : ""}
+                        </Badge>
+                      ) : partiallyPaid ? (
+                        <Badge variant="default">
+                          Partially paid — {formatMinor(paidMinor)} of{" "}
+                          {formatMinor(netPayMinor)}
+                        </Badge>
+                      ) : p.status === "APPROVED" ||
+                        p.status === "PARTIALLY_PAID" ? (
+                        <Badge variant="outline">Approved — unpaid</Badge>
+                      ) : (
+                        <Badge variant="secondary">{p.status}</Badge>
+                      )}
                     </TableCell>
                     <TableCell className="text-muted-foreground text-sm">
                       {p.wallet?.name ?? "—"}
@@ -1311,6 +1330,8 @@ function PayrollTab({
                           employeeId={employeeId}
                           status={p.status}
                           defaultWalletId={p.walletId}
+                          netPayMinor={line?.netPayMinor ?? 0}
+                          totalPaidMinor={p.totalPaidMinor ?? 0}
                           onChanged={onChanged}
                         />
                       </TableCell>

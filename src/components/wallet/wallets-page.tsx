@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { walletApi } from "@/services/wallet-api";
 import { employeesApi } from "@/services/api";
 import { getToken } from "@/services/api";
-import { formatMinor } from "@/lib/money";
+import { formatMinor, formatMajor } from "@/lib/money";
 import { toast } from "sonner";
 import {
   Card,
@@ -59,7 +59,7 @@ import { TransferToWalletDialog } from "@/components/cash-advance/transfer-to-wa
 import { Plus, Wallet, ArrowLeftRight, ArrowDownToLine, Pencil, Power, PiggyBank, Eye, ChevronLeft, ChevronRight, ChevronDown, Check, Loader2, X } from "lucide-react";
 
 function fmt(amount: number, currency = "AFN") {
-  return formatMinor(Math.round(amount * 100), currency);
+  return formatMajor(amount, currency);
 }
 
 function fmtDate(d?: string | null) {
@@ -388,6 +388,7 @@ const TX_TYPE_LABELS: Record<string, string> = {
   ADJUSTMENT: "Adjustment",
   PAYROLL: "Payroll payment",
   EXPENSE: "Expense payment",
+  ADVANCE: "Cash advance",
   REVERSAL: "Reversal",
   TRANSFER_OUT: "Transfer out",
   TRANSFER_IN: "Transfer in",

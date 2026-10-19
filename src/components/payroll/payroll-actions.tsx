@@ -29,7 +29,7 @@ import { ConfirmDialog } from "@/components/common/confirm-dialog";
 import { PayrollAllocationDialog } from "@/components/payroll/payroll-allocation-dialog";
 import { payrollApi } from "@/services/payroll-api";
 import { walletApi } from "@/services/wallet-api";
-import { formatMinor, toMinor } from "@/lib/money";
+import { formatMinor, formatMajor, toMinor } from "@/lib/money";
 import {
   PAYROLL_PAYMENT_METHODS,
   PAYROLL_PAYMENT_METHOD_LABELS,
@@ -89,6 +89,16 @@ export function PayrollActions({
     (status === "APPROVED" || status === "PARTIALLY_PAID") && remainingMinor > 0;
   const canRevert = status === "APPROVED" || status === "PARTIALLY_PAID";
 
+  // Balance is a major-unit Float; compare it in major units so the warning
+  // matches what the server actually deducts.
+  const selectedWallet = wallets.find((w) => w.id === walletId);
+  const requestedMajor = amount.trim() === "" ? remaining : parseFloat(amount);
+  const insufficientFunds =
+    paymentMethod === "COMPANY_WALLET" &&
+    !!selectedWallet &&
+    Number.isFinite(requestedMajor) &&
+    requestedMajor > selectedWallet.balance;
+
   useEffect(() => {
     if (payOpen) {
       setWalletId("");
@@ -101,7 +111,11 @@ export function PayrollActions({
           const ws: Wallet[] = res.data ?? [];
           setWallets(ws);
           if (defaultWalletId && ws.some((w) => w.id === defaultWalletId)) {
+            // The payroll was generated with an assigned wallet: default the
+            // payment to a company-wallet payment so the wallet is actually
+            // deducted (a CASH payment never touches any wallet).
             setWalletId(defaultWalletId);
+            setPaymentMethod("COMPANY_WALLET");
           }
         })
         .catch(() => setWallets([]));
@@ -146,18 +160,42 @@ export function PayrollActions({
       toast.error("Select the company wallet to pay from");
       return;
     }
+    if (insufficientFunds && selectedWallet) {
+      toast.error(
+        `Insufficient funds in "${selectedWallet.name}": needs ${formatMajor(requestedMajor, selectedWallet.currency)} but only ${formatMajor(selectedWallet.balance, selectedWallet.currency)} is available.`
+      );
+      return;
+    }
     setBusy(true);
     try {
-      await payrollApi.pay(payrollId, {
+      const res = await payrollApi.pay(payrollId, {
         amountMinor: parsed,
         paymentMethod,
         walletId: walletId || undefined,
         note: note || undefined,
       });
+      // The server settles open payrolls oldest period first; list every
+      // period the money touched so the cascade is visible to the user.
+      const settled: Array<{
+        periodStart: string;
+        periodEnd: string;
+        amountMinor: number;
+      }> = res.data?.settledPeriods ?? [];
+      const settledNote =
+        settled.length > 1
+          ? ` — settled ${settled
+              .map(
+                (s) =>
+                  `${new Date(s.periodStart).toLocaleDateString()}–${new Date(
+                    s.periodEnd
+                  ).toLocaleDateString()} (${formatMinor(s.amountMinor)})`
+              )
+              .join(", ")}`
+          : "";
       toast.success(
-        parsed === undefined
+        (parsed === undefined
           ? "Salary payment recorded"
-          : `Partial salary payment of ${formatMinor(parsed)} recorded`
+          : `Partial salary payment of ${formatMinor(parsed)} recorded`) + settledNote
       );
       setPayOpen(false);
       onChanged();
@@ -285,12 +323,20 @@ export function PayrollActions({
                       ) : (
                         wallets.map((w) => (
                           <SelectItem key={w.id} value={w.id}>
-                            {w.name} — {formatMinor(w.balance, w.currency)}
+                            {w.name} — {formatMajor(w.balance, w.currency)}
                           </SelectItem>
                         ))
                       )}
                     </SelectContent>
                   </Select>
+                  {insufficientFunds && selectedWallet && (
+                    <p className="mt-1 text-xs text-destructive">
+                      Insufficient funds: this payment needs{" "}
+                      {formatMajor(requestedMajor, selectedWallet.currency)} but the
+                      wallet only has{" "}
+                      {formatMajor(selectedWallet.balance, selectedWallet.currency)}.
+                    </p>
+                  )}
                 </div>
               )}
               <div>
@@ -306,7 +352,7 @@ export function PayrollActions({
               <Button variant="outline" onClick={() => setPayOpen(false)}>
                 Cancel
               </Button>
-              <Button onClick={handlePay} disabled={busy}>
+              <Button onClick={handlePay} disabled={busy || insufficientFunds}>
                 {busy ? "Saving..." : "Record Payment"}
               </Button>
             </DialogFooter>

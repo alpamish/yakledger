@@ -1,5 +1,6 @@
 import { db } from "@/lib/db";
 import { Prisma } from "@prisma/client";
+import { formatMajor } from "@/lib/money";
 
 /**
  * Company wallet service.
@@ -340,7 +341,7 @@ export const companyWalletService = {
     const currentBalance = agg._sum.amount ?? 0;
     if (currentBalance < amount) {
       throw new Error(
-        `Insufficient balance in wallet "${wallet.name}" (${currentBalance} ${wallet.currency}). Fund it before approving payroll.`
+        `Insufficient balance in wallet "${wallet.name}" (${formatMajor(currentBalance, wallet.currency)}). Fund it before approving payroll.`
       );
     }
     await apply(tx, walletId, "PAYROLL", -amount, createdBy, "Payroll salary payment", payrollId);
@@ -371,7 +372,7 @@ export const companyWalletService = {
     const currentBalance = agg._sum.amount ?? 0;
     if (currentBalance < amount) {
       throw new Error(
-        `Insufficient balance in wallet "${wallet.name}" (${currentBalance} ${wallet.currency}). Fund it before paying the advance.`
+        `Insufficient balance in wallet "${wallet.name}" (${formatMajor(currentBalance, wallet.currency)}). Fund it before paying the advance.`
       );
     }
     await apply(
@@ -454,7 +455,7 @@ export const companyWalletService = {
     const currentBalance = agg._sum.amount ?? 0;
     if (currentBalance < amount) {
       throw new Error(
-        `Insufficient balance in wallet "${wallet.name}" (${currentBalance} ${wallet.currency}). Fund it before deducting this expense.`
+        `Insufficient balance in wallet "${wallet.name}" (${formatMajor(currentBalance, wallet.currency)}). Fund it before deducting this expense.`
       );
     }
     await apply(tx, walletId, "EXPENSE", -amount, createdBy, note ?? "Expense payment", null, expenseId);

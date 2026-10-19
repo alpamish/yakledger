@@ -372,25 +372,34 @@ export default function MachineryReportsTab({
       XLSX.utils.book_append_sheet(wb, wsSummary, 'Summary');
 
       const monthlyRows: Array<{
+        'Plate Number': string;
         'Machinery Name': string;
         Month: string;
         Hours: number;
         'Work Days': string;
         'Price/Hour': number;
         'Total Price (AFN)': number;
+        'Receivable (AFN)': number;
       }> = [];
       for (const item of reportData) {
+        const totalHours = item.summary.totalHours;
         for (const m of item.monthlyWork) {
+          const monthReceivable = totalHours > 0
+            ? Math.round((m.totalHours / totalHours) * item.summary.totalReceivable * 100) / 100
+            : 0;
           monthlyRows.push({
+            'Plate Number': item.plateNumber ?? '—',
             'Machinery Name': item.machineryName,
             Month: m.monthLabel,
             Hours: m.totalHours,
             'Work Days': m.totalWorkDays != null ? String(m.totalWorkDays) : '—',
             'Price/Hour': m.pricePerHour,
             'Total Price (AFN)': m.totalPrice,
+            'Receivable (AFN)': monthReceivable,
           });
         }
       }
+      monthlyRows.sort((a, b) => a['Machinery Name'].localeCompare(b['Machinery Name']) || a['Month'].localeCompare(b['Month']));
       if (monthlyRows.length > 0) {
         const wsMonthly = XLSX.utils.json_to_sheet(monthlyRows);
         const monthlyColWidths = Object.keys(monthlyRows[0] || {}).map((key) => ({

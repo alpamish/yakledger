@@ -10,6 +10,12 @@ export const DEPARTMENTS = [
   "MACHINERY_TEAM",
   "LABOR",
   "KITCHEN",
+  "PROCUREMENT",
+  "SAFETY",
+  "SITE_MANAGEMENT",
+  "FLEET",
+  "QUALITY_CONTROL",
+  "HOUSEKEEPING",
 ] as const;
 
 export const EMPLOYMENT_TYPES = [
@@ -189,6 +195,12 @@ export const DEPARTMENT_LABELS: Record<Department, string> = {
   MACHINERY_TEAM: "Machinery Team",
   LABOR: "Labor",
   KITCHEN: "Kitchen",
+  PROCUREMENT: "Procurement",
+  SAFETY: "Safety",
+  SITE_MANAGEMENT: "Site Management",
+  FLEET: "Fleet",
+  QUALITY_CONTROL: "Quality Control",
+  HOUSEKEEPING: "Housekeeping",
 };
 
 export const EMPLOYMENT_TYPE_LABELS: Record<EmploymentType, string> = {
@@ -219,6 +231,12 @@ export const DEPARTMENT_COLORS: Record<Department, string> = {
   MACHINERY_TEAM: "#f97316",
   LABOR: "#14b8a6",
   KITCHEN: "#f43f5e",
+  PROCUREMENT: "#0ea5e9",
+  SAFETY: "#eab308",
+  SITE_MANAGEMENT: "#84cc16",
+  FLEET: "#78716c",
+  QUALITY_CONTROL: "#a855f7",
+  HOUSEKEEPING: "#d946ef",
 };
 
 export const EMPLOYEE_STATUS_COLORS: Record<EmployeeStatus, string> = {
@@ -307,6 +325,52 @@ export interface AttendanceRecord {
   approvalStatus?: import("@/types/expense").ApprovalStatus;
   approvalNote?: string | null;
   createdAt: string;
+  employee?: {
+    id: string;
+    fullName: string;
+    jobTitle?: string | null;
+    department?: string | null;
+  } | null;
+}
+
+export interface AttendanceDayEmployee {
+  id: string;
+  fullName: string;
+  jobTitle: string;
+  department: string;
+  workStartTime?: string | null;
+  workEndTime?: string | null;
+}
+
+export interface AttendanceDayRow {
+  employee: AttendanceDayEmployee;
+  record: AttendanceRecord | null;
+}
+
+export interface AttendanceDaySummary {
+  totalEmployees: number;
+  marked: number;
+  unmarked: number;
+  present: number;
+  absent: number;
+  halfDay: number;
+  leave: number;
+  holiday: number;
+  totalOvertimeHours: number;
+}
+
+export interface AttendanceDayResponse {
+  date: string;
+  summary: AttendanceDaySummary;
+  rows: AttendanceDayRow[];
+}
+
+export interface AttendanceBulkResult {
+  created: number;
+  updated: number;
+  duplicates: number;
+  total: number;
+  affectedPayrollEmployees: number;
 }
 
 export interface AttendanceSummary {
@@ -330,8 +394,12 @@ export interface AttendanceFilters {
   pageSize?: number;
 }
 
-export interface BulkAttendanceEntry {
+export interface AttendanceBulkEntry {
   employeeId: string;
+  date: string;
   status: AttendanceStatus;
-  notes?: string;
+  notes?: string | null;
+  overtimeHours?: number;
+  checkInTime?: string | null;
+  checkOutTime?: string | null;
 }

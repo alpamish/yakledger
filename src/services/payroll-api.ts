@@ -48,9 +48,46 @@ async function request<T>(
 
 export interface PayrollListParams {
   status?: string;
+  /** Coarse payment grouping: UNPAID | PARTIAL | PAID. */
+  paymentState?: string;
   search?: string;
+  periodStart?: string;
+  periodEnd?: string;
+  department?: string;
+  /** A wallet id, or "none" for payrolls with no wallet assigned. */
+  walletId?: string;
+  type?: string;
+  minNetMinor?: number;
+  maxNetMinor?: number;
+  /** period | employee | status */
+  sort?: string;
+  dir?: "asc" | "desc";
   page?: number;
   pageSize?: number;
+}
+
+/** Build the shared `?…` query string for the list and export endpoints. */
+export function buildPayrollQuery(params: PayrollListParams): string {
+  const qs = new URLSearchParams();
+  const set = (key: string, value: string | number | undefined) => {
+    if (value === undefined || value === null || value === "") return;
+    qs.set(key, String(value));
+  };
+  set("status", params.status);
+  set("paymentState", params.paymentState);
+  set("search", params.search);
+  set("periodStart", params.periodStart);
+  set("periodEnd", params.periodEnd);
+  set("department", params.department);
+  set("walletId", params.walletId);
+  set("type", params.type);
+  set("minNetMinor", params.minNetMinor);
+  set("maxNetMinor", params.maxNetMinor);
+  set("sort", params.sort);
+  set("dir", params.dir);
+  set("page", params.page);
+  set("pageSize", params.pageSize);
+  return qs.toString();
 }
 
 export interface PayrollGenerateBody {
@@ -120,21 +157,64 @@ export interface CreatePayrollAdjustmentBody {
   note?: string;
 }
 
+export interface PayrollReconcileChange {
+  payrollId: string;
+  employeeId: string;
+  employeeName: string;
+  periodStart: string;
+  periodEnd: string;
+  previousStatus: string;
+  nextStatus: string;
+  previousPaidMinor: number;
+  expensePaidMinor: number;
+  nextPaidMinor: number;
+  netPayMinor: number;
+  expenseCount: number;
+}
+
+export interface PayrollReconcileResult {
+  dryRun: boolean;
+  examined: number;
+  updated: number;
+  paid: number;
+  partiallyPaid: number;
+  skipped: number;
+  totalPaidMinorDelta: number;
+  changes: PayrollReconcileChange[];
+}
+
 export const payrollApi = {
   list: async (
     params: PayrollListParams = {}
   ): Promise<ApiResponse<any>> => {
-    const qs = new URLSearchParams();
-    if (params.status) qs.set("status", params.status);
-    if (params.search) qs.set("search", params.search);
-    if (params.page) qs.set("page", String(params.page));
-    if (params.pageSize) qs.set("pageSize", String(params.pageSize));
-    const q = qs.toString();
+    const q = buildPayrollQuery(params);
     return request(`/payroll${q ? `?${q}` : ""}`);
   },
 
+  // Reconcile settlement counters from approved SALARY expenses. Writes only
+  // Payroll.totalPaidMinor / Payroll.status / PayrollLine.paymentStatus.
+  reconcilePayments: async (
+    body: { dryRun?: boolean; payrollIds?: string[] } = {}
+  ): Promise<ApiResponse<PayrollReconcileResult>> =>
+    request("/payroll/reconcile-payments", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
   generate: async (body: PayrollGenerateBody): Promise<ApiResponse<any>> =>
     request("/payroll", { method: "POST", body: JSON.stringify(body) }),
+
+  // Outstanding employee-paid expenses in a period (for the Generate form).
+  periodExpenses: async (
+    employeeId: string,
+    periodStart: string,
+    periodEnd: string
+  ): Promise<
+    ApiResponse<{ totalMinor: number; total: number; count: number }>
+  > => {
+    const qs = new URLSearchParams({ employeeId, periodStart, periodEnd });
+    return request(`/payroll/period-expenses?${qs.toString()}`);
+  },
 
   // Outstanding unpaid salary liability for the dashboard.
   summary: async (): Promise<

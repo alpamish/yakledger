@@ -1,11 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { requirePermission } from "@/lib/permissions";
-import { buildAccessScope, withScope, resolveApprovalStatusOnEdit, APPROVED } from "@/lib/access-control";
-import { computeAttendanceHours, recalculatePayrollsForAttendance } from "@/services/hr.service";
+import { requireAnyPermission } from "@/lib/permissions";
+import {
+  buildAccessScope,
+  withScope,
+  resolveApprovalStatusOnEdit,
+  APPROVED,
+} from "@/lib/access-control";
+import {
+  computeAttendanceHours,
+  recalculatePayrollsForAttendance,
+} from "@/services/hr.service";
+import { formatDateOnly, toAttendanceInstant } from "@/lib/attendance-date";
 
 const ATTENDANCE_STATUSES = ["PRESENT", "ABSENT", "HALF_DAY", "LEAVE", "HOLIDAY"] as const;
 const VALID_STATUSES = new Set(ATTENDANCE_STATUSES);
+
+const EDIT_PERMISSIONS = ["employees:attendance:manage", "employees:edit"];
+const DELETE_PERMISSIONS = ["employees:attendance:manage", "employees:delete"];
 
 // PUT /api/attendance/[id] - Update attendance record
 export async function PUT(
@@ -13,7 +25,7 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const result = await requirePermission(request, "employees:edit");
+    const result = await requireAnyPermission(request, EDIT_PERMISSIONS);
     if ("status" in result) return result;
     const user = result.user;
 
@@ -40,7 +52,17 @@ export async function PUT(
 
     const existing = await db.attendance.findFirst({
       where: withScope({ id }, await buildAccessScope(user, "attendance")),
-      select: { approvalStatus: true, employeeId: true },
+      select: {
+        approvalStatus: true,
+        employeeId: true,
+        date: true,
+        status: true,
+        notes: true,
+        overtimeHours: true,
+        workedHours: true,
+        checkInTime: true,
+        checkOutTime: true,
+      },
     });
     if (!existing) {
       return NextResponse.json(
@@ -49,22 +71,62 @@ export async function PUT(
       );
     }
 
-    const explicitOt =
-      overtimeHours !== undefined && overtimeHours !== null ? Number(overtimeHours) : null;
-    const { workedHours, overtimeHours: computedOt } = await computeAttendanceHours(
-      existing.employeeId,
-      checkInTime ?? null,
-      checkOutTime ?? null,
-      explicitOt
-    );
+    const day = formatDateOnly(existing.date);
+
+    // Times can be cleared with null/""; omitted means "keep the stored value".
+    const nextCheckIn =
+      checkInTime === undefined
+        ? existing.checkInTime
+        : checkInTime
+          ? toAttendanceInstant(day, checkInTime)
+          : null;
+    const nextCheckOut =
+      checkOutTime === undefined
+        ? existing.checkOutTime
+        : checkOutTime
+          ? toAttendanceInstant(day, checkOutTime)
+          : null;
+    if (
+      (checkInTime !== undefined && checkInTime && !nextCheckIn) ||
+      (checkOutTime !== undefined && checkOutTime && !nextCheckOut)
+    ) {
+      return NextResponse.json(
+        { success: false, error: "checkInTime/checkOutTime must be HH:mm or a valid timestamp" },
+        { status: 400 }
+      );
+    }
 
     const updateData: Record<string, unknown> = {};
     if (status) updateData.status = status;
     if (notes !== undefined) updateData.notes = notes;
-    updateData.overtimeHours = computedOt;
-    updateData.workedHours = workedHours;
-    if (checkInTime !== undefined) updateData.checkInTime = checkInTime ? new Date(checkInTime) : null;
-    if (checkOutTime !== undefined) updateData.checkOutTime = checkOutTime ? new Date(checkOutTime) : null;
+
+    // Only touch the hour figures when the caller actually supplied hours or
+    // clock times — a status/notes-only edit must not wipe overtime.
+    const recomputeHours =
+      checkInTime !== undefined ||
+      checkOutTime !== undefined ||
+      overtimeHours !== undefined;
+
+    if (recomputeHours) {
+      const hasOt = overtimeHours !== undefined;
+      const explicitOt = hasOt
+        ? overtimeHours === null
+          ? null
+          : Number(overtimeHours)
+        : null;
+      const { workedHours, overtimeHours: computedOt } = await computeAttendanceHours(
+        existing.employeeId,
+        nextCheckIn,
+        nextCheckOut,
+        explicitOt
+      );
+      // Overtime is only overwritten when the caller supplied it; changing the
+      // clock times alone keeps the manually entered OT.
+      updateData.overtimeHours = hasOt ? computedOt : existing.overtimeHours;
+      updateData.workedHours = workedHours;
+      if (checkInTime !== undefined) updateData.checkInTime = nextCheckIn;
+      if (checkOutTime !== undefined) updateData.checkOutTime = nextCheckOut;
+    }
 
     const approvalStatus = resolveApprovalStatusOnEdit(user, existing.approvalStatus);
     updateData.approvalStatus = approvalStatus;
@@ -106,7 +168,7 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const result = await requirePermission(request, "employees:delete");
+    const result = await requireAnyPermission(request, DELETE_PERMISSIONS);
     if ("status" in result) return result;
     const user = result.user;
 

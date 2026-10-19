@@ -4,6 +4,11 @@ import { buildAccessScope, withScope } from "@/lib/access-control";
 import { db } from "@/lib/db";
 import { toMinor } from "@/lib/money";
 import {
+  parsePayrollQuery,
+  buildPayrollWhere,
+  buildPayrollOrderBy,
+} from "@/lib/payroll-filters";
+import {
   generatePayroll,
   approvePayroll,
 } from "@/services/hr.service";
@@ -16,8 +21,7 @@ export async function GET(request: NextRequest) {
 
   try {
     const { searchParams } = new URL(request.url);
-    const status = searchParams.get("status") || undefined;
-    const search = searchParams.get("search") || undefined;
+    const q = parsePayrollQuery(searchParams);
     const page = Math.max(1, parseInt(searchParams.get("page") || "1"));
     const pageSize = Math.min(
       100,
@@ -25,67 +29,89 @@ export async function GET(request: NextRequest) {
     );
 
     const scope = await buildAccessScope(user, "employee");
-    const scopedEmployeeIds = await db.employee
-      .findMany({ where: scope, select: { id: true } })
-      .then((rows) => rows.map((r) => r.id));
+    const employeeIds =
+      Object.keys(scope).length > 0
+        ? await db.employee
+            .findMany({ where: scope, select: { id: true } })
+            .then((rows) => rows.map((r) => r.id))
+        : undefined;
 
-    const where: any = {};
-    if (status) where.status = status;
-    if (search) {
-      where.employee = {
-        OR: [
-          { fullName: { contains: search } },
-          { employeeNumber: { contains: search } },
-        ],
-      };
-    }
-    if (scopedEmployeeIds.length || Object.keys(scope).length === 0) {
-      // If scope restricts, limit to accessible employees
-      if (Object.keys(scope).length > 0) where.employeeId = { in: scopedEmployeeIds };
-    }
+    const where = buildPayrollWhere(q, { employeeIds });
 
-    const [rows, total] = await Promise.all([
-      db.payroll.findMany({
-        where,
-        include: {
-          employee: { select: { id: true, fullName: true, employeeNumber: true } },
-          lines: true,
-          wallet: { select: { id: true, name: true, currency: true } },
-          createdBy: { select: { id: true, name: true } },
-          approvedBy: { select: { id: true, name: true } },
-        },
-        orderBy: { periodStart: "desc" },
-        skip: (page - 1) * pageSize,
-        take: pageSize,
-      }),
-      db.payroll.count({ where }),
-    ]);
+    const [rows, total, lineAgg, paidLines, totalLines, settlementRows] =
+      await Promise.all([
+        db.payroll.findMany({
+          where,
+          include: {
+            employee: { select: { id: true, fullName: true, employeeNumber: true } },
+            lines: true,
+            wallet: { select: { id: true, name: true, currency: true } },
+            createdBy: { select: { id: true, name: true } },
+            approvedBy: { select: { id: true, name: true } },
+          },
+          orderBy: buildPayrollOrderBy(q),
+          skip: (page - 1) * pageSize,
+          take: pageSize,
+        }),
+        db.payroll.count({ where }),
+        // Totals cover the whole filtered set, not just the current page.
+        db.payrollLine.aggregate({
+          _sum: {
+            grossPayMinor: true,
+            expensesPaidMinor: true,
+            amountAlreadyReceivedMinor: true,
+            previousDebtMinor: true,
+            netPayableMinor: true,
+            netPayMinor: true,
+            remainingEmployeeDebtMinor: true,
+          },
+          where: { payroll: where },
+        }),
+        db.payrollLine.count({ where: { payroll: where, paymentStatus: "PAID" } }),
+        db.payrollLine.count({ where: { payroll: where } }),
+        // Minimal projection so we can total what has actually been paid and
+        // the salary still outstanding per payroll (Prisma can't express the
+        // per-row `max(netPay − paid, 0)` in an aggregate).
+        db.payroll.findMany({
+          where,
+          select: {
+            status: true,
+            totalPaidMinor: true,
+            lines: { select: { netPayMinor: true } },
+          },
+        }),
+      ]);
 
-    const summary = rows.reduce(
-      (acc, p) => {
-        for (const l of p.lines ?? []) {
-          acc.totalGrossMinor += l.grossPayMinor ?? 0;
-          acc.totalAlreadyReceivedMinor += l.amountAlreadyReceivedMinor ?? 0;
-          acc.totalPreviousDebtMinor += l.previousDebtMinor ?? 0;
-          acc.totalNetPayableMinor += l.netPayableMinor ?? 0;
-          acc.totalRemainingDebtMinor += l.remainingEmployeeDebtMinor ?? 0;
-          acc.totalExpensesMinor += l.expensesPaidMinor ?? 0;
-          if (l.paymentStatus === "PAID") acc.paidLines += 1;
-          else acc.unpaidLines += 1; // UNPAID and PARTIALLY_PAID both still owe
-        }
-        return acc;
-      },
-      {
-        totalGrossMinor: 0,
-        totalAlreadyReceivedMinor: 0,
-        totalPreviousDebtMinor: 0,
-        totalNetPayableMinor: 0,
-        totalRemainingDebtMinor: 0,
-        totalExpensesMinor: 0,
-        paidLines: 0,
-        unpaidLines: 0,
-      }
+    // Payrolls that have been approved (fully or partially paid) can still owe
+    // salary; drafts are not yet a liability.
+    const outstandingStatuses = new Set(["APPROVED", "PARTIALLY_PAID"]);
+    const totalPaidMinor = settlementRows.reduce(
+      (sum, p) => sum + (p.totalPaidMinor ?? 0),
+      0
     );
+    const totalOutstandingMinor = settlementRows.reduce((sum, p) => {
+      if (!outstandingStatuses.has(p.status)) return sum;
+      const netPay = p.lines?.reduce((s, l) => s + (l.netPayMinor ?? 0), 0) ?? 0;
+      return sum + Math.max(netPay - (p.totalPaidMinor ?? 0), 0);
+    }, 0);
+
+    const summary = {
+      totalGrossMinor: lineAgg._sum.grossPayMinor ?? 0,
+      totalAlreadyReceivedMinor: lineAgg._sum.amountAlreadyReceivedMinor ?? 0,
+      totalPreviousDebtMinor: lineAgg._sum.previousDebtMinor ?? 0,
+      totalNetPayableMinor: lineAgg._sum.netPayableMinor ?? 0,
+      // Amount actually payable to employees (floored per payroll at 0).
+      totalPayableMinor: lineAgg._sum.netPayMinor ?? 0,
+      // Everything the company has paid against the filtered set.
+      totalPaidMinor,
+      // Unpaid salary on approved / partially paid payrolls.
+      totalOutstandingMinor,
+      totalRemainingDebtMinor: lineAgg._sum.remainingEmployeeDebtMinor ?? 0,
+      totalExpensesMinor: lineAgg._sum.expensesPaidMinor ?? 0,
+      paidLines,
+      // UNPAID and PARTIALLY_PAID both still owe.
+      unpaidLines: Math.max(totalLines - paidLines, 0),
+    };
 
     return NextResponse.json({
       success: true,

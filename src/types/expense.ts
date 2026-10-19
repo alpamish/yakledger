@@ -341,6 +341,9 @@ export interface EmployeeListItem {
   fullName: string;
   jobTitle: string;
   department: string;
+  status?: string;
+  workStartTime?: string | null;
+  workEndTime?: string | null;
 }
 
 // ─── Cash Advance / Wallet Types ─────────────────────────────────────────────
